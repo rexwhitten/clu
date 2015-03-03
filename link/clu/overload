@@ -1,0 +1,55 @@
+%% Copyright Massachusetts Institute of Technology 1985, 1989
+
+Overload = proc (Line: string, Env: lnk_env)
+	     signals (error(string), done);
+    Set_Working_Dir("");
+    Frk: _job := Env.Mach_Dependent.Sub_Fork;
+    Parse_Start: time := Run_Time();
+    In_Files: fnames,
+    Out_File: fname,
+    Optns: options := Get_Files(Line);
+       except when Error (S: string):
+		   out_link_chan$Close(			%% Force "done" out.
+		       out_link_chan$Re_Open(Env.Mach_Dependent.To_Pipe,
+					     Env.Locates,
+					     Env.Options.Pipe_File_Name));
+		   signal Error(S);
+	      end;
+    if (fnames$Empty(In_Files) cand
+	(string$IndexC('^', Line) ~= 0) cand
+	Optns.Output_to_File)
+       then out_link_chan$Close(			%% Force "done" out.
+		out_link_chan$Re_Open(Env.Mach_Dependent.To_Pipe,
+				      Env.Locates,
+				      Env.Options.Pipe_File_Name));
+	    signal Error("Output to file illegal.");
+       end;
+    if (~ fnames$Empty(In_Files))
+       then lnk_env$Reset(Env);
+	    Env.Files := file_list$Predict(1, fnames$Size(In_Files));
+	    Env.Times.Parse.Start := Parse_Start;
+	    Env.Times.Parse.Stop  := Run_Time();
+	    Env.Output := out_link_chan$Re_Open(Env.Mach_Dependent.To_Pipe,
+						Env.Locates,
+						Env.Options.Pipe_File_Name);
+	    File_Linker(In_Files, Env)
+	       except when Cant_Open (Fn: fname, S: string):
+			   exit Error("Can\'t open " || fname$Unparse(Fn) ||
+				      "\n    " || S);
+		      when Cant_Load (Fn: fname):
+			   exit Error("Can\'t load " || fname$Unparse(Fn));
+		      when Not_Found (Mn_Rtn: string):
+			   exit Error("Can\'t find " || Mn_Rtn);
+		      end;
+	    Set_Working_Dir("");
+
+	    if (Env.Options.Do_Type_Times)
+	       then Typeout_Times(Env.Times, Env.Options.List_Stream);
+	       end;
+
+       end;
+       except when Error (S: string):
+		   out_link_chan$Close(Env.Output);
+		   signal Error(S);
+	      end;
+    end Overload;

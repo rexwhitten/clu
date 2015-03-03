@@ -1,0 +1,10 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+Fixup_In_File_Spec = proc (Fs: file_spec) returns (file_spec, bool);
+    own Rel_Ext: string := mach_constants$Rel_Ext();
+    No_Suffix: bool := string$Empty(Fs.Suffix) cand string$Empty(Fs.Other);
+    if (No_Suffix cor ((Fs.Suffix = "*") cand string$Empty(Fs.Other)))
+       then Fs := UNIX_File_Spec(Fs.Dir, Fs.Name, Rel_Ext);
+       end;
+    return (Fs, No_Suffix);
+    end Fixup_In_File_Spec;

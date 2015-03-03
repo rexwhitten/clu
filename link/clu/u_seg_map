@@ -1,0 +1,6 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+Update_Seg_Map = proc (Env: lnk_env);
+	Loc: locate := Env.Locates.Seg_Map;
+	locate$Advance(Loc, locates$Number(Env.Locates) + 1);	%% +1 for chain.
+	end Update_Seg_Map;

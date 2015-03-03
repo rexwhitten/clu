@@ -1,0 +1,65 @@
+; Copyright Massachusetts Institute of Technology 1985, 1989
+
+get_argv = qproc () returns (sequence[string])
+	own	argv
+	ifne	move	argv,n1				; got it already?
+	then	return(n1)
+	end
+	movea	environ,r1
+	ifeq	tst	wrpipe				; debugger?
+		bne	this
+		move	(r1),n3				; or empty?
+		subq	1,n3
+	then	lea	[],rr				; yes
+		move	rr,argv
+		return(rr)
+	end
+	move	(r1),n2					; get size
+	asl	2,n2
+	movea	heaphi,rr				; alloc
+	iflt	sub	n2,freecnt
+	then	jsr	memout
+	end
+	add	n2,heaphi
+	lea	4(r1,n2),r1
+	subq	2,n2
+	move	n2,(rr)					; store header
+	move	n2,n4
+	subq	2,n4
+	movea	rr,r3
+	qloop
+		ifeq	move	(r1),n3
+		then	move	4(r1),n3
+		end
+		sub	-(r1),n3			; get size
+		ifeq	subq	1,n3
+		then	lea	"",rr
+		else	move	n3,n2
+			addq	7,n2
+			andib	-4,n2
+			movea	heaphi,rr		; alloc
+			iflt	sub	n2,freecnt
+			then	jsr	memout
+			end
+			add	n2,heaphi
+			move	n3,n2
+			add	n2,n2
+			addq	1,n2
+			move	n2,(rr)			; store header
+			lea	4(rr),r2
+			subq	1,n3
+			movea	(r1),r4
+			qloop
+				moveb	(r4)+,(r2)+	; copy bytes
+				dbra	n3,this
+			end
+			suba	r2,r2
+			suba	r4,r4
+		end
+		move	rr,(r3,n4)			; store string
+		subq	4,n4
+		bgt	this
+	end
+	move	r3,argv
+	return(r3)
+	end get_argv

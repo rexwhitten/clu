@@ -1,0 +1,5 @@
+%% Copyright Massachusetts Institute of Technology 1980, 1989
+
+Sig_Hasher = proc (Sg: sig, Size: int) returns (int);
+	return (int$Mod((Hash(Sg.Name, Size) + Sg.Num_Args), Size));
+	end Sig_Hasher;

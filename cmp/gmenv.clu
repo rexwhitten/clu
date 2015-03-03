@@ -1,0 +1,406 @@
+%	GMENV CLU
+% Copyright Massachusetts Institute of Technology 1980, 1989
+%	CLU Compiler Version 3: machine code environment
+
+# extend
+
+g_menv = cluster is create,		% stream, file_name -> g_menv
+		    reset,		% g_menv, stream, file_name ->
+		    end_all,		% g_menv, g_tenv ->
+		    is_err,		% g_menv -> bool
+		    reset_err,		% g_menv -> 
+		    set_compact,	% g_menv, bool ->
+		    get_compact,	% g_menv -> bool
+		    begin_vars,		% g_menv ->
+		    alloc_var,		% g_menv -> int
+		    init_var,		% g_menv, idn, bool -> locate
+		    get_var_pos,	% g_menv -> int
+		    end_vars,		% g_menv ->
+		    get_min_pos,	% g_menv -> int
+		    end_routine,	% g_menv -> int, int
+		    begin_state,	% g_menv, bool -> reglist
+		    get_state,		% g_menv -> reglist
+		    end_state,		% g_menv ->
+		    add_xinst,		% g_menv, int, int ->
+		    add_ainst,		% g_menv, int, int, int ->
+		    add_binst,		% g_menv, int -> int
+		    add_minst,		% g_menv, int, int, int ->
+		    add_immed,		% g_menv, int ->
+		    add_pcrel,		% g_menv -> int
+		    add_udesc,		% g_menv, int ->
+		    next_loc,		% g_menv -> int
+		    goto,		% g_menv, int ->
+		    store_offset,	% g_menv, int, int ->
+		    store_value,	% g_menv, int, int ->
+		    add_handler,	% g_menv ->
+		    add_except_val,	% g_menv, int ->
+		    remove		% g_menv, int, int ->
+
+rep        = record[cdchan:	 cdchan,	% code chan
+		    cfn:	 file_name,
+		    errst:	 stream,	% error stream
+		    err:         bool,		% true => error
+		    compact:	 bool,		% true => pack vars in frame
+		    vars:	 ai,		% pushed var blocks
+		    var_pos:	 int,		% offset of current var/temp
+		    min_pos:	 int,		% offset of min var/temp
+		    state:       reglist,	% register states
+		    cur_state:   int,		% index into state stack
+		    states:	 statelist,	% pushed states
+		    code:	 ai,		% code for current routine
+		    rels:        ai,		% PC offset indexes
+		    uses:        ai,		% use offset indexes
+		    eblock:      ai]		% exception block
+
+cdchan	   = code_chan
+statelist  = array[reglist]
+
+create = proc (errst: stream, binfn: file_name) returns (cvt)
+	cfn: file_name := file_name$create(binfn.dir, binfn.name,
+					   code_temp(), "")
+	cdch: cdchan
+	cfn, cdch := cdchan$open(cfn)
+	regs: reglist := reglist$fill(_datad_N1, _addrd_PP, locate$make_a(nil))
+	e: rep := rep${cdchan:      cdch,
+		       cfn:	    cfn,
+		       errst:       errst,
+		       err:         false,
+		       compact:	    false,
+		       vars:	    ai$predict(1, 30),
+		       var_pos:     0,
+		       min_pos:     0,
+		       state:	    regs,
+		       cur_state:   0,
+		       states:      statelist$fill_copy(0, 16, regs),
+		       code:        ai$predict(0, 300),
+		       rels:	    ai$predict(1, 60),
+		       uses:	    ai$predict(1, 60),
+		       eblock:      ai$predict(1, 30)}
+	ai$addh(e.eblock, 0)
+	return(e)
+	end create
+
+reset = proc (e: cvt, errst: stream, binfn: file_name)
+	e.errst := errst
+	e.err := false
+	cdchan$close(e.cdchan)
+	    except when not_possible (*): end
+	cfn: file_name := file_name$create(binfn.dir, binfn.name,
+					   code_temp(), "")
+	delete_file(cfn)
+	   except when not_possible (*): end
+	cdch: cdchan
+	cfn, cdch := cdchan$open(cfn)
+	   except when not_possible (*):
+			  e.err := true
+			  stream$putl(errst, "could not open code file")
+			      except when not_possible (*): end
+			  cfn := file_name$parse(nul_dev())
+			  cfn, cdch := cdchan$open(cfn)
+		  end
+	e.cdchan := cdch
+	e.cfn := cfn
+	e.compact := false
+	ai$trim(e.vars, 1, 0)
+	e.var_pos := 0
+	e.min_pos := 0
+	e.cur_state := 0
+	statelist$trim(e.states, 0, 16)
+	ai$trim(e.code, 0, 0)
+	ai$trim(e.rels, 1, 0)
+	ai$trim(e.eblock, 1, 0)
+	ai$addh(e.eblock, 0)
+	end reset
+
+end_all = proc (e: cvt, te: g_tenv)
+	g_tenv$end_all(te, e.cdchan)
+	cdchan$close(e.cdchan)
+	    except when not_possible (why: str):
+			 e.err := true
+			 begin
+			 stream$puts(e.errst, "output failure: ")
+			 stream$putl(e.errst, why)
+			 end except when not_possible (*): end
+		   end
+	if e.cfn.dir ~= "/dev"
+	   then delete_expunge(e.cfn)
+	   end except when not_possible (*): end
+	end end_all
+
+is_err = proc (e: cvt) returns (bool)
+	return(e.err)
+	end is_err
+
+reset_err = proc (e: cvt)
+	e.err := false
+	end reset_err
+
+set_compact = proc (e: cvt, flag: bool)
+	e.compact := flag
+	end set_compact
+
+get_compact = proc (e: cvt) returns (bool)
+	return(e.compact)
+	end get_compact
+
+begin_vars = proc (e: cvt)
+	ai$addh(e.vars, e.var_pos)
+	end begin_vars
+
+alloc_var = proc (e: cvt) returns (int)
+	e.var_pos := e.var_pos - 4
+	if e.var_pos < e.min_pos
+	   then e.min_pos := e.var_pos end
+	return(e.var_pos)
+	end alloc_var
+
+init_var = proc (e: cvt, id: idn) returns (locate)
+	val: locate
+	if e.compact
+	   then e.var_pos := e.var_pos - 4
+		if e.var_pos < e.min_pos
+		   then e.min_pos := e.var_pos end
+		id.val := locate$make_var(e.var_pos)
+	   end
+	return(id.val)
+	end init_var
+
+get_var_pos = proc (e: cvt) returns (int)
+	return(e.var_pos)
+	end get_var_pos
+
+end_vars = proc (e: cvt)
+	e.var_pos := ai$remh(e.vars)
+	end end_vars
+
+get_min_pos = proc (e: cvt) returns (int)
+	return(e.min_pos)
+	end get_min_pos
+
+end_routine = proc (e: cvt) returns (int, int)
+	fixup_rels(e)
+	code: ai := e.code
+	uses: ai := e.uses
+	base: int := ai$reml(uses)
+	   except when bounds: base := 0 end
+	prev: int := base
+	for i: int in ai$elements(uses) do
+		code[prev] := (i - prev) * 2
+		prev := i
+		end
+	eblock: ai := e.eblock
+	z: int := ai$size(eblock)
+	i: int := 2
+	while i < z do
+		eblock[i] := eblock[i] * 2
+		i := i + 1
+		eblock[i] := eblock[i] * 2
+		i := i + 1
+		eblock[i] := eblock[i] * 2
+		i := i + eblock[i + 1] + 2
+		end
+	codoff: int := cdchan$write(e.cdchan, base * 2, code, eblock)
+	codsiz: int := ai$size(code) * 2
+	ai$trim(e.code, 0, 0)
+	ai$trim(e.rels, 1, 0)
+	uses.low := 1
+	ai$trim(uses, 1, 0)
+	ai$trim(eblock, 1, 0)
+	ai$addh(eblock, 0)
+	e.min_pos := 0
+	return(codoff, codsiz)
+	end end_routine
+
+begin_state = proc (e: cvt, nul: bool) returns (reglist)
+	e.cur_state := e.cur_state + 1
+	nregs: reglist
+	begin
+	nregs := e.states[e.cur_state]
+	if nul
+	   then for reg: int in int$from_to_by(_addrd_PP, _datad_N1, -1) do
+			nregs[reg] := locate$make_a(nil)
+			end
+	   else oregs: reglist := e.state
+		for reg: int in int$from_to_by(_addrd_PP, _datad_N1, -1) do
+			nregs[reg] := oregs[reg]
+			end
+	   end
+	end except when bounds:
+			 if nul
+			    then nregs := reglist$fill(_datad_N1, _addrd_PP,
+						       locate$make_a(nil))
+			    else nregs := reglist$copy1(e.state)
+			    end
+			 statelist$addh(e.states, nregs)
+		   end
+	e.state := nregs
+	return(nregs)
+	end begin_state
+
+get_state = proc (e: cvt) returns (reglist)
+	return(e.state)
+	end get_state
+
+end_state = proc (e: cvt)
+	e.cur_state := e.cur_state - 1
+	e.state := e.states[e.cur_state]
+	end end_state
+
+add_xinst = proc (e: cvt, op, dst: int)
+	ai$addh(e.code, op + dst)
+	end add_xinst
+
+add_ainst = proc (e: cvt, op, dst, src: int)
+	ai$addh(e.code, op + dst * 01000 + src)
+	end add_ainst
+
+add_binst = proc (e: cvt, op: int) returns (int)
+	ai$addh(e.code, op)
+	loc: int := ai$size(e.code)
+	ai$addh(e.code, 0)
+	ai$addh(e.rels, loc)
+	return(loc)
+	end add_binst
+
+add_minst = proc (e: cvt, op, dst, src: int)
+	ai$addh(e.code, op + dst * 0100 + src)
+	end add_minst
+
+add_immed = proc (e: cvt, val: int)
+	ai$addh(e.code, val // 0200000)
+	end add_immed
+
+add_pcrel = proc (e: cvt) returns (int)
+	loc: int := ai$size(e.code)
+	ai$addh(e.code, 0)
+	ai$addh(e.rels, loc)
+	return(loc)
+	end add_pcrel
+
+add_udesc = proc (e: cvt, disp: int)
+	ai$addh(e.uses, ai$size(e.code))
+	ai$addh(e.code, 0)
+	ai$addh(e.code, disp)
+	end add_udesc
+
+next_loc = proc (e: cvt) returns (int)
+	return(ai$size(e.code))
+	end next_loc
+
+goto = proc (e: cvt, loc: int)
+	e.code[loc] := 2 * (ai$size(e.code) - loc)
+	end goto
+
+store_offset = proc (e: cvt, loc, disp: int)
+	e.code[loc] := 2 * (disp - loc)
+	end store_offset
+
+store_value = proc (e: cvt, loc, val: int)
+	e.code[loc] := val // 0200000
+	end store_value
+
+add_handler = proc (e: cvt)
+	e.eblock[1] := ai$bottom(e.eblock) + 1
+	end add_handler
+
+add_except_val = proc (e: cvt, val: int)
+	ai$addh(e.eblock, val)
+	end add_except_val
+
+remove = proc (e: cvt, start, diff: int)
+	vi = _vec[int]
+	di = _adv[int]
+	code: ai := e.code
+	stop: int := start + diff
+	_event$defer()
+	s: int := _cvt[ai, di](code).start + start
+	if start = 0
+	   then _cvt[ai, di](code).start := s + diff
+	   else i: int := ai$size(code) - stop
+		if i > 0
+		   then v: vi := _cvt[ai, di](code).vector
+			vi$move_lr(v, s + diff, v, s, i)
+		   end
+		_cvt[ai, di](code).size := ai$size(code) - diff
+	   end
+	_event$undefer()
+	rels: ai := e.rels
+	for i: int in ai$indexes(rels) do
+		rel: int := rels[i]
+		if rel < 0
+		   then rel := -rel
+			if rel >= stop
+			   then rel := rel - diff
+				rels[i] := -rel
+				val: int := code[rel]
+				disp: int := val // 0400
+				if disp >= 0200  cand
+				   rel + (disp / 2) - 0177 < start
+				   then code[rel] := val + 2 * diff end
+			elseif rel < start
+			   then val: int := code[rel]
+				disp: int := val // 0400
+				if disp < 0200  cand  rel + (disp / 2) >= start
+				   then code[rel] := val - 2 * diff end
+			end
+		elseif rel >= stop
+		   then rel := rel - diff
+			rels[i] := rel
+			val: int := code[rel]
+			if val < 0  cand  rel + (val / 2) < start
+			   then code[rel] := val + 2 * diff end
+		elseif rel < start
+		   then val: int := code[rel]
+			if val > 0  cand  rel + (val / 2) >= stop
+			   then code[rel] := val - 2 * diff end
+		end
+		end
+	uses: ai := e.uses
+	for i: int in ai$indexes(uses) do
+		if uses[i] >= stop
+		   then uses[i] := uses[i] - diff end
+		end
+	eblock: ai := e.eblock
+	z: int := ai$size(eblock)
+	i: int := 2
+	while i < z do
+		edisp: int := eblock[i]
+		if edisp >= stop
+		   then eblock[i] := edisp - diff
+		elseif edisp + eblock[i + 1] >= stop
+		   then eblock[i + 1] := eblock[i + 1] - diff end
+		edisp := eblock[i + 2]
+		if edisp >= stop
+		   then eblock[i + 2] := edisp - diff end
+		i := i + eblock[i + 3] + 4
+		end
+	end remove
+
+fixup_rels = proc (e: rep)
+	rels: ai := e.rels
+	code: ai := e.code
+	changed: bool := true
+	while changed do
+		changed := false
+		for i: int in ai$indexes(rels) do
+			rel: int := rels[i]
+			if rel < 0
+			   then continue end
+			disp: int := code[rel]
+			if disp < -0200  cor  disp > 0201  cor  disp = 2
+			   then continue end
+			inst: int := code[rel - 1]
+			if inst < BRA  cor  inst > BLE
+			   then continue end
+			changed := true
+			remove(up(e), rel, 1)
+			rel := rel - 1
+			if disp > 0
+			   then disp := disp - 2 end
+			code[rel] := inst + disp // 0400
+			rels[i] := -rel
+			end
+		end
+	end fixup_rels
+
+end g_menv

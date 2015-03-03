@@ -1,0 +1,18 @@
+%% Copyright Massachusetts Institute of Technology 1985, 1989
+
+
+Dump_Env = proc (Env: lnk_env) returns (file_name);
+    while (true) do
+	return (lnk_env$Dump(Env));
+	   except when Not_Possible(S: string):
+		       stream$PutL(stream$Primary_Output(),
+				   "Can't dump debug environment: " || S);
+		       if (Ask("Should I try again?"))
+			  then continue;
+			  end;
+			  except when End_of_File:
+				 end;
+		  end;
+	break;
+	end;
+    end Dump_Env;

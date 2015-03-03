@@ -1,0 +1,33 @@
+; Copyright Massachusetts Institute of Technology 1982, 1989
+;; Eliminate _rtn_info whose index is  i from the given _rtn_info table t by
+;; shifting all elements after i down by 1 and adjusting the size recorded
+;; in the header. Also shift down the "next table" pointer which follows
+;; the sequence.
+
+_rtn_info_zap = proc (t: tab, i: int)
+	tab = sequence[_rtn_info]
+
+	movea	t, r1
+	adda	rr, rr			;; Index of _rtn_info (* 4  + 2)
+	move	(r1), n1		;; Size of table * 4 + 2
+	subq	4, (r1)			;; New size (after clobbering 1 elt).
+	sub	rr, n1			;; Number of elements 
+	asr	2, n1			;;   to be moved.
+	lea	-2(r1, rr), r1		;; addr in seq. of _rtn_info to be 
+					;; clobbered.
+	movea	r1, r2
+	addq	4, r2			;; addr in seq. of following elt.
+
+	;; Loop <#elements after i> + 1 times to include "next table" pointer
+	;; at end of sequence.
+	loop	move	(r2)+, (r1)+	;; shift one elt. down.
+		dbra	n1, this
+		swap	n1		;; In case there are >= 2**16 elts.
+		subqw	1, n1
+		blt	next
+		swap	n1
+		end
+
+	movea	n0, r1			;; Make r1, r2 valid refs.
+	movea	n0, r2
+	end _rtn_info_zap

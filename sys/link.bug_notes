@@ -1,0 +1,56 @@
+28 January 1986 14:53:43 Bug Note: sharon:
+  unhandled exception: illegal_signal
+28 January 1986 15:03:27 Bug Note: sharon:
+  unhandled exception: illegal_signal
+29 January 1986 09:02:09 Bug Note: sharon:
+  unhandled exception: illegal_signal
+29 January 1986 13:02:58 Bug Note: sharon:
+  Unable to write to _chan: no space left on device
+27 December 1985 19:04:18 Bug Note: sharon:
+  unhandled exception: not_possible
+27 December 1985 19:29:19 Bug Note: sharon:
+  unhandled exception: not_possible
+27 December 1985 19:47:24 Bug Note: sharon:
+  unhandled exception: not_possible
+27 December 1985 19:57:44 Bug Note: sharon:
+  unhandled exception: not_possible
+27 December 1985 20:09:25 Bug Note: sharon:
+  unhandled exception: not_possible
+27 December 1985 20:12:59 Bug Note: sharon:
+  unhandled exception: not_possible
+27 December 1985 20:17:18 Bug Note: sharon:
+  unhandled exception: not_possible
+20 August 1986 10:36:25 Bug Note: sharon:
+  unimplemented: write_byte
+5 April 1988 05:52:20 Bug Note: garland:
+  unhandled exception: not_possible
+5 April 1988 06:05:57 Bug Note: garland:
+  unhandled exception: not_possible
+12 October 1988 20:59:54 Bug Note: garland:
+  unhandled exception: not_possible
+16 October 1988 16:01:22 Bug Note: garland:
+  unhandled exception: not_possible
+17 October 1988 10:13:27 Bug Note: garland:
+  unhandled exception: not_possible
+17 October 1988 10:13:35 Bug Note: garland:
+  unhandled exception: not_possible
+17 October 1988 10:13:47 Bug Note: garland:
+  unhandled exception: not_possible
+28 October 1988 01:05:17 Bug Note: garland:
+  unhandled exception: not_possible
+22 December 1988 13:25:15 Bug Note: garland:
+  Non-type param encountered when type expected: nil
+22 December 1988 13:27:36 Bug Note: garland:
+  Non-type param encountered when type expected: nil
+22 December 1988 13:37:10 Bug Note: garland:
+  unhandled exception: bounds
+22 December 1988 13:39:42 Bug Note: garland:
+  unhandled exception: not_possible
+22 December 1988 13:44:44 Bug Note: garland:
+  unhandled exception: not_possible
+22 December 1988 13:52:29 Bug Note: garland:
+  unhandled exception: bounds
+22 December 1988 13:53:26 Bug Note: garland:
+  unhandled exception: bounds
+22 December 1988 13:53:59 Bug Note: garland:
+  unhandled exception: bounds

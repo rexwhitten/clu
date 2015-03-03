@@ -1,0 +1,27 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+rewrite = cluster is
+	create, output, _gcd;
+
+    rep = struct[ Pos:	    address,
+		  Rel_Addr: address ];
+
+    Create = proc (P: address, A: address) returns (cvt);
+	return (rep${ Pos:    	P,
+		      Rel_Addr: A });
+	end Create;
+
+    Output = proc (R: cvt, Out: out_link_chan, Env: lnk_env);
+	out_link_chan$ReWrite(Out,
+			      R.Pos,
+			      address$A_to_Int(R.Rel_Addr, Env.Locates));
+	   except when Not_Possible:
+		       Should_Never_Happen[rep](
+			   "Rewriten address not locatable", R);
+		  end;
+	end Output;
+
+    _gcd = proc (R: cvt, Tab: gcd_tab) returns (int);
+	return (rep$_gcd(R, Tab));
+	end _gcd;
+    end rewrite;

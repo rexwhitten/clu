@@ -1,0 +1,10 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+Close_Output_File = proc (Env: lnk_env) signals (not_possible(string));
+    if (Env.Options.Output_to_File)
+       then out_link_chan$Close(Env.Output);
+	       except when Not_Possible:
+			   signal Not_Possible("Output chan not opened.");
+		      end;
+       end;
+    end Close_Output_File;

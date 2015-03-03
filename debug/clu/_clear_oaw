@@ -1,0 +1,34 @@
+%% Copyright Massachusetts Institute of Technology 1981, 1989
+
+_Clear_Owns_and_WVecs = proc (Code: int);
+    %% Code values:
+    %%	0	Clear most recent only.
+    %%  1	Clear all.
+    %%  2	Setup for code 3.
+    %%  3	If last code was 2, then clear most recent only,
+    %%		otherwise do nothing.
+    own Last_Code: int := 0;
+    if ((Code < 0) cor (Code > 3))
+       then return;
+       end;
+    if (Code = 3)
+       then if (Last_Code = 2)
+	       then Code := 0;
+	       else return;
+	       end;
+       end;
+    Last_Code := Code;
+    if (Code = 2)
+       then return;
+       end;
+    Zero: _obj := _Cvt[int, _obj](0);
+    for SM: _seg_map in _All_Seg_Maps() do
+	Owns: _obj, OSize: int := _seg_map$Get_Owns(SM);
+	_Clear_Words(Owns, OSize);
+	WVs: _obj, WVSize: int := _seg_map$Get_WVecs(SM);
+	_Clear_Words(WVs, WVSize);
+	if (Code = 0)
+	   then break;
+	   end;
+	end;
+    end _Clear_Owns_and_WVecs;

@@ -1,0 +1,41 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+insert_new_files = proc (e: env, fns: string, afn: afnt)
+		     signals (errmsg(string))
+    ready_frame_insert(e)
+    b: buf := e.buffer
+    if buf$empty(b) then
+       if afnt$size(afn) = 1 then
+	  read_file(e, afnt$bottom(afn))
+	     resignal errmsg
+	  return
+	  end
+       change_title(e, fns)
+       end
+    nb: buf := buf$create()
+    buf$set_name(nb, "temp")
+    cnt: int := 0
+    xline: int := 1
+    chars: string := _flush_macro_chars()
+    for fn: fname in afnt$elements(afn) do
+	if check_for_interrupt()  cand
+	   mconfirm(e, "Stop reading files", true)
+	   then break end
+	buf$insert_buf(b, nb)
+	line, pos: int := buf$new_cursor(b, -1, 0)
+	if cnt = 0
+	   then xline := line end
+	cnt := cnt + 1
+	read_file(e, fn)
+	   except when errmsg (xx: string):
+		       top_display(e, xx)
+		       cnt := cnt - 1
+		       buf$del_frame(b, 1)
+		  end
+	low, max: int := buf$get_frame(b)
+	buf$set_cursor(b, max + 1, 1)
+	end except when errmsg (*): end
+    _push_macro_chars(chars)
+    buf$set_cursor(b, xline, 1)
+    buf$new_frame(b, 0)
+    if cnt > 1 then top_display(e, int$unparse(cnt) || " files read.") end
+    end insert_new_files

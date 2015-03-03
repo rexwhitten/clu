@@ -1,0 +1,29 @@
+% Copyright Massachusetts Institute of Technology 1982, 1989
+
+_instantiate = proc (x: rdesc) returns (_obj) signals (not_possible(string))
+	const = variant[a_nix:    null,
+			b_nix:    bool,
+			c_int:    int,
+			d_nix:    real,
+			e_nix:    char,
+			f_string: string,
+			g_nix,
+			h_nix,
+			i_nix,
+			j_nix,
+			k_nix:    null,
+			l_type:   _tdesc]
+	rdesc = record[a_type:  _tdesc,
+		       b_name:  string,
+		       c_parms: sequence[const],
+		       d_args:  int,
+		       e_vals:  int]
+	lnkval = oneof[load: string,
+		       desc: rdesc]
+	gcd_tab$grindp[lnkval](lnkval$make_desc(x), _get_pipe(false))
+	   resignal not_possible
+	res: _obj := _load_from_pipe()
+	if res = _cvt[null, _obj](nil)
+	   then signal not_possible("failed to instantiate routine") end
+	return(res)
+	end _instantiate

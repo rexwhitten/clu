@@ -1,0 +1,18 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+Output_Everything = proc (Env: lnk_env, Get_Times: bool)
+		      signals (cant_open(fname, string));
+    begin
+	Output_Text_Section(Env, Get_Times);
+	Output_Data_Section(Env, Get_Times);
+	Output_BSS_Section(Env, Get_Times);
+	if (Env.Options.Output_to_File)
+	   then Output_Symbol_Section(Env, Get_Times);
+		Output_Strings_Section(Env, Get_Times);
+	   end;
+	Output_Rewrites(Env, Get_Times);
+	Finish_Output(Env, Get_Times);
+	if (Get_Times) then Env.Times.Outs.Done := Run_Time(); end;
+	end;
+       resignal Cant_Open;
+    end Output_Everything;

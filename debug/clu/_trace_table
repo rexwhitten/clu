@@ -1,0 +1,38 @@
+%% Copyright Massachusetts Institute of Technology 1981, 1989
+
+%%% Trace tables map routines to their _rtn_trace_info objects.
+%%% (SEP/Nov  7 1984)
+
+_trace_table = cluster is create, lookup, insert, remove, elements;
+
+    rep = table[_obj, _rtn_trace_info];
+
+    Create = proc (Size: int) returns (cvt);
+	return (rep$Create(Size, Obj_Hash, _obj$Equal));
+	end Create;
+
+    Obj_Hash = proc (O: _obj, Size: int) returns (int);
+	return (Hash_Int((O.Left + O.Right), Size));
+	end Obj_Hash;
+
+    Lookup = proc (RT: cvt, O: _obj) returns (_rtn_trace_info)
+	       signals (not_found);
+	return (rep$Lookup(RT, O));
+	   resignal Not_Found;
+	end Lookup;
+
+    Insert = proc (RT: cvt, O: _obj, RI: _rtn_trace_info);
+	rep$Alter(RT, O, RI);
+	end Insert;
+
+    Remove = proc (RT: cvt, O: _obj);
+	rep$Delete(RT, O);
+	end Remove;
+
+    Elements = iter (RT: cvt) yields (_obj, _rtn_trace_info);
+	for O: _obj, RI: _rtn_trace_info in rep$Elements(RT) do
+	    yield (O, RI);
+	    end;
+	end Elements;
+
+    end _trace_table;

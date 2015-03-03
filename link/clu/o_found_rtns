@@ -1,0 +1,40 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+Output_Found_Rtns = proc (Env: lnk_env);
+    ari = array[rtn_inst];
+    Fnd_Rtns: found_rtns := Env.Mach_Dependent.Found_Rtns;
+    if (~ found_rtns$Empty(Fnd_Rtns))
+       then Stb_R: r_template := rtn_tab$Lookup(Env.Routines, Stub_Rtn_Name_String);
+	       except when not_found: return;
+		      end;
+	    Stb_RIs: ari := rtn_insts$S2A(Stb_R.Instantiations);
+	    Still_Stb_RIs: ari := ari$Predict(1, ari$Size(Stb_RIs));
+	    Output: out_link_chan := Env.Output;
+	    Locs: locates := Env.Locates;
+	    for FR: found_rtn in found_rtns$Elements(Fnd_Rtns) do
+		Found: bool := false;
+		RI: rtn_inst := FR.Inst;
+		Stub: rtn_inst := FR.Stub;
+		for Tst_Stub: rtn_inst in ari$Elements(Stb_RIs) do
+		    if (rtn_desc$Stub_Insts_Match(Stub, Tst_Stub))
+		       then New_Addr: address := RI.New_Entry_Address;
+			    for DB: dbg_block in dbg_blocks$Elements(Tst_Stub.Dbg_Blocks) do
+				dbg_block$Chain_Blocks(DB,
+						       New_Addr,
+						       Env);
+				end;
+			    Found := true;
+		       else ari$AddH(Still_Stb_RIs, Tst_Stub);
+		       end;
+		    end;
+		if (~ Found)
+		   then Should_Never_Happen[rtn_inst](
+			    "Found routine not matched: " || rtn_inst$Unparse(Stub),
+			    Stub);
+		   end;
+		Stb_RIs, Still_Stb_RIs := Still_Stb_RIs, Stb_RIs;
+		ari$Trim(Still_Stb_RIs, 1, 0);
+		end;
+	    Stb_R.Instantiations := rtn_insts$A2S(Stb_RIs);
+       end;
+    end Output_Found_Rtns;

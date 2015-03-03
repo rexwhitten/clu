@@ -1,0 +1,383 @@
+%	GTENV CLU
+% Copyright Massachusetts Institute of Technology 1980, 1989
+%	MC68000 Assembler: template environment
+
+g_tenv = cluster is create,		% stream, file_name -> g_tenv
+		    reset,		% g_tenv, stream, file_name ->
+		    start,		% g_tenv, bool ->
+		    is_err,		% g_tenv -> bool
+		    get_no_type,	% g_tenv -> mref
+		    end_all,		% g_tenv, cdchan ->
+		    end_routine,	% g_tenv -> mref, mref
+		    add_template,	% g_tenv, mref ->
+		    add_use,		% g_tenv, mref -> int
+		    add_puse,		% g_tenv, mref -> int
+		    store_tdesc,	% g_tenv, typespec -> mref, bool
+		    store_edesc,	% g_tenv, exception -> mref, bool
+		    store_signal,	% g_tenv, condition -> mref
+		    store_str,		% g_tenv, string -> mref
+		    store_vec,		% g_tenv, qv -> mref
+		    store_avec,		% g_tenv, av -> mref
+		    store_cell,		% g_tenv, int, mref -> mref
+		    oneof2,		% g_tenv -> mref
+		    store_const,	% g_tenv, expr -> mref, bool
+		    store_sconst,	% g_tenv, str -> mref
+		    store_rconst	% g_tenv, expr, int -> mref, bool
+
+rep        = record[reset:	 bool,
+		    iserr:       bool,
+		    errst:       stream,
+		    dtchan:      dtchan,	% channel to binary file
+		    no_type:	 mref,		% not-a-type tdesc
+		    templates:	 av,		% all clusters/routines
+		    uses:	 uselist,	% unparameterized uses
+		    puses:	 uselist,	% parameterized uses
+		    usevals:	 av,
+		    typespecs:	 typetab,	% types
+		    exceptions:  exctab,	% exceptions
+		    signals_:	 sigtab,	% signals
+		    strings:     strtab,	% strings
+		    consts:	 consttab]	% constants
+
+dtchan	   = data_chan
+cdchan	   = code_chan
+uselist    = array[upair]
+upair      = record[code: int,
+		    val:  mref]
+pair	   = record[val:   mref,
+		    pflag: int]
+typetab    = table[typespec, pair]
+exctab     = table[exception, pair]
+sigtab     = table[condition, mref]
+strtab     = table[str, mref]
+consttab   = table[expr, pair]
+tabsize    = 300
+
+create = proc (errst: stream, binfn: file_name) returns (cvt)
+	dtc: dtchan, notyp: mref := dtchan$open(binfn)
+	e: rep := rep${reset:	    true,
+		       iserr:       false,
+		       errst:       errst,
+		       dtchan:      dtc,
+		       templates:   av$predict(1, 25),
+		       no_type:	    notyp,
+		       uses:	    uselist$predict(1, 50),
+		       puses:	    uselist$predict(1, 30),
+		       usevals:	    av$predict(1, 50),
+		       typespecs:   typetab$create(tabsize, hash_type,
+						   typespec$equal),
+		       exceptions:  exctab$create(tabsize, exc_hasher,
+						  exception$similar),
+		       signals_:    sigtab$create(tabsize, sig_hasher,
+						  sig_similar),
+		       strings:     strtab$create(tabsize, hash,
+						  string$equal),
+		       consts:	    consttab$create(tabsize, expr_hasher,
+							expr$similar)}
+	return(e)
+	end create
+
+reset = proc (e: cvt, errst: stream, binfn: file_name)
+						signals (not_possible(str))
+	e.iserr := false
+	e.errst := errst
+	dtchan$close(e.dtchan)
+	   except when not_possible (*): end
+	if ~e.reset
+	   then e.reset := true
+		av$trim(e.templates, 1, 0)
+		uselist$trim(e.uses, 1, 0)
+		uselist$trim(e.puses, 1, 0)
+		av$trim(e.usevals, 1, 0)
+		typetab$flush(e.typespecs)
+		exctab$flush(e.exceptions)
+		sigtab$flush(e.signals_)
+		strtab$flush(e.strings)
+		consttab$flush(e.consts)
+	   end
+	if binfn.dir ~= "/dev"
+	   then delete_file(binfn)
+	   end except when not_possible (*): end
+	oops: bool := false
+	dtc: dtchan, notyp: mref := dtchan$open(binfn)
+	    except when not_possible (*):
+			 binfn := file_name$create(nul_dev(), "", "", "")
+			 dtc, notyp := dtchan$open(binfn)
+			 signal not_possible("could not open binary file")
+		   end
+	e.dtchan := dtc
+	e.no_type := notyp
+	end reset
+
+start = proc (e: cvt, oper: bool)
+	if e.reset
+	   then e.reset := false
+	   else cut: int := _plain
+		if oper
+		   then cut := _cparm end
+		typetab$pcond_flush[int](e.typespecs, pair_test, cut)
+		exctab$pcond_flush[int](e.exceptions, pair_test, cut)
+		consttab$pcond_flush[int](e.consts, pair_test, cut)
+	   end
+	end start
+
+pair_test = proc (p: pair, cut: int) returns (bool)
+	return(p.pflag > cut)
+	end pair_test
+
+is_err = proc (e: cvt) returns (bool)
+	return(e.iserr)
+	end is_err
+
+get_no_type = proc (e: cvt) returns (mref)
+	return(e.no_type)
+	end get_no_type
+
+end_all = proc (e: cvt, cdch: cdchan)
+	dtc: dtchan := e.dtchan
+	dtchan$add_close(dtc, dtchan$store_avec(dtc, e.templates), cdch)
+	    except when not_possible (why: string):
+			 e.iserr := true
+			 begin
+			 stream$puts(e.errst, "output failure: ")
+			 stream$putl(e.errst, why)
+			 end except when not_possible (*): end
+		   end
+	end end_all
+
+end_routine = proc (e: cvt) returns (mref, mref)
+	vals: av := e.usevals
+	dtc: dtchan := e.dtchan
+	for pr: upair in uselist$elements(e.puses) do
+		av$addh(vals, dtchan$store_cell(dtc, pr.code, pr.val))
+		end
+	puses: mref := dtchan$store_avec(dtc, vals)
+	uselist$trim(e.puses, 1, 0)
+	av$trim(vals, 1, 0)
+	for pr: upair in uselist$elements(e.uses) do
+		av$addh(vals, dtchan$store_cell(dtc, pr.code, pr.val))
+		end
+	uses: mref := dtchan$store_avec(dtc, vals)
+	uselist$trim(e.uses, 1, 0)
+	av$trim(vals, 1, 0)
+	return(puses, uses)
+	end end_routine
+
+add_template = proc (e: cvt, val: mref)
+	av$addh(e.templates, val)
+	end add_template
+
+add_puse = proc (e: cvt, code: int, val: mref) returns (int)
+	puses: uselist := e.puses
+	z: int := uselist$size(puses)
+	for i: int in int$from_to(1, z) do
+		pr: upair := puses[i]
+		if pr.code = code  cand  pr.val = val
+		   then return(i - 1) end
+		end
+	uselist$addh(puses, upair${code: code,
+				   val:  val})
+	return(z)
+	end add_puse
+
+add_use = proc (e: cvt, code: int, val: mref) returns (int)
+	uses: uselist := e.uses
+	for i: int in int$from_to(1, uselist$size(uses)) do
+		pr: upair := uses[i]
+		if pr.code = code  cand  pr.val = val
+		   then return(i) end
+		end
+	uselist$addh(uses, upair${code: code,
+				  val:  val})
+	return(uselist$size(uses))
+	end add_use
+
+store_tdesc = proc (e: cvt, t: typespec) returns (mref, int)
+	tab: typetab := e.typespecs
+	p: pair := typetab$lookup(tab, t)
+	   except when not_found:
+			val: mref, pflag: int := g_type(up(e), t)
+			typetab$bind(tab, t, pair${val:   val,
+						   pflag: pflag})
+			return(val, pflag)
+		  end
+	return(p.val, p.pflag)
+	end store_tdesc
+
+store_edesc = proc (e: cvt, sig: exception) returns (mref, int)
+	tab: exctab := e.exceptions
+	p: pair := exctab$lookup(tab, sig)
+	   except when not_found:
+			val: mref, pflag: int := g_exception(up(e), sig)
+			exctab$bind(tab, sig, pair${val:   val,
+						    pflag: pflag})
+			return(val, pflag)
+		  end
+	return(p.val, p.pflag)
+	end store_edesc
+
+store_signal = proc (e: cvt, sig: condition) returns (mref)
+	tab: sigtab := e.signals_
+	return(sigtab$lookup(tab, sig))
+	   except when not_found:
+			val: mref := store_str(up(e), sig.name)
+			cnt: mref := mref$make_val(exprlist$size(sig.vals))
+			val := dtchan$store_vec(e.dtchan, qv$[val, cnt])
+			sigtab$bind(tab, sig, val)
+			return(val)
+		  end
+	end store_signal
+
+store_str = proc (e: cvt, s: str) returns (mref)
+	tab: strtab := e.strings
+	return(strtab$lookup(tab, s))
+	   except when not_found:
+			val: mref := dtchan$store_str(e.dtchan, s)
+			strtab$bind(tab, s, val)
+			return(val)
+		  end
+	end store_str
+
+store_vec = proc (e: cvt, vec: qv) returns (mref)
+	return(dtchan$store_vec(e.dtchan, vec))
+	end store_vec
+
+store_avec = proc (e: cvt, vec: av) returns (mref)
+	return(dtchan$store_avec(e.dtchan, vec))
+	end store_avec
+
+store_cell = proc (e: cvt, code: int, val: mref) returns (mref)
+	return(dtchan$store_cell(e.dtchan, code, val))
+	end store_cell
+
+oneof2 = proc (e: cvt) returns (mref)
+	return(dtchan$oneof2(e.dtchan))
+	end oneof2
+
+store_const = proc (e: cvt, x: expr) returns (mref, int)
+	tab: consttab := e.consts
+	p: pair := consttab$lookup(tab, x)
+	   except when not_found:
+			val: mref, pflag: int := g_const(up(e), x)
+			consttab$bind(tab, x, pair${val:   val,
+						    pflag: pflag})
+			return(val, pflag)
+		  end
+	return(p.val, p.pflag)
+	end store_const
+
+store_sconst = proc (e: cvt, s: str) returns (mref)
+	val: mref, pflag: int := store_const(up(e),
+					     expr$create(exprabs$make_str(s)))
+	return(val)
+	end store_sconst
+
+store_rconst = proc (e: cvt, x: expr, args: int) returns (mref, int)
+	tab: consttab := e.consts
+	p: pair := consttab$lookup(tab, x)
+	    except when not_found:
+			 val: mref, pflag: int := g_rconst(up(e), x, args)
+			 consttab$bind(tab, x, pair${val:   val,
+						     pflag: pflag})
+			 return(val, pflag)
+		   end
+	return(p.val, p.pflag)
+	end store_rconst
+
+end g_tenv
+
+hash_type = proc (t: typespec, z: int) returns (int)
+	tagcase t.abs
+	   tag cluster_ (x: clutype):
+		return((hash_exprs(x.parms, z) + hash(x.gen, z)) // z)
+	   tag select (x: seltype):
+		index: int := hash(x.gen, z)
+		for fs: fieldspec in fieldspeclist$elements(x.parms) do
+			index := (index + name$size(fs.sel)) // z
+			end
+		return(index)
+	   tag apply (x: applytype):
+		return(hash(x.gen, z))
+	   tag idn (x: idn):
+		return(hash(x.str, z))
+	   tag unknown:
+		return(0)
+	   tag cvt_:
+		return(1)
+	   tag any_:
+		return(2)
+	   tag seltype:
+		return(3)
+	   end
+	end hash_type
+
+exc_hasher = proc (sig: exception, size: int) returns (int)
+	return(hash(sig.name, size))
+	end exc_hasher
+
+sig_hasher = proc (sig: condition, size: int) returns (int)
+	return(hash(sig.name, size))
+	end sig_hasher
+
+sig_similar = proc (sig1, sig2: condition) returns (bool)
+	return(sig1.name = sig2.name  cand
+	       exprlist$size(sig1.vals) = exprlist$size(sig2.vals))
+	end sig_similar
+
+expr_hasher = proc (x: expr, size: int) returns (int)
+	i: int
+	tagcase x.abs
+	   tag int_ (j: int):
+		i := j
+	   tag real_ (r: real):
+		i := _cvt[real, _obj](r).left
+	   tag char_ (c: char):
+		i := char$c2i(c)
+	   tag str (s: str):
+		return(hash(s, size))
+	   tag xstr (q: qi):
+		i := qi$size(q) * qi$bottom(q)
+	   tag type_ (t: typespec):
+		i := hash_type(t, size)
+	   tag idn (id: idn):
+		return(hash(id.str, size))
+	   tag apply (clut: clutype):
+		i := hash(clut.gen, size) + hash_exprs(clut.parms, size)
+	   tag op (cop: clusterop):
+		i := hash(cop.name, size) + hash_exprs(cop.parms, size)
+	   tag selops (n: name):
+		i := hash(n, size)
+	   tag select (j: int):
+		i := j
+	   tag selnames:
+		i := 0
+	   tag vec (elts: exprlist):
+		i := hash_exprs(elts, size)
+	   tag tagcell (cons: tagcons):
+		i := expr_hasher(cons.tag_, size) + expr_hasher(cons.val, size)
+	   tag pair, sum (pair: exprpair):
+		i := expr_hasher(pair.left, size) + expr_hasher(pair.right, size)
+	   others:
+		i := 0
+	   end
+	return(i // size)
+	end expr_hasher
+
+hash_exprs = proc (exprs: exprlist, z: int) returns (int)
+	index: int := 0
+	for x: expr in exprlist$elements(exprs) do
+		add: int
+		tagcase x.abs
+		   tag type_ (xa: typespec):
+			add := hash_type(xa, z)
+		   tag int_ (xa: int):
+			add := xa
+		   tag str (xa: str):
+			add := hash(xa, z)
+		   others:
+			continue
+		   end
+		index := (index + add) // z
+		end
+	return(index)
+	end hash_exprs

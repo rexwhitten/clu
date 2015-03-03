@@ -1,0 +1,323 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+#extend
+
+Start_Up = proc ()
+    own Env: lnk_env := lnk_env$Create();
+    JCL: string;
+    JCL := Get_JCL();
+    if (_Get_XJName() = "debug")
+	       then JCL := JCL || "#debug";
+	       end;
+    if (string$Empty(JCL))
+       then stream$PutL(stream$Primary_Output(), vJCL_String);
+       else Linker(JCL, Env);
+	       except when Error (Er_S: string):
+			   stream$PutL(stream$Primary_Output(), Er_S);
+		      end;
+	    Finish_Up();
+	    %%stream$Flush(stream$Primary_Output());
+	    Quit_();
+       end;
+    while true do
+	PO: stream;
+	while (true) do
+	    PI: stream := stream$Primary_Input();
+	    PO := stream$Primary_Output();
+	    stream$Set_Prompt(PI, "JCL = ");
+	    begin
+		JCL := Unify_Spacing(stream$GetBuf(PI, "\n"));
+		stream$GetC(PI);
+		end;
+	       except when End_of_File:
+			   JCL := "";
+		      end;
+	    if (string$Empty(JCL))
+	       then Finish_Up();
+		    stream$Flush(PO);
+		    if (stream$Empty(PI))
+		       then Quit_();
+		       else _Stop();
+		       end;
+		    continue;
+	     elseif (JCL = "?")
+	       then Give_Help(PO);
+		    stream$PutL(PO, vJCL_String);
+		    continue;
+	     else break;
+	     end;
+	    end;
+	if (_Get_XJName() = "debug")
+	   then JCL := JCL || "#debug";
+	   end;
+	Linker(JCL, Env);
+	   except when Error (Er_S: string):
+		       stream$PutL(PO, Er_S);
+		       stream$PutL(PO, vJCL_String);
+		  end;
+	end;
+    end Start_Up;
+
+
+Finish_Up = proc ();
+    stream$_Close_All();
+    end Finish_Up;
+
+Give_Help = proc (Out: stream);
+    begin
+	Help_Fn: fname := fname$Parse(System_Root() ||
+				      vHelp_File_Name_String);
+	Help_F: stream := stream$Open(Help_Fn, "read");
+	while true do
+	    stream$PutL(Out, stream$GetL(Help_F));
+	    end;
+	   except when End_Of_File:
+		  end;
+	stream$PutC(Out, '\n');
+	stream$Close(Help_F);
+	end;
+       except others: stream$PutL(Out,
+				  "Help file (" ||
+				  System_Root() ||
+				  vHelp_File_Name_String ||
+				  ") not available." );
+	      end;
+    end Give_Help;
+
+
+Linker = proc (Line: string, Env: lnk_env) signals (error(string));
+    Set_Working_Dir("");
+    %timer$Zero();
+    %timer$Start();
+    Parse_Start: time := Run_Time();
+    In_Files: fnames,
+    Out_File: fname,
+    Optns: options := Get_Files(Line);
+       resignal Error;
+    if (Optns.Debugging cand ~Optns.Init_Debug)
+       then Read_Dumped_Env(Env, Optns, Out_File);
+       else lnk_env$Init(Env, Optns);
+	    Env.Options := Optns;
+       end;
+    Env.Out_File_Name := Out_File;
+    Env.Files := file_list$Predict(1, fnames$Size(In_Files));
+    Env.Times.Parse.Start := Parse_Start;
+    Env.Times.Parse.Stop  := Run_Time();
+    %timer$Stop(); %% Temp for timing info.
+    %T_Out: stream := Open_Write("prj:parse_times.txt");
+    %Timer_Stats(T_Out);
+    %stream$Close(T_Out);
+    %stream$PutL(Env.Options.List_Stream, "Parse done.");
+
+    begin
+	File_Linker(In_Files, Env)
+	   except when Cant_Open (Fn: fname, S: string):
+		       exit Error("Can\'t open " || fname$Unparse(Fn) ||
+				  "\n    " || S);
+		  when Cant_Load (Fn: fname):
+		       exit Error("Can\'t load " || fname$Unparse(Fn));
+		  when Not_Found (Mn_Rtn: string):
+		       exit Error("Can\'t find " || Mn_Rtn);
+		  end;
+	end;
+       except when Error (Err_S: string):
+		   lnk_env$End_Use(Env);
+		   signal Error(Err_S);
+	      end;
+    Set_Working_Dir("");
+
+    if (Env.Options.Do_Type_Times)
+       then Typeout_Times(Env.Times, Env.Options.List_Stream);
+       end;
+    Link_Done(Env);
+    end Linker;
+
+
+Get_Files = proc (JCL_Line: string)
+	      returns (fnames, fname, options)
+	      signals (error(string));
+
+    In_Files: fnames := fnames$New();
+    Out_File: fname;
+    Out_Fn_Str: string := "";
+    Optns: options := options$Create();
+
+    Out_or_Dbg_Set: bool := false;
+    begin
+	for Fn: fname, Out_Files: as, New_Opts: as in All_In_Files(JCL_Line,
+								   Optns) do
+	    if (as$Empty(New_Opts) cand
+		as$Empty(Out_Files))
+	       then In_Files := fnames$AddH(In_Files, Fn);
+	       else if (~ as$Empty(New_Opts))
+		       then Optns := options$Add_Options(Optns, New_Opts);
+			       except when Bad_Syntax (S: string):
+					   options$End_Use(Optns);
+					   signal Error("Bad Option: " || S);
+				      end;
+			    if (Optns.Debugging cand
+				as$Empty(Out_Files))
+			       then Out_or_Dbg_Set := true;
+			       end;
+		       end;
+		    if (~ as$Empty(Out_Files))
+		       then if (Optns.Naive_Debug)
+			       then signal Error("Output to file not allowed");
+			     elseif (~ Out_or_Dbg_Set)
+			       then Out_Fn_Str := as$Bottom(Out_Files);
+				    Optns.Output_to_File := true;
+				    Out_or_Dbg_Set := true;
+			     end;
+		       end;
+	       end;
+	    end;
+
+	Out_File := Get_Out_File_Name(Out_Fn_Str);
+	end;
+       except when Error (Err_S: string):
+		   options$End_Use(Optns);
+		   signal Error (Err_S);
+	      end;
+
+    return (In_Files, Out_File, Optns);
+    end Get_Files;
+
+All_In_Files = iter (Line: string, Optns: options) yields (fname, as, as)
+		 signals (error(string));
+    own No_File: fname := fname$Parse("no_file");
+    own Single_Opt: as := as$[""];
+    own Empty: as := as$New();
+
+    %% Handle conditional lines.
+    %%   ^p => use line if in production mode (i.e., not debugging).
+    %%   ^d => use line if in debugging mode.
+    if ((Line ~= "") cand
+	(string$IndexC(Line[1], "\^d\^p") ~= 0))
+       then if ((Line[1] = '\^d') = Optns.Debugging)
+	       then Line := string$Rest(Line, 2);
+	       else return;
+	       end;
+       end
+    Ins: as,
+    Outs: as,
+    Opts: as := Parse_Line(Line);
+       except when Bad_Syntax:
+		   signal Error("Bad Syntax: " || Line);
+	      end;
+
+    Work_Dir: string := Working_Dir();
+
+    Dbg_Opts: as := as$New();
+    for Op_S: string in as$Elements(Opts) do	%% Yield any debug options first.
+	if (options$Is_Working_Dir(Op_S))	%% Also check for working dir option.
+	   then Work_Dir := options$Give_Working_Dir(Op_S);
+		Set_Working_Dir(Work_Dir);
+		   except when Bad_Format:
+			       signal Error("Bad Format: " || Work_Dir);
+			  end;
+	   end;
+	if (options$Is_Debug(Op_S))
+	   then as$AddH(Dbg_Opts, Op_S);
+	   end;
+	end;
+    if (~ as$Empty(Dbg_Opts) cor
+	~ as$Empty(Outs))
+       then yield (No_File, Outs, Dbg_Opts);
+	    as$Trim(Outs, 1, 0);
+       end;
+
+    for S: string in as$Elements(Ins) do
+	if (string$Empty(S))
+	   then continue;
+	   end;
+	if (string$IndexC(S[1], "&@") ~= 0)
+	   then No_Out_to_File: bool := (Optns.Debugging cand
+					 ~ Optns.Output_to_File);
+
+		XFl_Nm: string := string$Rest(S, 2);
+		XFl_Fn: fname := fname$Parse(XFl_Nm);
+		   except when Bad_Format:
+			       signal Error("Bad file-name: " || XFl_Nm);
+			  end;
+		if (string$Empty(XFl_Fn.Suffix) cand
+		    string$Empty(XFl_Fn.Other))
+		   then XFl_Fn := UNIX_File_Name(
+				      XFl_Fn.Dir, 
+				      XFl_Fn.Name,
+				      "xload");
+		   end;
+		XFl_S: stream := stream$Open(XFl_Fn, "read");
+		   except others:
+			       signal Error("Can\'t open " || fname$Unparse(XFl_Fn));
+			  end;
+		XFl_Fn := XFl_S.Name;
+		while true do
+		    L: string := stream$GetL(XFl_S);
+		    if (~ string$Empty(L))
+		       then for Fn: fname, Ots, Ops: as in All_In_Files(L,
+									Optns) do
+				yield (Fn, Ots, Ops);
+				end;
+		       end;
+		    end;
+		   except when End_Of_File:
+			  when Error (Err_S: string):
+			       Set_Working_Dir(Work_Dir);
+				  except when Bad_Format:
+					      signal Error("Bad Format: " || Work_Dir);
+					 end;
+			       signal Error(Err_S);
+			  end;
+
+		stream$Close(XFl_S);
+
+		Set_Working_Dir(Work_Dir);	%% Restore working dir.
+		   except when Bad_Format:
+			       signal Error("Bad Format: " || Work_Dir);
+			  end;
+
+		if (No_Out_to_File)
+		   then Optns.Output_to_File := false;
+		   end;
+	   else Fs: file_spec := file_spec$Parse(S);
+		   except when Bad_Format:
+			       signal Error("Bad file-name: " || S);
+			  end;
+		NFs: file_spec, No_Suffix: bool:=Fixup_In_File_Spec(Fs);
+		begin
+		  None_Suf: bool:= false; % no files with default suffix exist
+		  None_Nsf: bool:= false; % no files w/o default suffix exist
+                  for Fn: fname in All_File_Names(file_spec$Unparse(NFs)) do
+			yield (Fn, Empty, Empty);
+			end except when none: None_Suf := true end
+		  if No_Suffix then
+         	     for FN:fname in All_File_Names(file_spec$Unparse(Fs)) do
+			Test_FS: file_spec,
+			Test_No_Suf: bool := Fixup_In_File_Spec(
+						 file_spec$Parse(
+						     fname$Unparse(FN)))
+			Test_FN: fname := fname$Parse(
+					      file_spec$Unparse(Test_FS))
+			%% Check if we found it in prior loop (with the suffix)
+			if (~ File_Exists(Test_FN))
+			   then yield (Fn, Empty, Empty);
+			   end
+			end except when none: None_Nsf := true end
+		    end;
+		  if None_Suf cand None_Nsf then
+		     stream$PutL(stream$Primary_Output(),"None exist: " || S );
+          	     end;
+	         end  except when Not_Possible (Err_S: string):
+				   signal Error("Not possible: " || Err_S ||
+						"   File string: " || S);
+				      end;
+	   end;
+	end;
+       resignal Error;
+
+    if (as$Empty(Outs) cand
+	as$Empty(Opts))
+       then return;
+       else yield (No_File, Outs, Opts);
+       end;
+    end All_In_Files;

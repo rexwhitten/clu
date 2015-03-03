@@ -1,0 +1,88 @@
+%	PASSES EQUATE
+% Copyright Massachusetts Institute of Technology 1980, 1989
+%	MC68000 Assembler: equates for the various passes
+
+fname		= file_name
+ac		= array[char]
+as		= array[str]
+qs		= sequence[str]
+ab		= array[bool]
+aai		= array[ai]
+
+%	TOKEN SUPPORT
+
+stmtkey = oneof[wvec_, own_, var_, stack_, unstack_: null,
+		loop_, for_: bool,
+		if_: int,
+		return_, yield_, signal_, break_, continue_, begin_: null,
+		opcode: opcodeform]
+
+defnkey = oneof[oper_:    int,
+		cluster_: bool]
+
+token   = oneof[idn:		idn,		% idn or name
+		expr:		expr,		% literal
+		type_:		typespec,	% type
+		equal,				% =
+		assn,				% :=
+		colon,				% :
+		comma,				% ,
+		comma2,				% ,,
+		plus,				% +
+		minus,				% -
+		slash,				% /
+		dollar,				% $
+		l_paren,			% (
+		l_bkt,				% [
+		l_curly,			% {
+		l_angle,			% <
+		r_paren,			% )
+		r_bkt,				% ]
+		r_curly,			% }
+		r_angle:	null,		% >
+		stmtkey:	stmtkey,	% keyword starting a stmt
+		defnkey:	defnkey,	% keyword starting a definition
+		elf_:		int,		% other miscellaneous keywords
+		do_,
+		end_,
+		then_,
+		else_,
+		in_,
+		others_,
+		except_,
+		when_,
+		returns_,
+		signals_,
+		resignal_,
+		yields_,
+		where_,
+		is_,
+		has_,
+		this_,
+		next_,
+		proctype_,
+		itertype_,
+		selops_,
+		eof:		null]		% end of file
+
+%	PARSER SUPPORT
+
+_empty_ok = true
+_no_empty = false
+_none_ok = true
+_no_none = false
+
+_if_body = 0
+_then_body = 1
+_else_body = 2
+_when_body = 3
+_loop_body = 4
+_for_body = 5
+_misc_body = 6
+
+
+%	CODER SUPPORT
+
+av		= array[mref]
+qv		= sequence[mref]
+aav		= array[av]

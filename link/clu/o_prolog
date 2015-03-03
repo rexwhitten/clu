@@ -1,0 +1,5 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+Output_Prolog = proc (Env: lnk_env);
+    out_link_chan$Skip(Env.Output, Env.Locates.Pointers.Size);
+    end Output_Prolog;

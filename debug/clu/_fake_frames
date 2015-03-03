@@ -1,0 +1,25 @@
+%% Copyright Massachusetts Institute of Technology 1981, 1989
+
+%%% Yield all fake frames of suspended or active routines, starting from
+%%% frame F and working back (and sideways, in the case of suspended iters) up
+%%% the stack.
+%%% (SEP/Nov  6 1984)
+
+_Fake_Frames = iter (F: _frame) yields (_break_info);
+    FTab: _frm_table := _Get_Frm_Table();
+    while (true) do
+	Addr: _obj := F.Addr;
+	RInf: _rtn_info := _frm_table$Lookup(FTab, Addr);
+	F := F.Prev;
+	for IFrm: _frame, IAddr: _obj in _IFrames(F, Addr, RInf, true) do
+	    if (_obj$Is_Vec(IFrm[0]))
+	       then yield(_cvt[_obj, _break_info](IFrm[0]));
+	       end;
+	    end;
+	if (_obj$Is_Vec(F[0]))
+	   then yield(_cvt[_obj, _break_info](F[0]));
+	   end;
+	end;
+       except when None:
+	      end;
+    end _Fake_Frames;

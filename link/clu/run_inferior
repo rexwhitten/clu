@@ -1,0 +1,133 @@
+%% Copyright Massachusetts Institute of Technology 1985, 1989
+
+#extend
+
+inf_request = oneof[
+		  Load:   string,
+		  Desc:   rtn_desc
+		    ];
+
+Run_Inferior = proc (Env: lnk_env);
+    FromP: _chan := Env.Mach_Dependent.From_Pipe;
+    PO: stream := stream$Primary_Output();
+    Frk:   _job  := Env.Mach_Dependent.Sub_Fork;
+    Do_Continue: bool := false;
+    while (true) do
+	Dead: int := _job$Dead();                   %% Dead count.
+	SigInt:  int := _Change_Signal(2, 1);               %% Turn off SIGINT (^C)
+	SigQuit: int := _Change_Signal(3, 1);               %% Turn off SIGQUIT (^B)
+	if (Do_Continue)
+	   then _job$Sig(Frk, 19);                      %% Continue stopped inferior.
+		   except when Not_Possible (Err_S: string):
+			  end;
+	   else out_link_chan$Close(Env.Output);        %% Start him going.
+		   except when Not_Possible:
+			       %% Better open it so we can close it and start
+			       %% him up.
+			       Env.Output := out_link_chan$Re_Open(
+						 Env.Mach_Dependent.To_Pipe,
+						 Env.Locates,
+						 Env.Options.Pipe_File_Name);
+			       out_link_chan$Close(Env.Output);
+				  except when Not_Possible:
+					      Should_Never_Happen[out_link_chan](
+						  "Can't close out_link_chan in run_inferior",
+						  Env.Output);
+					 end;
+			  end;
+		Do_Continue := true;
+	   end;
+	while (~ _chan$Pending(FromP, false)) do
+	    _chan$Read_Wait(FromP, 3600000);            %% Wait for inferior.
+	       except when Not_Possible (Err_S: string):
+		      end;
+	    if (Dead ~= _job$Dead())
+	       then Dead := _job$Dead();
+		    Status: int := _job$Wait0(Frk); %% Get status.
+		       except when Not_Possible (Err_S: string):
+			      end;
+		    if (Status ~= -1)           %% It has stopped.
+		       then exit Terminated(Status);
+		       end;
+	       end;
+	    end;
+	   except when Terminated (Status: int):
+		       _Change_Signal(2, SigInt);
+		       _Change_Signal(3, SigQuit);
+		       if (Status ~= 0)
+			  then stream$PutL(PO, "  Unexpected termination of inferior:");
+			       stream$PutS(PO, "   ");
+			       Write_State(Frk, PO, Status);
+			       if ((Status // 0400) = 0177)
+				  then Ans: bool := Ask("  Continue it? ")
+				       if (Ans)
+					  then continue;
+					  end;
+				  end;
+			  end;
+		       break;
+		  end;
+	_Change_Signal(2, SigInt);
+	_Change_Signal(3, SigQuit);
+	Req: inf_request := _GC_Read[inf_request](
+				_chan$Get_Read_Channel(FromP, false));
+	   except when Not_Possible (Err_S: string):
+		       stream$PutS(PO, "  Unable to gc_read from inferior: ");
+		       stream$PutL(PO, Err_S);
+		       break;
+		  end;
+	tagcase Req
+	   tag Load (Line: string):
+	       Line := Unify_Spacing(Line);
+	       Overload(Line, Env);
+		  except when Done:
+			      return;
+			 end;
+	       Do_Continue := false;
+	   tag Desc (RD: rtn_desc):
+	       Reparameterize_Routine(RD, Env);
+	       Do_Continue := false;
+	   end;
+	   except when Error (Err_S: string):
+		       stream$PutL(stream$Primary_Output(), Err_S);
+			  except when Not_Possible(*): end;
+		  end;
+	end;
+       except when Not_Possible (Err_S: string):
+		   stream$PutS(PO, "  Unexpected error in running inferior:");
+		   stream$PutL(PO, Err_S);
+	      end;
+    _job$Sig(Frk, 9);                %% Kill it.
+       except when Not_Possible (*): end;
+    _job$Wait(Frk);                  %% Make sure it goes away.
+       except when Not_Possible (*): end;
+    _chan$Close(FromP);
+       except when Not_Possible (*): end;
+    _chan$Close(Env.Mach_Dependent.To_Pipe);
+       except when Not_Possible (*): end;
+    return;
+    end Run_Inferior;
+
+
+vStopped = 0177
+
+Write_State = proc (Frk: _job, S: stream, Status: int);
+    Term_Code: int := Status // (2 ** vBits_per_Byte);
+    Dump_Made: bool := Term_Code > 0200;
+    Term_Code := Term_Code // 0200;
+    User_Code: int := Status /  (2 ** vBits_per_Byte);
+    if (Term_Code = vStopped)
+       then stream$PutS(S, "Stopped: ");
+	    Term_Code := User_Code;
+	    User_Code := 0;
+       end;
+    stream$PutS(S, _Signal_Type(Term_Code));
+    if (User_Code ~= 0)
+       then stream$PutS(S, ", user exit code = ");
+	    stream$PutS(S, int$Unparse(User_Code));
+       end;
+    if (Dump_Made)
+       then stream$PutL(S, ", dump made.");
+       else stream$PutL(S, ".");
+       end;
+    end Write_State;

@@ -1,0 +1,204 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+run_adjust = proc (e: env, c: char) signals (errmsg(string), stop(env, string))
+    help_msg = "A: set auto-break prefix to %\n" ||
+	       "B: set auto-break limit to #\n" ||
+	       "C: fill comments\n" ||
+	       "E: center marked text in field |#| wide (#<0: pad right)\n" ||
+	       "I: turn auto-indent mode (#=0: off, #~=0: on)\n" ||
+	       "J: set justify switch (#=0: ragged, #~=0: even)\n" ||
+	       "L: left justify marked text in field # wide\n" ||
+	       "M: fill marked text\n" ||
+	       "N: fill # lines\n" ||
+	       "P: fill next paragraph\n" ||
+	       "R: right justify marked text in field |#| wide (#<0: pad right)\n" ||
+	       "W: set fill width to #"
+
+    arg: int, opt: char := get_option(e, "Adjust Text", "ABCEIJLMNPRW",
+				      help_msg, false)
+       resignal errmsg
+    if opt = 'W' then
+       env$store_num(e, "adjust_width", arg)
+       return
+     elseif opt = 'A' then
+       env$store_str(e, "fill_prefix",
+		     get_string_arg(e, "New auto-break prefix",
+				    env$fetch_str(e, "fill_prefix", "")))
+	  resignal errmsg
+       return
+     elseif opt = 'B' then
+       e.break_lim := arg
+       return
+     elseif opt = 'I' then
+       if arg = 0
+	  then opt := 'N' end
+       run_ctrlm(e, opt)
+       return
+     elseif opt = 'J' then
+       env$store_num(e, "justify", arg)
+       return
+     end
+    b: buf := e.buffer
+    line, pos: int := buf$get_cursor(b)
+    omline, ompos: int := buf$get_mark(b)
+    if opt = 'L'  cor  opt = 'R'  cor  opt = 'E'
+       then if omline > line  cor  (omline = line  cand  ompos > pos)
+	       then line, omline := omline, line
+		    pos, ompos := ompos, pos
+	       end
+	    if pos = 1  cand  line > omline
+	       then line := line - 1
+		    pos := max_int
+	       end
+	    min: int := _calc_hpos(b[omline], ompos)
+	    max: int := _calc_hpos(b[line], pos)
+	    for ln: int in int$from_to(omline, line - 1) do
+		min := 0
+		max := int$max(_calc_hpos(b[ln], max_int), max)
+		end
+	    min := int$abs(arg) - (max - min)
+	    if min <= 0
+	       then return end
+	    max := max + min
+	    if opt = 'L'
+	       then min := 0
+	     elseif opt = 'E'
+	       then min := min / 2 end
+	    left: string := ac2s(act$fill(1, min, ' '))
+	    for ln: int in int$from_to(omline, line) do
+		env$insert(e, ln, ompos, left)
+		s: string := b[ln]
+		if ln < line
+		   then ompos := string$size(s) + 1
+		   else ompos := pos + min
+		        buf$set_cursor(b, ln, ompos)
+		   end
+		if opt = 'L'  cor  arg < 0  cor  ompos <= string$size(s)
+		   then env$insert
+			    (e, ln, ompos,
+			     ac2s(act$fill(1,
+					   int$max(max - _calc_hpos(s, ompos),
+						   0),
+					   ' ')))
+		   end
+		ompos := 1
+		end
+	    return
+       end
+    aline, zline: int := buf$get_frame(b)
+    mline: int := line
+    init_hpos: int := 0
+    lead: string := ""
+    old_buf: buf
+    ochanged: bool := b.changed
+    ccount: int := e.change_count
+    climit: int := e.change_limit
+    if opt = 'M' then % marked text
+       mline := omline
+       if mline > line
+	  then if ompos > 1 then mline := mline + 1 end
+	       mline, line := line, mline
+	elseif pos > 1
+	  then line := line + 1
+	end
+     elseif opt = 'N' then % next arg lines
+       if arg > 0
+	  then line := line + arg
+	elseif arg < 0
+	  then line := line + 1
+	       mline := mline - arg
+	else return
+	end
+     elseif opt = 'P' then % next para
+       nf_starters: string := env$fetch_str(e, "no_fill_starters", ".'")
+       % scan for para start (or may be in one)
+       while true do
+	   sl: string := b[mline]
+	   if ~string$empty(sl) cand string$indexc(sl[1], nf_starters) = 0
+	      then break end
+	   if mline = zline then return end
+	   mline := mline + 1
+	   end
+       % scan for para end
+       line := mline + 1
+       while line <= zline do
+	   sl: string := b[line]
+	   if string$empty(sl) cor sl[1] = ' ' cor sl[1] = '\t'
+		cor string$indexc(sl[1], nf_starters) > 0
+	      then break end
+	   line := line + 1
+	   end
+     elseif opt = 'C' then % comments
+       ls: string
+       lpos: int
+       lc: char
+       while true do
+	   ls := b[mline]
+	   lpos := 0
+	   lc := ' '
+	   % find the lead char
+	   while lc = ' ' cor lc = '\t' cor lc = ls[lpos + 1] do
+	       lpos := lpos + 1
+	       lc := ls[lpos]
+	       end except when bounds:
+			       if mline = zline then return end
+			       mline := mline + 1
+			       continue
+			  end
+	   break
+	   end
+       e.change_limit := 0
+       lead := string$substr(ls, 1, lpos) ||
+	       env$fetch_str(e, "comment_sep", " ")
+       % strip the lead off all of the lines
+       init_hpos := _calc_hpos(lead, string$size(lead) + 1)
+       old_buf := buf$create()
+       line := mline
+       while line <= zline do
+	   ls := b[line]
+	   lpos := 0
+	   lcc: char := ' '
+	   while lcc = ' ' cor lcc = '\t' cor lcc = ls[lpos + 1] do
+	       lpos := lpos + 1
+	       lcc := ls[lpos]
+	       end except when bounds: end
+	   if lcc ~= lc then break end
+	   buf$addh(old_buf, ls)
+	   lcc := ' '
+	   while lcc = ' ' cor lcc = '\t' do
+	       lpos := lpos + 1
+	       lcc := ls[lpos]
+	       end except when bounds: end
+	   env$delete(e, line, 1, line, lpos)
+	   line := line + 1
+	   end
+     end
+    if opt ~= 'C' then
+       e.change_limit := 0
+       if mline < aline then mline := aline end
+       if line > zline then line := zline + 1 end
+       buf$set_cursor(b, mline, 1)
+       old_buf := buf$sub_buf(b, line-1, max_int)
+       end
+    limit: int := adjust(e, mline, line,
+			 env$fetch_num(e, "adjust_width", 64), init_hpos)
+    if ~string$empty(lead) then
+       % put in the lead again
+       for i: int in int$from_to(mline, limit-1) do
+	   env$insert(e, i, 1, lead)
+	   end
+       end
+    buf$set_cursor(b, limit, 1)
+    ok: bool := mconfirm(e, "Change the buffer as shown", true)
+       except when errmsg (*): ok := false end
+    if ok
+       then top_display(e, "Buffer changed.")
+       else env$delete(e, mline, 1, limit-1, max_int)
+	    env$insert_buf1(e, old_buf)
+	    buf$set_cursor(b, mline, 1)
+	    buf$set_mark(b, omline, ompos)
+	    b.changed := ochanged
+	    e.change_count := ccount
+	    top_display(e, "Old buffer restored.")
+       end
+    e.change_limit := climit
+    end run_adjust

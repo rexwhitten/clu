@@ -1,0 +1,401 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+#extend
+
+r_template = cluster is
+	add_new, clean_out, validate_match,
+	equal, similar, used,
+	is_overloaded, unparse, get_p_uses, get_up_uses,
+	get_instantiations, set_instantiations, set_code_address, get_code_address,
+	get_name, get_name_constant, set_name_constant,
+	get_param_count, get_own_count, get_code_size,
+	get_arg_names, get_local_var_names, get_locals_count,
+	get_owns_names, get_owns_size,
+	get_owns_address, get_cluster_owns_address,
+	get_arg_count, get_num_returns, get_result_count, get_result_type,
+	get_inst_count, get_was_output, print,
+	set_c_template, get_c_template, is_clust_rtn,
+	is_parameterized, force_to_be_parameterized,
+	is_iter, is_selector_rtn, is_renamed,
+	equiv_routine, output, prepare_to_dump, _gcd;
+
+    rep = record[
+	      a_Name:		 string,
+	      b_Parameter_Count: int,
+	      c_Arg_Names:	 constant,	%% sequence[string] constant
+	      d_Result_Type:	 type_desc,
+	      e_Own_Count:	 int,
+	      f_P_Uses:          use_list,
+	      g_UP_Uses:	 use_list,
+	      h_File_Position:	 int,
+	      i_Code_Size:	 int,		%% = 0 => equiv. to another rtn.
+	      j_Local_Vars:	 constant,	%% sequence[string] constant
+	      k_Own_Vars:	 constant,	%% sequence[string] constant
+	      l_Num_Returns:	 int,		%% >= 0 => proc, < 0 => iter.
+	      m_Arg_Count:	 int,
+	      n_Locals_Count:	 int,
+	      o_Full_Name:	 constant,	%% String constant of "type$routine"
+	      p_C_Template:	 pos_ct,	%% c_template of cluster (if any)
+	      q_Instantiations:  rtn_insts,	%% Initialized to empty sequence.
+	      r_Code_Address:	 address	%% Initialized to 0 Addr.
+		 ]
+
+    Add_New = proc (R: cvt, Env: lnk_env);
+	Rs: rtn_tab := Env.Routines;
+	rtn_tab$Bind(Rs, R.a_Name, up(R));
+	   except when Exists:
+		       Old_R: rep := down(rtn_tab$Lookup(Rs, R.a_Name));
+		       rtn_tab$Alter(Rs, R.a_Name, up(R));
+		       Routine_Overloaded(up(Old_R), up(R), 
+					  pos_ct$Make_None(nil), Env);
+		  end;
+	end Add_New;		%% Replace any old one.
+
+    Clean_Out = proc (R: cvt);
+	own Null_Const: constant  := constant$Make_Null();
+	own Null_Seq:   constant  := constant$Make_Seq(consts$[]);
+	own No_Type:    type_desc := type_desc$Make_None();
+	own No_Uses:    use_list  := use_list$New();
+	own No_Insts:   rtn_insts := rtn_insts$New();
+	R.d_Result_Type    := No_Type;	%% Clear out old contents.
+	%% R.f_P_Uses      := No_Uses;	%% Don't clear, needed by Is_Parameterized
+	R.g_UP_Uses        := No_Uses;
+	R.j_Local_Vars     := Null_Seq;
+	R.k_Own_Vars       := Null_Seq;
+	R.o_Full_Name      := Null_Const;
+	R.q_Instantiations := No_Insts;
+	end Clean_Out;
+
+    Equal = proc (R1, R2: cvt) returns (bool);
+	return (R1 = R2);
+	end Equal;
+
+    Similar = proc (R1, R2: cvt) returns (bool);	%% Assumes types are similar.
+	return ( (R1 = R2) cor				%% Should really be checking
+		 ((R1.a_Name = R2.a_Name) cand		%% arg and result types!!
+		  (R1.b_Parameter_Count = R2.b_Parameter_Count) cand
+		  (R1.m_Arg_Count = R2.m_Arg_Count) cand
+		  (R1.l_Num_Returns = R2.l_Num_Returns)	%% But this is good enough.
+		  ) );
+	end Similar;
+
+    Print = proc (R: cvt, S: pstream);
+	rep$Print(R, S);
+	end Print;
+
+    Used = proc (R: cvt) returns (bool);
+	return (~ rtn_insts$Empty(R.q_Instantiations) );
+	end Used;
+
+    Unparse = proc (R: cvt) returns (string);
+	return (constant$Get_String(R.o_Full_Name));
+	   except when Not_Possible:
+		       return (R.a_Name);
+		  end;
+	end Unparse;
+
+    Is_Overloaded = proc (R: cvt) returns (bool);
+	own Null_Const: constant := constant$Make_Null();
+	return (constant$Similar(R.o_Full_Name, Null_Const));
+	end Is_Overloaded;
+
+    Is_Parameterized = proc (R: cvt) returns (bool);
+	return (~ use_list$Empty(R.f_P_Uses));
+	end Is_Parameterized;
+
+    Force_to_be_Parameterized = proc (R: cvt);
+	own Dummy_Uses: use_list := use_list$AddH(use_list$New(),
+						  use$Make_Constant(
+						      constant$Make_Null())
+						  );
+	if (use_list$Empty(R.f_P_Uses))
+	   then R.f_P_Uses := Dummy_Uses;
+	   end;
+	end Force_to_be_Parameterized;
+
+    Is_Iter = proc (R: cvt) returns (bool);
+	return (R.l_Num_Returns < 0);
+	end Is_Iter;
+
+    Is_Selector_Rtn = proc (R: cvt) returns (bool);
+	return (R.b_Parameter_Count = -1);
+	end Is_Selector_Rtn;
+
+    Is_Renamed = proc (R: cvt) returns (bool);
+	return (R.i_Code_Size = 0);
+	end Is_Renamed;
+
+    Get_C_Template = proc (R: cvt) returns (c_template)
+		       signals (none);
+	tagcase R.p_C_Template
+	   tag None:
+	       signal None;
+	   tag C_Temp (CT: c_template):
+	       return (CT);
+	   end;
+	end Get_C_Template;
+
+    Set_C_Template = proc (R: cvt, CT: c_template);
+	R.p_C_Template := pos_ct$Make_C_Temp(CT);
+	end Set_C_Template;
+
+    Is_Clust_Rtn = proc (R: cvt) returns (bool);
+	return (pos_ct$Is_C_Temp(R.p_C_Template));
+	end Is_Clust_Rtn;
+    
+
+    Validate_Match = proc (R_D: rtn_desc, R: cvt, Env: lnk_Env)
+		       returns (bool, string);
+	if (R.a_Name ~= Stub_Rtn_Name_String)
+	   then if ((R.m_Arg_Count ~= R_D.Expected_Arg_Count) cand
+		    (R_D.Expected_Arg_Count ~= -1))
+		   then return (false, ("Arg count mismatch for " ||
+					rtn_desc$Call_String(R_D, Env) ||
+					"  Given: " ||
+					int$Unparse(R_D.Expected_Arg_Count) ||
+					"  Actual: " ||
+					int$Unparse(R.m_Arg_Count)));
+		   end;
+
+		if ((R.b_Parameter_Count ~= params$Size(R_D.Parameters)) cand
+		    (R.b_Parameter_Count ~= -1) cand
+		    (~ rtn_desc$Has_Dummy_Params(R_D)))
+		   then return (false, ("Routine parameter count mismatch for " ||
+					rtn_desc$Call_String(R_D, Env) ||
+					"  Given: " ||
+					int$Unparse(params$Size(R_D.Parameters)) ||
+					"  Actual: " ||
+					int$Unparse(R.b_Parameter_Count)));
+		   end;
+
+		if ((up(R).Result_Count ~= R_D.Expected_Result_Count) cand
+		    (R_D.Expected_Result_Count ~= -1) cand
+		    (~ Result_Count_Unknown(R_D)))
+		   then return (false, ("Result count mismatch for " ||
+					rtn_desc$Call_String(R_D, Env) ||
+					"  Given: " ||
+					int$Unparse(R_D.Expected_Result_Count) ||
+					"  Actual: " ||
+					int$Unparse(up(R).Result_Count)));
+		   end;
+	   end;
+	return (true, "");
+	end Validate_Match;
+
+    Result_Count_Unknown = proc (R_D: rtn_desc) returns (bool);
+	return (type_desc$Is_Routine_Type(R_D.Type_Desc) cand
+		(R_D.Name = "%call"));
+	end Result_Count_Unknown;
+    
+
+    %% If R has no code it is equivalent to the routine specified by
+    %% its one and only Use.
+
+    Equiv_Routine = proc (R: cvt, R_D: rtn_desc, Env: lnk_env)
+		      returns (rtn_desc, r_template)
+		      signals (error(string));
+	if (R.i_Code_Size ~= 0)
+	   then return (R_D, up(R));
+	   end;
+	Eqv_RD: rtn_desc;
+	Eqv_R:  r_template;
+	R_Uses: use_list;
+	Is_P_Use: bool := use_list$Empty(R.g_UP_Uses);
+	if (Is_P_Use)
+	   then R_Uses := R.f_P_Uses;
+	   else R_Uses := R.g_UP_Uses;
+	   end;
+	Eqv_RD := use$Value_Equiv_Routine(use_list$Top(R_Uses));
+	   except when Wrong_Tag, Bounds:
+		       Should_Never_Happen[r_template](
+			   "Illegal form of routine renaming", up(R));
+		  end;
+	if (Is_P_Use)
+	   then Eqv_RD := rtn_desc$Copy(Eqv_RD);	%% So binding doesn't change use.
+	   end;
+	Eqv_RD := rtn_desc$Bind(Eqv_RD, R_D, Env);
+	   resignal Error;
+	Eqv_RD, Eqv_R := rtn_desc$Find(Eqv_RD, Env);
+	   resignal Error;
+	return (Eqv_RD, Eqv_R);
+	end Equiv_Routine;
+    
+
+    Get_P_Uses = proc (R: cvt) returns (use_list);
+	return ( R.f_P_Uses );
+	end Get_P_Uses;
+
+    Get_UP_Uses = proc (R: cvt) returns (use_list);
+	return ( R.g_UP_Uses );
+	end Get_UP_Uses;
+
+    Get_Instantiations = proc (R: cvt) returns (rtn_insts);
+	return ( R.q_Instantiations );
+	end Get_Instantiations;
+
+    Set_Instantiations = proc (R: cvt, I: rtn_insts);
+	R.q_Instantiations := I;
+	end Set_Instantiations;
+
+    Get_Code_Address = proc (R: cvt) returns (address);
+	return ( R.r_Code_Address );
+	end Get_Code_Address;
+
+    Set_Code_Address = proc (R: cvt, A: address);
+	R.r_Code_Address := A;
+	end Set_Code_Address;
+
+    Get_Name = proc (R: cvt) returns (string);
+	return ( R.a_Name );
+	end Get_Name;
+
+    Get_Name_Constant = proc (R: cvt) returns (constant);
+	return (R.o_Full_Name);
+	end Get_Name_Constant;
+
+    Set_Name_Constant = proc (R: cvt, NC: constant);
+	R.o_Full_Name := NC;
+	end Set_Name_Constant;
+
+    Get_Arg_Names = proc (R: cvt) returns (constant);
+	return (R.c_Arg_Names);
+	end Get_Arg_Names;
+
+    Get_Local_Var_Names = proc (R: cvt) returns (constant);
+	return (R.j_Local_Vars);
+	end Get_Local_Var_Names;
+
+    Get_Owns_Names = proc (R: cvt) returns (constant);
+	return (R.k_Own_Vars);
+	end Get_Owns_Names;
+
+
+    Get_Param_Count = proc (R: cvt) returns (int);
+	return ( R.b_Parameter_Count );
+	end Get_Param_Count;
+
+    Get_Arg_Count = proc (R: cvt) returns (int);
+	return ( R.m_Arg_Count );
+	end Get_Arg_Count;
+
+    Get_Locals_Count = proc (R: cvt) returns (int);
+	return ( R.n_Locals_Count );
+	end Get_Locals_Count;
+
+    Get_Num_Returns = proc (R: cvt) returns (int);
+	return (R.l_Num_Returns);
+	end Get_Num_Returns;
+
+    Get_Result_Count = proc (R: cvt) returns (int);
+	Rtn_Cnt: int := R.l_Num_Returns;
+	if (Rtn_Cnt < 0)
+	   then Rtn_Cnt := -(Rtn_Cnt + 1);
+	   end;
+	return (Rtn_Cnt);
+	end Get_Result_Count;
+
+    Get_Result_Type = proc (R: cvt) returns (type_desc);
+	return ( R.d_Result_Type );
+	end Get_Result_Type;
+
+    Get_Own_Count = proc (R: cvt) returns (int);
+	return ( R.e_Own_Count );
+	end Get_Own_Count;
+
+    Get_Inst_Count = proc (R: cvt) returns (int);
+	if (Is_Parameterized(up(R)))
+	   then return (rtn_insts$Size(R.q_Instantiations));
+	   else return (0);
+	   end;
+	end Get_Inst_Count;
+
+    Get_Was_Output = proc (R: cvt) returns (bool);
+	return (rtn_insts$Bottom(R.q_Instantiations).Was_Output);
+	   except when Bounds:
+		       return (false);
+		  end;
+	end Get_Was_Output;
+
+    Get_Code_Size = proc (R: cvt) returns (int);
+	return ( R.i_Code_Size );
+	end Get_Code_Size;
+
+    Get_Owns_Size = proc (R: cvt) returns (int) signals (not_possible);
+	Num_Insts: int := rtn_insts$Size(R.q_Instantiations);
+	if (Num_Insts = 0)
+	   then signal Not_Possible;
+	   end;
+	return (Num_Insts * R.e_Own_Count);
+	end Get_Owns_Size;
+
+    Get_Owns_Address = proc (R: cvt) returns (address) signals (not_possible);
+	return (rtn_insts$Bottom(R.q_Instantiations).Owns_Address);
+	   except when Bounds: signal Not_Possible;
+		  end;
+	end Get_Owns_Address;
+
+    Get_Cluster_Owns_Address = proc (R: cvt) returns (address) signals (not_possible);
+	return (rtn_insts$Bottom(R.q_Instantiations).Cluster_Inst.Owns_Address);
+	   resignal Not_Possible;
+	   except when Bounds: signal Not_Possible;
+		  end;
+	end Get_Cluster_Owns_Address;
+
+	
+
+    Output = proc (R: cvt, Base: int, In_Cluster: bool, Env: lnk_env)
+	      signals (overflow);
+	own No_Uses: use_list := use_list$New();
+	Rtn_Name: string;
+	if ((~ rtn_insts$Empty(R.q_Instantiations)) cor
+	    (Env.Options.Init_Debug cand
+	     ((R.i_Code_Size ~= 0) cand
+	      (In_Cluster cor
+	       (rtn_tab$Lookup(Env.Routines, R.a_Name) = up(R)))
+	      )))
+	   then Out: out_link_chan := Env.Output;
+		Input: in_chan := Env.Input;
+		Opts: options := Env.Options;
+		Type_It: bool := Opts.Do_Type_Routines;
+		Code_Address: address := R.r_Code_Address;
+		out_link_chan$Position(Out, Code_Address);
+		Output_Code_Head(up(R), In_Cluster, Env);
+		if (Type_It)
+		   then Rtn_Name := R.a_Name;
+			stream$PutL(Opts.List_Stream,
+				    out_link_chan$Cur_Addr_to_String(Out) ||
+				    ": Rtn: " || Rtn_Name);
+			   except when Not_Possible(*): end;
+		   end;
+		Relocate(Code_Address,
+			 (Base + R.h_File_Position),
+			 R.g_UP_Uses, R.i_Code_Size, Env)
+			 	resignal overflow;
+		if (Is_Parameterized(up(R)))
+		   then for RI: rtn_inst in rtn_insts$Elements(
+						R.q_Instantiations) do
+			    rtn_inst$Output(RI, Code_Address,
+					    Type_It, Rtn_Name, Env);
+			    end;
+		   else rtn_insts$Bottom(R.q_Instantiations).Was_Output := true;
+		   end;
+		Read_Except_Blocks(Input, Code_Address, R.g_UP_Uses, Env);
+		if (R.i_Code_Size ~= 0)
+		   then R.g_UP_Uses := No_Uses;	%% Clear out unparameterized uses.
+		   end;
+	   end;
+	end Output;
+
+
+    Prepare_to_Dump = proc (R: cvt, Locs: locates);
+	R.r_Code_Address := address$Fix_Address(R.r_Code_Address, Locs);
+	for RI: rtn_inst in rtn_insts$Elements(R. q_Instantiations) do
+	    rtn_inst$Prepare_to_Dump(RI, Locs);
+	    end;
+	end Prepare_to_Dump;
+
+    _gcd = proc (RT: cvt, Tab: gcd_tab) returns (int);
+	return (rep$_gcd(RT, Tab));
+	end _gcd;
+
+    end r_template;

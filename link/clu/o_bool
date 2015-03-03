@@ -1,0 +1,12 @@
+%% Copyright Massachusetts Institute of Technology 1984, 1989
+
+#extend
+
+Output_Bool = proc (B: bool, Env: lnk_env);
+    I: int;
+    if (B)
+       then I := 0377;			%% Rep is true  = 0377
+       else I := 0;			%%        false = 0
+       end;
+    out_link_chan$Write_Long_Word(Env.Output, I);
+    end Output_Bool;

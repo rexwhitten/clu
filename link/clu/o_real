@@ -1,0 +1,8 @@
+%% Copyright Massachusetts Institute of Technology 1984, 1989
+
+Output_Real = proc (R: real, Env: lnk_env);
+    %% Reals not yet implemented for 68000
+    LS: stream := Env.Options.List_Stream
+    %% Just output as zero.
+    out_link_chan$Write_Long_Word(Env.Output, 0);
+    end Output_Real;

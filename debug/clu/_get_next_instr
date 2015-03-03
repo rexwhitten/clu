@@ -1,0 +1,21 @@
+% copyright Massachusetts Institute of Technology 1980, 1989
+
+
+%%% Modified to also yield the address of the next instruction. This is needed
+%%% by _call_slots_ and is also useful to _for_loops_ (which was previously
+%%% computing the next_addr itself, anyway).
+
+_get_next_instr = iter(rtn: _rtn_info, start: int, stop: int)
+		    yields(int, _obj, _obj)
+    code: _obj  := rtn.raw_routine		%% code start
+    size: int   := rtn.code_size
+    offset: int := start
+    next_offset: int
+    if stop >= size then return end
+    while offset <= stop do
+	instr: int := _get_word(code, offset)
+        next_offset := offset + _instr$instr_size(instr)
+	yield (instr, _get_addr(code, offset), _get_addr (code, next_offset))
+        offset := next_offset
+	end
+    end _get_next_instr

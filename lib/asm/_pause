@@ -1,0 +1,10 @@
+;; Copyright Massachusetts Institute of Technology 1985, 1989
+
+_pause = proc ()
+	clr	-(sp)			;; mask = 0
+	clr	-(sp)			;; Hack pc
+	moveq	%sigpause, n0
+	move	n0, -(sp)
+	trap	0			;; Wait for signal
+	addq	8, sp
+	end	_pause

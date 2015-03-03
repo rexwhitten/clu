@@ -1,0 +1,18 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+Unknown_Routine = proc (R_D: rtn_desc, Env: lnk_env)
+		    returns (rtn_desc, r_template);
+    R: r_template;
+    Dum_RD: rtn_desc := rtn_desc$Change_to_Stub_Rtn(R_D, Env);
+    Dum_RD, R := rtn_desc$Find(Dum_RD, Env);
+    Rtn_Name: string := rtn_desc$Stub_Rtn_Unparse(Dum_RD);
+    if (~ unknown_rtns$Exists(Env.Mach_Dependent.Unknown_Rtns,
+			     Rtn_Name))
+       then CI: call_info := call_info${ Callers:    routine_list$New(),
+					 Call:	     R_D,
+					 Inst:	     pos_ri$Make_None(nil) };
+	    unknown_rtns$Bind(Env.Mach_Dependent.Unknown_Rtns,
+			      Rtn_Name, CI);
+       end;
+    return (Dum_RD, R);
+    end Unknown_Routine;

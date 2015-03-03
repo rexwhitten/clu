@@ -1,0 +1,27 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+run_str_macro = proc (e: env, c: char)
+		  signals (errmsg(string), stop(env, string))
+    arg: int := e.this_arg
+    name: string := "Execute macro named"
+    if arg <= 0
+       then name := "Define macro named" end
+    name := get_string_arg(e, name, "")
+       resignal errmsg
+    if string$empty(name)
+       then signal errmsg("No macro name given!") end
+    mac: string := "^X^Y-" || name
+    s: string := env$mfetch_str(e, mac)
+       except when not_found:
+		   if arg > 0
+		      then signal errmsg ("Macro " || name || " not defined!")
+		      end
+		   s := ""
+	      end
+    if arg <= 0
+       then env$store_str(e, mac, get_string_arg(e, "Define as", s))
+	       resignal errmsg
+       else for i: int in int$from_to_by(arg, 1, -1) do
+		_push_macro_chars(s)
+		end
+       end
+    end run_str_macro

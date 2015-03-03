@@ -1,0 +1,67 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+% Type out the menuized help given by the buffer. The menu
+% starts with a line that starts with "**** Menu for ", and
+% ends with the same line. Each item listed in the menu can be
+% displayed as the result of typing a single character when the
+% menu is displayed. This character is usually (although not
+% necessarily) a letter.
+
+buffer_help = proc (e: env, b: buf) signals (errmsg(string))
+    xline: int := buf$size(b)
+    if string$indexs("**** Menu for ", b[1]) ~= 1
+       then while true do
+		type_sub_buf(e, "---- Help:", b, 1, xline, false, true)
+		   except when help: continue end
+		break
+		end
+       else % get the menu at the current position (if any)
+	    line: int := 2
+	    while string$indexs("**** Menu for ", b[line]) ~= 1 do
+		line := line + 1
+		end
+	    while true do
+		opline: int
+		op: string
+		c: char
+		while true do
+		    type_sub_buf(e, "---- Help Menu:", b, 2, line - 1,
+				 true, true)
+		       except when help: continue end
+		    top_display(e, "Type menu item key: ")
+		    c := _getc()
+		    if c = ctrlg then exit quit end
+		    if c >= 'a' cand c <= 'z' then
+		       c := i2c(c2i(c)-32)
+		       end
+		    opline := 2
+		    op := string$append(c2s(c), ':')
+		    while opline < line do
+			pos: int := string$indexs(op, b[opline])
+			if pos > 0
+			   then op := string$rest(b[opline], pos + 3)
+				exit found
+			   end
+			opline := opline + 1
+			end except when bounds: end
+		    _bell()
+		    end except when found: end
+		% we now have the option line in b[opline]
+		pos: int := string$indexc('\t', op)
+		if pos > 0 then op := string$substr(op, 1, pos - 1) end
+		top_display(e, string$append("Type menu item key: ", c))
+		prompt: string := "---- " || op || ":"
+		op := "**** " || op
+		min, max: int
+		for min in int$from_to(opline+1, xline) do
+		    if string$indexs(op, b[min]) = 1 then break end
+		    end
+		for max in int$from_to(min+1, xline) do
+		    if string$indexs(op, b[max]) = 1 then break end
+		    end
+		% now print the delimited part of the buffer
+		type_sub_buf(e, prompt, b, min + 1, max - 1, false, true)
+		   except when help: continue end
+		break
+		end
+       end except when quit: end
+    end buffer_help

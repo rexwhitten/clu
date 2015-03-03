@@ -1,0 +1,88 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+# extend
+
+save_buffers = proc (e: env, tell: bool)
+    save_msg = "Can`t save - "
+    own save: string := int$unparse(_get_pid())
+    cnt: int := 0
+    for b: buf, bname, fnm: string in bufset$all_buffers() do
+	if buf$any_changed(b)
+	   then cnt := cnt + 1 end
+	end
+    if cnt = 0
+       then if tell then top_display(e, "No changed files.") end
+	    return
+       end
+    fns: string := env$fetch_str(e, "save_file", "")
+    fn: fname
+    if string$empty(fns)  cor  string$indexc('\000', fns) > 0
+       then fn := fname$create(_environ("HOME"), "_ted", "sav", save)
+	    fns := fname$unparse(fn)
+	    env$store_str(e, "save_file", fns)
+       else fn := fname$parse(fns)
+       end
+    rfn: fname := wstream$open(fname$create(fn.dir, "_tedsav", save, ""),
+			       false,
+			       env$fetch_num(e, "save_mode", 0600))
+       except when not_possible (why: string):
+		   if tell then top_display(e, save_msg || why) end
+		   return
+	      end
+    if tell
+       then vpos, hpos: int := _get_cursor_pos()
+	    _display_line("Saving buffer(s)...", 0)
+	    _set_cursor_pos(vpos, hpos, true)
+       end
+    first: bool := true
+    for b: buf, bname, fnm: string in bufset$all_buffers() do
+	if ~buf$any_changed(b) then continue end
+	oline, opos: int := buf$get_cursor(b)
+	buf$set_cursor(b, 1, 1)
+	line: int := 0
+	while true do
+	    low, max: int := buf$get_frame(b)
+	    if low <= line
+	       then buf$set_cursor(b, oline, opos)
+		    break
+	       end
+	    line := low
+	    if b.changed
+	       then if ~first then wstream$put("", true) end
+		    first := false
+		    ns: string := b.name
+		    if ~string$empty(ns)
+		       then low := low - 3
+		     elseif cnt > 1
+		       then wstream$put("\p", true)
+			    wstream$put("% ", false)
+			    if ~string$empty(fnm)
+			       then wstream$put(fnm, false)
+			       else wstream$put(bname, false)
+			       end
+			    wstream$put("", true)
+			    wstream$put("", true)
+		     end
+		    for low in int$from_to(low, max - 1) do
+			wstream$put(b[low], true)
+			end
+		    wstream$put(b[max], false)
+	       end
+	    buf$new_frame(b, 1)
+	    end except when not_possible (why: string):
+			    if tell then top_display(e, save_msg || why) end
+			    buf$set_cursor(b, oline, opos)
+			    return
+		       end
+	end
+    wstream$close()
+       except when not_possible (why: string):
+		   if tell then top_display(e, save_msg || why) end
+		   return
+	      end
+    rename_file(rfn, fn)
+       except when not_possible (why: string):
+		   if tell then top_display(e, save_msg || why) end
+		   return
+	      end
+    if tell then top_display(e, "Saved to " || fns) end
+    end save_buffers

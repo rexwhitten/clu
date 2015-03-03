@@ -1,0 +1,33 @@
+%% Copyright Massachusetts Institute of Technology 1985, 1989
+
+%% This routine handles finding and parameterizing of a routine for the
+%% lower, debugging fork.
+%% RD is the rtn_desc of the routine to parameterize.
+%% Assumptions made:
+%%	1) Any types or routines mentioned are guaranteed to already exist.
+%%	2) No signals or exceptions are in the parameterized use list of a
+%%	   routine that will be instantiated.
+
+Reparameterize_Routine = proc (RD: rtn_desc, Env: lnk_env) signals (error(string));
+    vError   = 0		%% Result returned to inferior if error.
+
+    Old_Locates: locates := locates$Copy(Env.Locates);
+    lnk_env$Reset(Env);			%% More than really needs to be done.
+    Env.Look_in_Library := false;	%% Make sure no files are loaded.
+    RI: rtn_inst := rtn_desc$Closure(RD, Env);
+       except when Error (S: string):
+		   Env.Locates := Old_Locates;
+		   Clean_Up_Instantiations(Env);
+		   Env.Output.Result_Code := vError;
+		   signal Error(S);
+	      end;
+    Env.Output := out_link_chan$Re_Open(Env.Mach_Dependent.To_Pipe,
+					Env.Locates,
+					Env.Options.Pipe_File_Name);
+    if (~ RI.Was_Output)
+       then lnk_env$End_Link_Phase(Env);
+	    Setup_Addresses(Env);
+	    Output_Everything(Env, false);
+       end;
+    Env.Output.Result_Address := address$Fix_Address(RI.Entry_Address, Env.Locates);
+    end Reparameterize_Routine;

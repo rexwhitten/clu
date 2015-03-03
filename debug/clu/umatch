@@ -1,0 +1,52 @@
+%% Copyright Massachusetts Institute of Technology 1980, 1989
+
+%%% Print out all callers of routines whose names contain Rtn as a substring.
+%%% [user-interface routine]
+%%% (SEP/Nov  7 1984)
+
+UMatch = proc (Rtn: string);
+    ss = sequence[string]
+    ftab = table[string,string]
+    Stub_Rtn_Nm   = "__stub_routine"
+    own Fnd_Tab: ftab := ftab$Create(100, Hash, string$Equal);
+    Flag: bool := _Enter_System();
+    ftab$Flush(Fnd_Tab);
+    Rtn_Tab: _rtn_table := _Get_Rtn_Table();
+    PO: stream := stream$Primary_Output();
+    for Caller_RI: _rtn_info in _rtn_table$Elements(Rtn_Tab) do
+	for Callee, Slot: _obj in _Call_Slots(Caller_RI.Routine, Caller_RI) do
+	    Callee_RI: _rtn_info := _Get_Rtn_Info(Callee);
+	       except when Not_Found:
+			   continue;
+		      end;
+	    Callee_Nm: string := Callee_RI.Name;
+	    if ((string$IndexS(Rtn, Callee_Nm) ~= 0) cor
+		((Callee_Nm = Stub_Rtn_Nm) cand
+		 (string$Indexs(Rtn,
+				_cvt[_obj, string]
+				    (_Param_Fetch(Callee, 1))
+				) ~= 0)
+		 ))
+	       then Caller_Nm: string := Caller_RI.Name;
+		    ftab$Bind(Fnd_Tab, Caller_Nm, Caller_Nm);
+		    stream$PutS(PO, Caller_Nm);
+		    stream$PutC(PO, '(');
+		    First: bool := true;
+		    for Arg_S: string in ss$Elements(Caller_RI.Args_Names) do
+			if (First)
+			   then First := false;
+			   else stream$PutS(PO, ", ");
+			   end;
+			stream$PutS(PO, Arg_S);
+			end;
+		    stream$PutL(PO, ")");
+		    break;
+	       end;
+	       except when Exists:
+			   break;
+		      end;
+	    end;
+	end;
+    ftab$Flush(Fnd_Tab);
+    _Exit_System(Flag);
+    end UMatch;

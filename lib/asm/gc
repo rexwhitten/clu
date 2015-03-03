@@ -1,0 +1,15 @@
+;; Copyright Massachusetts Institute of Technology 1985, 1989
+
+;; Returns number of words reclaimed.
+
+gc = proc () returns (int)
+	wvec	old_heaphi	{1}
+
+	move	heaphi, old_heaphi	;; Remember current value.
+	_gc$gc()			;; Do the garbage collection.
+	move	old_heaphi, n1		;; Get back previous value.
+	sub	heaphi, n1		;; Subtract new current value.
+	asr	1, n1
+	orib	1, n1			;; Number of lwords reclaimed as a CLU int.
+	return (n1)
+	end gc

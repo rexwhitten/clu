@@ -1,0 +1,19 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+Output_Owns_Addresses = proc (Env: lnk_env,
+			      C_Owns_Addr: address, R_Owns_Addr: address);
+    own No_Owns_Addr: address := address$Make_Specific(0);
+    Do_Them: bool := false;
+    if (address$Is_Null(C_Owns_Addr))
+       then C_Owns_Addr := No_Owns_Addr;
+       else Do_Them := true;
+       end;
+    if (address$Is_Null(R_Owns_Addr))
+       then R_Owns_Addr := No_Owns_Addr;
+       else Do_Them := true;
+       end;
+    if (Do_Them)
+       then Output_Address(C_Owns_Addr, Env);
+	    Output_Address(R_Owns_Addr, Env);
+       end;
+    end Output_Owns_Addresses;

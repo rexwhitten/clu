@@ -1,0 +1,7 @@
+~CLU/util/compare
+~CLU/cmp/pjcl
+~CLU/bin/hex
+~CLU/bin/octal
+#heap_size:128
+#-symbols
+^compare

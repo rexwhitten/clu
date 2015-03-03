@@ -1,0 +1,238 @@
+Garbage Collection in the VAX CLU Implementation
+
+The garbage collection technique is Deutsch-Schorr-Waite marking followed by  a
+compaction  phase that preserves the order of the objects.  The separate passes
+are outlines below.
+
+Pass 1 (Mark) - mark from roots, and  recursively,  everything.   Leave  marked
+objects chained together for later scans.
+
+Pass 2 (Scan) - scan the heap assigning new addresses to marked objects.
+
+Pass  3  (Relocation)  -  scan all areas, fixing references to point to the new
+location of the pointed at object.
+
+Pass 4 (Compaction) - the heap is scanned again;  headers  are  fixed  back  to
+their normal state, and unused space "squeezed" out of the heap.
+
+First,    some   comments   about   the   marking   technique   used.    Normal
+Deutsch-Schorr-Waite marking is used to find the  objects,  however,  there  is
+some  trickiness  to  the  method used to chain the objects together in blocks.
+This is necessitated by the fact that there are few extra bits to  play  around
+with.   Instead of chaining together each individual object, we chain groups of
+contiguous objects as  they  are  found.   These  groups  may  or  may  not  be
+contiguous  with other groups, depending on what objects are reachable, and the
+order in which they are marked.  The chain goes from high address to low, i.e.,
+"backwards" through the heap; for now, assume there is a single chain.  The end
+of each group can be easily  detected,  because  it  consists  of  an  unmarked
+object.
+
+In  the process of marking and building the chain of used objects, it is always
+the case that the object following a group of contiguous, used objects,  has  a
+special  bit  set;  we  call  this  the 'last' bit.  After marking a previously
+unmarked object, and everything reachable from that object, we set  the  'last'
+bit of the following object if that object is either unmarked or in the process
+of being marked.  If the following object is in the  process  of  being  marked
+when  we  are  done,  then it was so when we started (i.e., we were marked as a
+result of tracing from that in-progress object).  Hence, we treat it as  if  it
+is  NOT  marked, since it has not yet tried to chain itself in.  We chain AFTER
+marking because it has the effect of encouraging coalescence  of  objects  into
+groups making the chains shorter.
+
+Note  that  we must remember the initial state of the 'last' bit in the current
+object, so that we can tell whether it must be entered  on  the  chain.   After
+setting  the 'last' bit of the following object, the 'last' bit for the current
+object is checked:
+
+	1) if the 'last' bit is set, then we need do no chaining.
+	2)  if  the  'last' bit is not set, but the following object is marked,
+then we can insert the current object in the chain using the back pointer  from
+the following object.
+	3) if the last bit is not set, and the following object is  not  marked
+or  is  in  the  process of being marked, then we have a (currently) "isolated"
+object, and must follow the chain from the beginning to insert the new object.
+
+Because following the chain in case 3 above is potentially very  expensive,  we
+actually  maintain  many  chains, each one for the objects in a certain area of
+memory.  This keeps the chains proportionally  shorter  than  if  we  have  one
+chain.
+
+OBJECT FORMATS	
+
+Below  are  the  detailed  formats of the various flavors of objects during the
+various passes.
+
+Initial Formats
+
+Descriptors:
+	   2		30
+	| 00 |	   bits		      |		Ignored by GC
+	| 10 |	   bits		      |		Illegal except as used by GC
+	| 11 |	   bits		      |		Ignored by GC
+	| 01 |	   rest of address    |		REF to object
+
+NOTE:	REF's are always longword aligned, i.e., low 2 bits are zero.
+
+Object headers:
+	  1   1   1   1     10     18
+	| 0 | 0 | 0 | L | 0...0 | size |	VEC (record/struct/sequence/real part)
+
+	  1   1   1   1     12     16
+	| 0 | 0 | 1 | L | 0...0 | size |	BVEC (string)
+
+	  1   1   1   1     14     14
+	| 0 | 1 | 0 | L | 0...0 | tag |		CELL (oneof/variant/any)
+
+	  1   1   1   1    4     8      16
+	| 0 | 1 | 1 | L | exp | mant | hcnt |	ADV (array dope vector)
+
+The 'L' bit is used as the 'last' bit during marking.
+
+Rest of objects:
+	VEC - header is followed by size descriptors.
+	BVEC - header followed by (size+3)/4 longwords, of which only
+		first size bytes are used; all contents are ignored.
+	CELL - header is followed by one descriptor
+	ADV - header is followed by 4 longwords, of this format:
+			low
+			size
+			ref+4*lcnt
+			lcnt
+		where low and size are the real low and size;
+		ref is the address of the real part VEC;
+		lcnt-1 is the number of unused real part slots before
+		the first element of the array;
+		hcnt-1 is the number (mod 2^16) of unused real part slots
+		beyond the last element of the array;
+		the absolute value of the predicted size is mant*(2^exp).
+
+	Only words of value 0 may occur	between objects in the heap.
+
+State of Objects During Marking
+
+	  1   1   1   1     10     18
+	| 1 | 0 | 0 | L | 0...0 | size |	VEC (recursive addr: 00)
+
+	  1   1   1   1     14     14
+	| 1 | 0 | 0 | L | 0...0 | tag |		CELL (recursive addr: 11)
+
+	  1   1   1   1    4     8      16
+	| 1 | 0 | 0 | L | exp | mant | hcnt |	ADV (recursive addr: 01)
+
+The 'L' bit is still the 'last' bit.
+
+Note that there is no 'during' for BVECS, since they contain no references.
+
+As  marking  proceeds,  the  address  of  the current slot being marked from is
+stored (when the algorithm recurses) with the low  2  bits  modified  as  shown
+above.   These  bits are used to determine what kind of object was being marked
+when popping back out of recursive marks.  VECs are marked from the end  toward
+the  header;  the  header  is  recognized by the high 2 bits being 10, which is
+otherwise illegal.
+
+State of Objects After Marking
+
+	  1   1   1   1     10     18
+	| 1 | 1 | 0 | 0 | chain | size |			VEC
+
+	  1   1   1   1     10     2    16
+	| 1 | 1 | 1 | 0 | chain | 00 | size |			BVEC
+
+	  1   1   1   1     10     4      14
+	| 1 | 1 | 0 | 1 | chain | 0000 | tag |			CELL
+
+	  1   1   1   1     10       6      4     8
+	| 1 | 1 | 1 | 1 | chain | 000110 | exp | mant |		ADV
+
+The chain field stores either  a  zero  (no  chain)  or  a  positive  delta  in
+longwords to the next object in the chain at a lower address.
+
+Note about arrays:
+
+	Another  function  of  the marking phase of the garbage collector is to
+trim the unused portions of real parts of arrays.  This  is  the  only  way  in
+which  arrays  are reduced in size by the system automatically (except possibly
+in array$trim).  However, trimming should  not  be  done  in  certain  critical
+sections;  these  sections  always  disable  all  array trimming by the garbage
+collector.  Additionally, trimming of any particular array is suppressed if its
+real  part  is  marked  before  its dope vector.  The real part might be marked
+first if a reference to it remains in a register.  For the current algorithm to
+work,  marked real parts must not be trimmed, for a variety of reasons, such as
+the fact that it could screw up the object chains, etc.   The  details  of  the
+trimming  algorithm  are  not  of  spectacular  interest  here;  see  the code.
+However, it should be noted that the location of the start of the real part  of
+an array cannot be changed, since there may be other references to it somewhere
+that will not be handled correctly if the header is moved.  Hence  trimming  is
+restricted  to  shuffling  items within the existing real part, and to changing
+the length of the real part.  Note also that the format  of  ADV's  is  changed
+from  the  usual  during  the  mark  phase:  the  address into the real part is
+replaced by a REF to the real part header.
+
+Phase 2 Algorithm:
+
+	The second phase assigns new addresses to every  object,  and  replaces
+the  object  chains  produced  by  marking  with a single one where the largest
+possible contiguous blocks are those that are chained.  Address assignment  and
+chain  conversion proceed from high addresses to low.  Suppose we follow a back
+pointer (or a pointer from the chain table)  to  some  object.   We  then  scan
+forward until we find an unmarked object or the object that pointed back to the
+one we are working on.  (The breaks in the object chain introduced by splitting
+the chain into many sub-chains require a slight amount of care, but are not too
+bothersome.)  As we scan forward for the last object in a  group,  we  set  the
+right  half  of  the header of each object to point back to the previous object
+(actually a positive delta is stored).   After  finding  the  last  object,  we
+follow  the chain back, converting each object header to encode the new address
+of the object.  Address assignment must be done in this  order.   We  can  then
+proceed to follow the object chain back and process another group.
+	Whenever we find the end of a contiguous block of objects, we  put  the
+block  onto  the new chain.  This new chain has the property that the word just
+after a block of used objects points to the start of the next  lower  block  of
+contiguous objects.  Here is a picure; addresses increase to the right:
+
+	 ________________________	 ___________________
+	\|/			|	\|/
+	| used | unused	| used | unused | used | unused
+    <------------|	  ^----------------------|
+
+All pointers go from right to left in the above picture.
+
+Formats of marked objects after address assignment scan:
+
+	  1   1   1     11     18
+	| 1 | 1 | F | delta | size |				VEC
+
+	  1   1   1     11     2    16
+	| 1 | 0 | F | delta | 00 | size |			BVEC
+
+	  1   1   1     11     4      14
+	| 1 | 0 | F | delta | 1000 | tag |			CELL
+
+	  1   1   1     11       6      4     8
+	| 1 | 0 | F | delta | 110110 | exp | mant |		ADV
+
+The delta is the offset in longwords to the new address of the object.  If  the
+offset  is  too  bit  to fit in 11 bits, the 'F' ('far') bit is turned on and a
+chain group offset is subtracted off (to be  later  added  in  when  relocating
+addresses).   The  'F'  bit  is actually included as the high bit of the delta.
+For the first 'far' object encountered in a group, its 'F' bit  turned  on  and
+the  rest  of the delta set to zero, and the group offset set accordingly.  The
+chain group table is reused to hold such offsets.
+
+Relocation processes all roots and all marked objects, setting  all  REFs  that
+are  into  the  heap  to their new values.  The marked objects are processed by
+using the chain built in the previous  pass  the  find  each  block  of  marked
+objects  (from high addresses to low), and then each block is scanned (from low
+to high).  During this phase, as ADVs are encountered, the REF to the real part
+is  turned back to an address into the real part; a new hcnt is calculated, and
+its high byte is stored in the high byte of the lcnt longword, and its low byte
+is store in the high byte of the size longword.
+
+Compaction  returns  objects  to original format and moves objects to their new
+addresses.  The blocks of used words are processed one  at  a  time,  in  chain
+order  (high  addresses to low).  Each block is scanned from low to high to fix
+header words, and then shifted upwards to its new  home.   Thus,  the  heap  is
+compacted toward high addresses.
+
+After compaction, the unused portion of the heap is zeroed.  (It would be  nice
+if  Unix  allowed  any  completely unused heap pages to be freed, reducing swap
+space.)

@@ -1,0 +1,13 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+_Setup_Pipes = proc () returns (bool);
+    JCL: string := Get_JCL();
+    if (string$IndexS("#SUBPROC ", JCL) = 1)
+       then JCL := string$Rest(JCL, 10);
+	    I: int := string$IndexC(' ', JCL);
+	    return(_Setup_Pipes_(int$Parse(string$SubStr(JCL, 1, I - 1)),
+				 int$Parse(string$Rest(JCL, I + 1))));
+       end except when Bad_Format, OverFlow, Negative_Size:
+		  end;
+    return(false);
+    end _Setup_Pipes;

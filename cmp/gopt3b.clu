@@ -1,0 +1,987 @@
+%       GOPT3B  CLU
+% Copyright Massachusetts Institute of Technology 1985,, 1989
+%       CLU Compiler Version 3: arglist optimizations
+
+% April 1988:  g_byte_ea modified to mask displacemnt field of "disp"
+%	       to 8 bits when adding 3.  PRJ
+% May 1988:	g_byte_ea corrected to only do the above in index_ mode. PRJ
+
+# extend
+
+%%% Generate/simplify three arguments for a function. The first arg goes to
+%%% an address register; the second arg goes to a data register, the
+%%% third arg is simplified to an expr/locate pair (areg preferred).
+g_triple = proc (e: g_env, args: exprlist) returns (int, int, expr, locate)
+    x: expr := g_strip (exprlist$bottom(args))
+    xlev: int := g_is_hard (x)
+    y: expr := g_strip (args[2])
+    ylev: int := g_is_hard (y)
+    z: expr := g_strip (exprlist$top(args))
+    zlev: int := g_is_hard(z)
+    xreg, yreg: int
+    zsrc: locate
+    me: g_menv := e.menv
+    regs: reglist := me.state
+
+    if zlev >= _medium
+       then if ylev >= _border
+               then if xlev >= _border
+	               then g_expr (e, x, locate$make_tos(nil))
+		            g_expr (e, y, locate$make_tos(nil))
+			    if zlev >= _hard
+			       then zsrc := locate$make_areg(_RR)
+			            g_expr (e, z, zsrc)
+			       else zsrc := g_smexpr (e, z, want_areg)
+			       end
+                            yreg := g_select_reg (regs, -1, g_get_reg(zsrc),
+			                          want_dreg)
+			    g_move (e, _pincr_SP, _pincr_SP, 0, yreg, 0)
+			    xreg := g_select_reg (regs, g_get_reg(zsrc), yreg,
+			                          want_areg)
+		            g_move (e, _pincr_SP, _pincr_SP, 0, xreg, 0)
+                       else g_expr (e, y, locate$make_tos(nil))
+		            if zlev >= _hard
+			       then zsrc := locate$make_areg(_RR)
+			            g_expr (e, z, zsrc)
+                               else zsrc := g_smexpr (e, z, want_areg)
+                               end
+	        	    yreg := g_select_reg(regs,-1,g_get_reg(zsrc),
+			                         want_dreg)
+        		    g_move (e, _pincr_SP, _pincr_SP, 0, yreg, 0)
+	        	    xreg := g_rzexpr(e,x,yreg,g_get_reg(zsrc),
+			                     want_areg)
+		       end
+	     elseif xlev >= _border
+	       then g_expr (e, x, locate$make_tos(nil))
+	            if zlev >= _hard
+		       then zsrc := locate$make_areg (_RR)
+		            g_expr (e, z, zsrc)
+		       else zsrc := g_smexpr (e, z, want_areg)
+                       end
+                    yreg := g_rzexpr (e, y, -1, g_get_reg(zsrc), want_dreg)
+                    xreg := g_select_reg(regs,g_get_reg(zsrc),yreg,want_areg)
+                    g_move (e, _pincr_SP, _pincr_SP, 0, xreg, 0)
+	     else if zlev >= _hard
+		     then zsrc := locate$make_areg (_RR)
+			  g_expr (e, z, zsrc)
+		     else zsrc := g_smexpr (e, z, want_areg)
+		     end
+		  xreg := g_rzexpr (e, x, -1, g_get_reg(zsrc), want_areg)
+		  yreg := g_rzexpr (e, y, g_get_reg (zsrc), xreg, want_dreg)
+	     end
+     elseif ylev >= _medium
+       then if xlev >= _border
+	       then g_expr (e, x, locate$make_tos(nil))
+	            yreg := g_rexpr (e, y, want_dreg)
+		    zsrc := g_szexpr (e, z, -1, yreg, want_areg)
+	            xreg := g_select_reg(regs,yreg,g_get_reg(zsrc),want_areg)
+		    g_move (e, _pincr_SP, _pincr_SP, 0, xreg, 0)
+	       else yreg := g_rexpr (e, y, want_dreg)
+	            xreg := g_rzexpr (e, x, -1, yreg, want_areg)
+		    zsrc := g_szexpr (e, z, yreg, xreg, want_areg)
+               end
+     else xreg := g_rexpr (e, x, want_areg)
+          yreg := g_rzexpr (e, y, xreg, -1, want_dreg)
+          zsrc := g_szexpr (e, z, xreg, yreg, want_areg)
+     end
+
+    return (xreg, yreg, z, zsrc)
+    end g_triple
+
+%%% Generate the first two argument expressions into registers of type
+%%% regtype
+g_rrpair = proc (e: g_env, args: exprlist, rt1, rt2: int) returns (int, int)
+    x: expr, xsrc: locate, y: expr, ysrc: locate := g_sspair (e, args, rt1)
+    xreg: int := g_regmove (e, x, xsrc, -1, g_get_reg(ysrc), rt1)
+    yreg: int := g_regmove (e, y, ysrc, -1, xreg, rt2)
+    return (xreg, yreg)
+    end g_rrpair
+
+%%% Simplify the first argument and generate the second into a register.
+g_srpair = proc (e: g_env, args: exprlist, regtype: int) 
+	     returns (expr, locate, int)
+    x: expr, xsrc: locate, y: expr, ysrc: locate := g_sspair (e, args, regtype)
+    yreg: int := g_regmove (e, y, ysrc, -1, g_get_reg(xsrc), regtype)
+    return (x, xsrc, yreg)
+    end g_srpair
+
+%%% Simplify the second argument and generate the first into a register.
+g_rspair = proc (e: g_env, args: exprlist, regtype: int) 
+	     returns (int, expr, locate)
+    x: expr, xsrc: locate, y: expr, ysrc: locate := g_sspair (e, args, regtype)
+    xreg: int := g_regmove (e, x, xsrc, -1, g_get_reg(ysrc), regtype)
+    return (xreg, y, ysrc)
+    end g_rspair
+
+%%% Simplify a pair of expressions.
+g_sspair = proc (e: g_env, args: exprlist, regtype: int)
+	     returns (expr, locate, expr, locate)
+    x: expr := g_strip (exprlist$bottom(args))
+    xlev: int := g_is_hard (x)
+    y: expr := g_strip (exprlist$top(args))
+    ylev: int := g_is_hard (y)
+    xsrc, ysrc: locate
+    regs: reglist := e.menv.state
+    hardreg: int
+
+    % Decide what register we want to generate to if either expression
+    % is _hard.
+    if regtype = want_dreg
+       then hardreg := _datad_N1
+       else hardreg := _addrd_RR
+       end
+    hardsrc: locate := reglocs[hardreg]
+    if ylev >= _hard
+       then ysrc := hardsrc
+            if xlev >= _border
+	       then xsrc := locate$make_tos(nil)
+	            g_expr (e, x, xsrc)
+		    g_expr (e, y, ysrc)
+	       else g_expr (e, y, ysrc)
+	            xsrc := g_szexpr (e, x, -1, hardreg, regtype)
+               end
+     elseif  ylev >= _medium
+       then if xlev >= _border
+               then xsrc := locate$make_tos(nil)
+	            g_expr (e, x, xsrc)
+		    ysrc := g_smexpr (e, y, regtype)
+               else ysrc := g_smexpr (e, y, regtype)
+	            xsrc := g_szexpr (e, x, -1, g_get_reg(ysrc), regtype)
+	       end
+     elseif  xlev >= _hard
+       then xsrc := hardsrc
+            g_expr (e, x, xsrc)
+	    ysrc := g_szexpr (e, y, -1, hardreg, regtype)
+     elseif  xlev >= _medium
+       then xsrc := g_smexpr (e, x, regtype)
+            ysrc := g_szexpr (e, y, -1, g_get_reg(xsrc), regtype)
+     else    xsrc := g_szexpr (e, x, -1, -1, regtype)
+	     ysrc := g_szexpr (e, y, -1, g_get_reg(xsrc), regtype)
+     end
+
+    return (x, xsrc, y, ysrc)
+    end g_sspair
+
+%%% Generate the expression into a register.
+g_rexpr = proc (e: g_env, x: expr, regtype: int) returns (int)
+    src: locate
+    x, src := g_sexpr (e, x, regtype)
+    return (g_regmove (e, x, src, -1, -1, regtype))
+    end g_rexpr
+
+%%% Generate the given expression into a register. In particular, if the given
+%%% destination locate is a register of the correct type, use that (if it
+%%% convenient to do so).
+g_rexpr_dst = proc (e: g_env, x: expr, dst: locate, regtype: int) returns (int)
+    src: locate
+    regs: reglist := e.menv.state
+    x := g_strip (x)
+    lev: int := g_is_hard (x)
+    if lev >= _hard
+       then reg: int
+            if locate$is_dreg(dst) 
+		 cand (regtype = want_dreg cor regtype = want_any)
+		 cor locate$is_areg(dst)
+		       cand (regtype = want_areg cor regtype = want_any)
+               then reg := g_get_reg (dst)
+               else reg := g_select_reg (regs, -1, -1, regtype)
+	       end
+            g_expr (e, x, reglocs[reg])
+	    return (reg)
+     elseif lev >= _medium
+       then src := g_smexpr (e, x, regtype)
+     else    src := g_szexpr (e, x, -1, -1, regtype)
+     end
+    return (g_regmove_dst (e, x, src, dst, -1, -1, regtype))
+    end g_rexpr_dst
+
+%%% Generate the given _simple expression into a register, perserving registers
+%%% reg1 and reg2.
+g_rzexpr = proc (e: g_env, x: expr, reg1, reg2, regtype: int) returns (int)
+    src: locate := g_szexpr (e, x, reg1, reg2, regtype)
+    return (g_regmove (e, x, src, reg1, reg2, regtype))
+    end g_rzexpr
+
+%%% Simplify the given expression. If a register is required, choose
+%%% one of the specified type.
+g_sexpr = proc (e: g_env, x: expr, regtype: int) returns (expr, locate)
+    x := g_strip(x)
+    lev: int := g_is_hard(x)
+    src: locate
+    if lev >= _hard
+       then if regtype = want_dreg
+               then src := reglocs[_datad_N1]
+               else src := reglocs[_addrd_RR]
+               end
+            g_expr(e, x, src)
+     elseif lev >= _medium
+       then src := g_smexpr(e, x, regtype)
+     else src := g_szexpr(e, x, -1, -1, regtype)
+     end
+    return(x, src)
+    end g_sexpr
+
+%%% Simplify the given _simple expressions, preserving the registers reg1 and
+%%% reg2. The regtype argument is not currently used.
+g_szexpr = proc (e: g_env, x: expr, reg1, reg2, regtype: int) returns (locate)
+    tagcase x.abs
+       tag idn (id: idn):
+	   src: locate := id.val
+	   found: bool, reg: int := g_find_idn(e.menv.state, src)
+	   if found
+	      then src := reglocs[reg] end
+	   return(src)
+       tag invoke (inv: invoke):
+	   y: expr := exprlist$bottom(inv.args)
+	   cop: clusterop := exprabs$value_op(inv.apply.abs)
+	   tagcase cop.type_.abs
+	      tag cluster_ (clut: clutype):
+		  areg: int := g_rzexpr(e, g_strip(y), reg1, reg2, want_areg)
+		  aregn: int := areg//_addrd
+		  if str$indexs("low", cop.name) > 0
+		     then return(locate$make_disp(regdisp${reg:  aregn,
+							   disp: _dv_low}))
+		     end
+		  n: str := clut.gen.unique
+		  if n = "string"  cor  n = "_bytevec"
+		     then return(locate$make_disp(regdisp${reg:  aregn,
+							   disp: 0}))
+		     end
+		  me: g_menv := e.menv
+		  regs: reglist := me.state
+		  dreg: int := g_select_reg (regs, reg1, reg2, want_dreg)
+		  if n = "array"  cor  n = "_adv"
+		     then ainst(me, MOVE, dreg, _idisp + aregn)
+			  immed(me, _dv_max)
+			  if cop.name = "high"
+			     then ainst(me, ADD, dreg, _idisp + aregn)
+				  immed(me, _dv_low)
+			     else ainst(me, ADDQ, 3, dreg)
+			     end
+			  % sequence$size
+		     else ainst(me, MOVE, dreg, _indir + aregn)
+			  ainst(me, ASR, 1, dreg)
+		     end
+		  regs[dreg] := locate$make_a(nil)
+		  return(locate$make_dreg(dreg))
+	      others:
+		  if str$indexs("get_", cop.name) = 1
+		     then reg: int := g_rzexpr(e, g_strip(y), reg1, reg2,
+					       want_areg)
+			  disp: int := 4 * g_sel(str$rest(cop.name, 5),
+						 typeabs$value_select
+						     (cop.type_.abs).parms)
+			  return(locate$make_disp(regdisp${reg:  reg//_addrd,
+							   disp: disp}))
+		     end
+	      end
+       others:
+       end
+    return(locate$make_a(nil))
+    end g_szexpr
+
+%%% Simplify a _medium expression.
+g_smexpr = proc (e: g_env, x:expr, regtype: int) returns (locate)
+    inv: invoke := exprabs$value_invoke (x.abs)
+    args: exprlist := inv.args
+    cop: clusterop := exprabs$value_op (inv.apply.abs)
+    me: g_menv := e.menv
+    regs: reglist := me.state
+
+    tagcase cop.type_.abs
+       tag cluster_ (clut: clutype):
+	   n: str := clut.gen.unique
+	   op: str := cop.name
+
+	   if op = "fetch"
+	      then areg, dreg, disp: int
+		   % setup address and index register for array or
+		   % sequence fetch.
+		   if n = "array"
+		      then areg, dreg, disp := g_array_fetch (e, args)
+		      else areg, dreg, disp := g_seq_fetch (e, args)
+		      end
+		   disp := g_get_index_word (me, dreg, _long, disp)
+		   return (locate$make_index
+			       (regdisp${reg: areg//_addrd, disp: disp}))
+	      end
+
+	   x := exprlist$bottom (args)
+	   if op = "size"
+	      then if n = "array"
+		      then % generate  movea   dv%max(areg), areg
+			   %           addq    3, areg
+			   % and return areg.
+			   areg: int := g_rexpr (e, x, want_areg)
+			   ainst(me,MOVEA,areg//_addrd,areg+(_idisp-_addrd))
+			   immed (me, _dv_max)
+			   ainst (me, ADDQ, 3, areg)
+			   g_unslave_reg (regs, areg)
+			   return (locate$make_areg(areg//_addrd))
+
+                    elseif n = "string" cor n = "bytevec"
+		      then % generate  sreg := src
+			   % and return  (sreg)
+			   sreg: int := g_rexpr (e, x, want_areg)
+			   return (locate$make_disp
+				       (regdisp${reg: sreg//_addrd,
+						 disp: 0}))
+		    else    % sequence or vec:
+			 % generate  areg := src
+			 %           move    (areg), dreg
+			 %           asr     1, dreg
+			 % and return dreg
+			 areg: int := g_rexpr (e, x, want_areg)
+			 dreg: int := g_select_reg (regs,areg,-1,want_dreg)
+			 ainst (me, MOVE, dreg, areg + (_indir-_addrd))
+			 ainst (me, ASR, 1, dreg)
+			 g_unslave_reg (regs, dreg)
+			 return (locate$make_dreg(dreg))
+		    end
+	      end
+	   if op = "low" cor op = "get_low"
+	      then % generate  areg := src
+		   % and return _dv_low(areg)
+		   areg: int := g_rexpr (e, x, want_areg)
+		   return (locate$make_disp
+			       (regdisp${reg: areg//_addrd, disp: _dv_low}))
+            elseif op = "high"
+	      then % generate  areg := src
+		   %           move    _dv_low(areg), dreg
+		   %           add     _dv_max(areg), dreg
+		   % and return dreg
+		   areg: int := g_rexpr (e, x, want_areg)
+		   dreg: int := g_select_reg (regs, areg, -1, want_dreg)
+		   ainst (me, MOVE, dreg, areg + (_idisp-_addrd))
+		   immed (me, _dv_low)
+		   ainst (me, ADD, dreg, areg + (_idisp-_addrd))
+		   immed (me, _dv_max)
+		   g_unslave_reg (regs, dreg)
+		   return (locate$make_dreg (dreg))
+
+	    elseif op = "get_size"
+	      then % generate  areg := src
+		   %           move    _dv_max(areg), areg
+		   %           addq    3, areg
+		   % and return areg
+		   areg: int := g_rexpr (e, x, want_areg)
+		   ainst (me, MOVEA, areg//_addrd, areg + (_idisp-_addrd))
+		   immed (me, _dv_max)
+		   ainst (me, ADDQ, 3, areg)
+		   g_unslave_reg (regs, areg)
+		   return (locate$make_areg(areg//_addrd))
+
+            elseif op = "get_start"
+	      then % generate  areg := src
+		   %           move    _dv_lcnt(areg), dreg
+		   %           addq    3, dreg
+		   %           asr     1, dreg
+		   % and return dreg
+		   areg: int := g_rexpr (e, x, want_areg)
+		   dreg: int := g_select_reg (regs, areg, -1, want_dreg)
+		   ainst (me, MOVE, dreg, areg + (_idisp-_addrd))
+		   immed (me, _dv_lcnt)
+		   ainst (me, ADDQ, 3, dreg)
+		   ainst (me, ASR, 1, dreg)
+		   g_unslave_reg (regs, dreg)
+		   return (locate$make_dreg(dreg))
+            end
+
+	   if n = "array"
+	      then if op = "bottom"
+		      then % generate  areg := src
+			   %           tstb    _dv_max(areg)
+			   %           blt     bounds
+			   %           movea   _dv_rel(areg), areg
+			   % and return 1(areg)
+			   areg: int := g_rexpr (e, x, want_areg)
+			   xinst (me, TSTB, areg + (_idisp-_addrd))
+			   immed (me, _dv_max)
+			   g_bounds (e, BLT)
+			   ainst(me,MOVEA,areg//_addrd,areg+(_idisp-_addrd))
+			   immed (me, _dv_rel)
+			   g_unslave_reg (regs, areg)
+			   return (locate$make_disp
+				       (regdisp${reg: areg//_addrd, disp: 1}))
+		      end
+		   % array$top
+		   % generate  areg := src
+		   %           move    _dv_max(areg), dreg
+		   %           blt     bounds
+		   %           add     dreg, dreg
+		   %           movea   _dv_rel(areg), areg
+		   % and return 1(areg, dreg)
+		   areg: int := g_rexpr (e, x, want_areg)
+		   dreg: int := g_select_reg (regs, areg, -1, want_dreg)
+		   ainst (me, MOVE, dreg, areg + (_idisp-_addrd))
+		   immed (me, _dv_max)
+		   g_bounds (e, BLT)
+		   ainst (me, ADD, dreg, dreg)
+		   ainst (me, MOVEA, areg//_addrd, areg + (_idisp-_addrd))
+		   immed (me, _dv_rel)
+		   g_unslave_reg (regs, dreg)
+		   g_unslave_reg (regs, areg)
+		   return (locate$make_index
+			       (regdisp${reg: areg//_addrd,
+					 disp: g_get_index_word(me, dreg,
+								_long, 1)}))
+	      end
+
+	   if op = "bottom"
+	      then % sequence$bottom
+		   % generate  areg := src
+		   %           moveq   2, n7
+		   %           cmp     (areg), n7
+		   %           beq     bounds
+		   % and return 4(areg)
+		   areg: int := g_rexpr (e, x, want_areg)
+		   ainst (me, MOVEQ, _N7, 2)
+		   ainst (me, CMP, _N7, areg + (_indir-_addrd))
+		   g_bounds (e, BEQ)
+		   return (locate$make_disp
+			       (regdisp${reg: areg//_addrd, disp: 4}))
+	      end
+	   % sequence$top
+	   % generate  areg := src
+	   %           move    (areg), dreg
+	   %           subq    2, dreg
+	   %           beq     bounds
+	   % and return  (areg, dreg)
+	   areg: int := g_rexpr (e, x, want_areg)
+	   dreg: int := g_select_reg (regs, areg, -1, want_dreg)
+	   ainst (me, MOVE, dreg, areg + (_indir-_addrd))
+	   ainst (me, SUBQ, 2, dreg)
+	   g_bounds (e, BEQ)
+	   return (locate$make_index
+		       (regdisp${reg: areg//_addrd,
+				 disp: g_get_index_word(me, dreg, _long, 0)}))
+
+       tag select (selt: seltype):
+	   % get_Ni
+	   % generate  areg := src
+	   % and return off(areg)
+	   areg: int := g_rexpr (e, exprlist$bottom(args), want_areg)
+	   return (locate$make_disp
+		       (regdisp${reg: areg//_addrd,
+				 disp: 4 * g_sel (str$rest(cop.name, 5),
+						  selt.parms)}))
+       others:
+       end
+    end g_smexpr
+
+
+%%% Return any register in use by the locate. If the locate is an index,
+%%% the two registers used by it are encoded, with the address register in the
+%%% low 16 bits of the result and the index register in the high 16 bits.
+%%% (This is a major hack!)
+g_get_reg = proc (src: locate) returns (int)
+    tagcase src
+       tag  areg (areg: int):
+	   return (areg + _addrd)
+       tag  dreg (dreg: int):
+	   return (dreg)
+       tag  disp (rd: regdisp):
+	   return (rd.reg + _addrd)
+       tag  index (rd: regdisp):                    % UGH! Hack!
+	   return (rd.reg + _addrd + (0200000 * g_get_idx_reg(rd)))
+       others:
+	   return (-1)
+       end
+    end g_get_reg
+
+%%% Return the index register used in an index locate in _addrd or
+%%% _datad format.
+g_get_idx_reg = proc (rd: regdisp) returns (int)
+    iword: int := rd.disp
+    return (i_get(iword, 14, 3) + 010 * i_get(iword, 15, 1))
+    end g_get_idx_reg
+
+%%% rp1 and rp2 are encoded register pairs in _addrd format (results from
+%%% g_get_reg) reg is a register number in _addrd format. Returns true
+%%% if reg is a register in rp1 or rp2.
+g_reg_conflict = proc (rp1, rp2, reg: int) returns (bool)
+    return (rp1//0200000 = reg cor rp1/0200000 = reg cor
+	    rp2//0200000 = reg cor rp2/0200000 = reg)
+    end g_reg_conflict
+
+%%% Move the simplified expr/locate into a register, preserving the registers
+%%% reg1 and reg2. The move is only carried out if the locate is not already in
+%%% an appropriate register.
+g_regmove = proc (e: g_env, x: expr, src: locate, reg1, reg2, regtype: int)
+	      returns (int)
+    regs: reglist := e.menv.state
+    nreg: int
+    if locate$is_dreg(src) 
+	 cand (regtype = want_dreg cor regtype = want_any)
+	 cor  locate$is_areg(src)
+		cand (regtype = want_areg cor regtype = want_any)
+       then nreg := g_get_reg (src)
+            if ~g_reg_conflict (reg1, reg2, nreg)
+	       then return (nreg)
+	       end
+       end
+
+    if ~locate$is_a (src) cand ~locate$is_areg (src) cand ~locate$is_dreg (src)
+       then found: bool
+            found, nreg := g_find_idn (regs, src)
+            if found cand
+	       (regtype = want_any  cor
+		nreg >= _addrd_RR cand regtype = want_areg  cor
+		nreg < _addrd_RR cand regtype = want_dreg)   cand
+               ~g_reg_conflict(reg1, reg2, nreg)
+	       then return (nreg)
+               end
+       end
+
+    nreg := g_select_reg (regs, reg1, reg2, regtype)
+    g_move_loc (e, reglocs[nreg], x, src)
+    tagcase src
+       tag disp, index, tos:
+	   regs[nreg] := locate$make_a(nil)
+       others:
+	   if nreg ~= _datad_N7 then regs[nreg] := src end
+       end
+    return (nreg)
+    end g_regmove
+
+
+%%% Like g_regmove() except that if a register needs to be chosen and
+%%% dst is a register of the specified type then it is used.
+g_regmove_dst = proc (e: g_env, x: expr, src, dst: locate, 
+                      reg1, reg2, regtype: int)  returns (int)
+    regs: reglist := e.menv.state
+    nreg: int :=  -1
+
+    if locate$is_dreg(src) cand (regtype = want_dreg cor regtype = want_any) 
+	 cor
+       locate$is_areg(src) cand (regtype = want_areg cor regtype = want_any)
+       then nreg := g_get_reg (src)
+            if ~g_reg_conflict (reg1, reg2, nreg)
+	       then return (nreg)
+	       else nreg := -1
+	       end
+       end
+    
+    if ~locate$is_a (src) cand ~locate$is_areg (src) cand ~locate$is_dreg (src)
+       then found: bool
+	    found, nreg := g_find_idn (regs, src)
+	    if found cand  
+	       (regtype = want_any  cor
+	        nreg >= _addrd_RR cand regtype = want_areg  cor
+		nreg < _addrd_RR cand regtype = want_dreg)  cand
+	       ~g_reg_conflict(reg1, reg2, nreg)
+	       then return (nreg)
+	       else nreg := -1
+               end
+       end
+
+    if locate$is_dreg(dst) cand (regtype = want_dreg cor regtype = want_any) 
+	 cor
+       locate$is_areg(dst) cand (regtype = want_areg cor regtype = want_any)
+       then nreg := g_get_reg(dst)
+            if g_reg_conflict (reg1, reg2, nreg)
+	       then nreg := -1
+	       end
+       end
+
+    if nreg = -1
+       then nreg := g_select_reg (regs, reg1, reg2, regtype)
+       end
+    g_move_loc (e, reglocs[nreg], x, src)
+    tagcase src
+       tag disp, index, tos:
+	   regs[nreg] := locate$make_a(nil)
+       others:
+	   if nreg ~= _datad_N7 then regs[nreg] := src end
+       end
+    return (nreg)
+    end g_regmove_dst
+
+%%% Return the given expression striped of invocations of
+%%% "_cvt", "up", and "down" (which have no effect computationally).
+g_strip = proc (x: expr) returns (expr)
+    while true do
+	tagcase x.abs
+	   tag up_, down_ (xx: expr):
+	       x := xx
+	   tag invoke (inv: invoke):
+	       if exprlist$size(inv.args) = 1
+		  then clut: clutype := exprabs$value_apply(inv.apply.abs)
+		       if ~exprlist$empty(clut.parms) cand
+			  clut.gen.unique = "_cvt"
+			  then x := exprlist$bottom(inv.args)
+			       continue
+			  end
+		  end
+		  except when wrong_tag: end
+	   others:
+	   end
+	return(x)
+	end
+    end g_strip
+
+g_is_hard = proc (x: expr) returns (int)
+    tagcase x.abs
+       tag idn (id: idn):
+	   tagcase id.val
+	      tag var, cparm, rparm:
+		  return(_simple)
+	      others:
+		  return(_border)
+	      end
+
+       tag int_, bool_, char_, null_, real_, str, apply, op:
+	   return(_simple)
+
+       tag a_cons, s_cons:
+	   if is_const_expr(x)
+	      then return(_simple) end
+
+       tag invoke (inv: invoke):
+	   cop: clusterop := exprabs$value_op(inv.apply.abs)
+	   arg1: expr := exprlist$bottom(inv.args)
+	      except when bounds: end
+
+	   tagcase cop.type_.abs
+	      tag cluster_ (clut: clutype):
+		  n: str := clut.gen.unique
+		  if exprlist$size(clut.parms) = 1
+		     then if n = "array"
+			     then n := cop.name
+				  if n="fetch " cor n="top" cor n="bottom"
+				     then return(_medium)
+				   elseif n="size" cor n="low" cor n="high"
+				     then if g_is_hard(arg1) >= _medium
+					     then return (_medium)
+					     else return (_border)
+					     end
+				   end
+			   elseif n = "sequence"
+			     then n := cop.name
+				  if n="fetch" cor n="top" cor n="bottom"
+				     then return(_medium)
+				   elseif n = "size"
+				     then return(int$min(_medium,
+							 g_is_hard(arg1)))
+				   end
+			   elseif n = "_vec"
+			     then n := cop.name
+				  if n = "fetch"
+				     then return(_medium)
+				   elseif n = "size"
+				     then if g_is_hard(arg1) >= _medium
+					     then return(_medium)
+					     else return(_border)
+					     end
+				   end
+			   elseif n = "_adv"
+			     then n := cop.name
+				  if n = "get_start"
+				     then return(_medium)
+				   elseif n = "get_size"  cor n = "get_low"
+				     then if g_is_hard(arg1) >= _medium
+					     then return(_medium)
+					     else return(_border)
+					     end
+				   end
+			   end
+		   elseif n = "string"  cor  n = "_bytevec"
+		     then if cop.name = "size"
+			     then return(int$min(_medium,g_is_hard(arg1)))
+			     end
+		   end
+
+	      tag select (selt: seltype):
+		  n: str := selt.gen.unique
+		  if n = "record"
+		     then if str$indexs("get_", cop.name) = 1
+			     then if g_is_hard(arg1) >= _medium
+				     then return (_medium)
+				     else return (_border)
+				     end
+			     end
+		   elseif n = "struct"
+		     then if str$indexs("get_", cop.name) = 1
+			     then return(int$min(_medium,g_is_hard(arg1)))
+			     end
+		   elseif n = "oneof" cand str$indexs("make_", cop.name) = 1
+			    cand  is_const_expr(arg1)
+		     then return(_simple)
+		   end
+
+	      others:
+	      end
+
+       others:
+       end
+       except when wrong_tag: end
+
+    return(_hard)
+    end g_is_hard
+
+%%% True if the given expression is an int, bool, char, null, real, string,
+%%% application or cluster operation.
+g_is_literal = proc (x: expr) returns (bool)
+    tagcase x.abs
+       tag int_, bool_, char_, null_, real_, str, apply, op:
+	   return(true)
+       others:
+	   return(false)
+       end
+    end g_is_literal
+
+
+%%% Find a (preferably free) register of the given type which is neither
+%%% reg1 nor reg2.
+g_select_reg = proc (regs: reglist, reg1, reg2, regtype: int) returns (int)
+    first, last: int
+    if regtype = want_areg
+       then first, last := _addrd_RR, _addrd_R2
+       else first, last := _datad_N1, _datad_N6
+       end
+    for i: int in int$from_to_by (last, first, -1) do
+        if locate$is_a(regs[i]) cand ~g_reg_conflict(reg1, reg2, i)
+           then return (i)
+           end
+        end
+    for i: int in int$from_to_by (last, first, -1) do
+        if ~g_reg_conflict (reg1, reg2, i)
+	   then return (i)
+           end
+        end
+    end g_select_reg
+
+%%% Like g_select_reg() but if dst is a register of the appropriate
+%%% type and is not equal to reg1 or reg2 then it is used.
+g_select_reg_dst = proc (regs: reglist, dst: locate, reg1, reg2, regtype: int)
+		     returns (int)
+    if locate$is_areg(dst)
+	 cand (regtype = want_areg cor regtype = want_any)
+	 cor locate$is_dreg(dst)
+	       cand (regtype = want_dreg cor regtype = want_any)
+       then dreg: int := g_get_reg (dst)
+            if ~g_reg_conflict (reg1, reg2, dreg)
+	       then return (dreg)
+               end
+       end
+    first, last: int
+    if regtype = want_areg
+       then first, last := _addrd_RR, _addrd_R2
+       else first, last := _datad_N1, _datad_N6
+       end
+    for i: int in int$from_to_by (last, first, -1) do
+        if locate$is_a(regs[i]) cand ~g_reg_conflict (reg1, reg2, i)
+           then return (i)
+           end
+        end
+    for i: int in int$from_to_by (last, first, -1) do
+        if ~g_reg_conflict (reg1, reg2, i)
+	   then return (i)
+           end
+        end
+    end g_select_reg_dst
+
+%%% Unbind the register from its current locate.
+g_unslave_reg = proc (regs: reglist, reg: int)
+    regs[reg] := locate$make_a(nil)
+    end g_unslave_reg
+
+%%% Returns effective address for the given simple source locate/expression.
+%%% Results are:
+%%%     6 bit field for effective address field in instruction
+%%%     displacement style to be given to g_disp
+%%%     displacement to be given to g_disp
+g_sea = proc (e: g_env, x: expr, src: locate) returns (int, int, int)
+    tagcase src
+       tag a:
+	   tagcase x.abs
+	      tag null_:
+		  return (_immed, _immed, 0)
+	      tag bool_ (b: bool):
+		  if b
+		     then return (_immed, _immed, 0377)
+		     else return (_immed, _immed, 0)
+		     end
+	      tag int_ (i: int):
+		  return (_immed, _immed, 2*i + 1)
+		     except when overflow: return (_immed, _bigint, i) end
+	      tag char_ (c: char):
+		  return (_immed, _immed, char$c2i(c))
+	      others:
+		  te: g_tenv := e.tenv
+		  val: mref, pflag: int := g_tenv$store_const (te, x)
+		  disp: int
+		  if pflag ~= _plain
+		     then disp := g_tenv$add_puse(te, _use_const, val)
+			  g_pp_set (e.menv, -1, src)
+		     else disp := g_tenv$add_use(te, _use_const, val)
+		     end
+		  return (_immed, _long, disp)
+	      end
+       tag rparm, cparm:
+	   te: g_tenv := e.tenv
+	   val: mref, pflag: int := g_tenv$store_const (te, x)
+	   disp: int := g_tenv$add_puse(te, _use_const, val)
+	   g_pp_set (e.menv, -1, src)
+	   if disp = 0
+	      then return (_indir_PP, _indir_PP, 0)
+	      else return (_idisp_PP, _idisp_PP, 4*disp)
+	      end
+       others:
+	   style, disp: int := g_ea (e, src, TRUE)
+	   return (style, style, disp)
+       end
+    end g_sea
+
+%%% Returns effective address for the given destination locate.
+%%% Results are:
+%%%     A six bit EA field for the instruction which should also be
+%%%         given to g_disp()
+%%%     Displacement to be given to g_disp()
+g_dea = proc (e: g_env, dest: locate) returns (int, int)
+    style, disp: int := g_ea (e, dest, false)
+    return (style, disp)
+    end g_dea
+
+%%% Returns the two components of a 68000 effective address:
+%%%     a six bit "mode+register" style field (in that format), and
+%%%     a displacement whose meaning depends on the styld field.
+%%% Source specifies if the effective address is being read from - this
+%%% is relevant to stack push/pop operations and register state binding.
+g_ea = proc (e: g_env, loc: locate, source: bool) returns (int, int)
+    regs: reglist := e.menv.state
+    if ~source
+       then g_update_state (regs, -1, loc)
+       end
+    tagcase loc
+       tag areg (ar: int):
+	   if ~source
+	      then regs[_addrd + ar] := locate$make_a(nil)
+	      end
+	   return (_addrd + ar, 0)
+       tag dreg (dr: int):
+	   if ~source
+	      then regs[dr] := locate$make_a(nil)
+	      end
+	   return (dr, 0)
+       tag tos:
+	   if source
+	      then return (_pincr_SP, 0)
+	      else return (_pdecr_SP, 0)
+	      end
+       tag disp (rd: regdisp):
+	   if rd.disp = 0
+	      then return (rd.reg + _indir, 0)
+	      else return (rd.reg + _idisp, rd.disp)
+	      end
+       tag index (rd: regdisp):
+	   return (rd.reg + _index, rd.disp)
+       tag var (num: int):
+	   return (_idisp_EP, num)
+       tag rown (num: mref):
+	   disp: int := g_tenv$add_use (e.tenv, _use_rown, num)
+	   return (_long, disp)
+       tag cown (num: mref):
+	   disp: int := g_tenv$add_use (e.tenv, _use_cown, num)
+	   return (_long, disp)
+       tag prown (num: mref):
+	   disp: int := g_tenv$add_puse (e.tenv, _use_rown, num)
+	   return (g_pp_set(e.menv, disp, loc), 0)
+       tag pcown (num: mref):
+	   disp: int := g_tenv$add_puse (e.tenv, _use_cown, num)
+	   return (g_pp_set(e.menv, disp, loc), 0)
+       others:
+	   bug ("unexpected locate to g_sea")
+       end
+    end g_ea
+
+%%% If it is possible to use the EA in a byte instruction (referencing the
+%%% low byte) return the new ea, style, and disp. 
+%%% Signals failure("bad byte ea") otherwise.
+g_byte_ea = proc (ea, style, disp: int) returns (int, int, int)
+    mode: int := ea/010
+    if style = _long cor style = _pincr_SP cor mode = addrd_
+       then bug ("bad byte ea")
+       end
+    if ea = _immed
+       then return (_immed, _short, disp)
+     elseif mode = indir_
+       then ea := ea//010 + _idisp
+            return (ea, ea, disp + 3)
+     elseif mode = idisp_
+       then return (ea, ea, disp + 3)
+     elseif mode = index_
+       then return (ea, ea,
+		    i_xor(disp, disp // 0400) +	% Clear low 8 bits.
+		    ((disp + 3) // 0400))       % Add 3 and mask.
+     else return (ea, style, disp)
+     end
+    end g_byte_ea
+
+%%% Returns true if the style (presumably obtained from g_sea()) indicates an
+%%% EA that could be transformed for use in a byte instruction.
+g_byte_ok = proc (style: int) returns (bool)
+    return (~ (style = _long cor 
+               style = _pincr_SP cor 
+	       style/010 = addrd_))
+    end g_byte_ok
+    
+
+%%% Dump the displacment part of an effective address.
+g_disp = proc (me: g_menv, style, disp: int)
+    if style = _long
+       then udesc(me, disp)
+     elseif style = _immed
+       then immed (me, disp / 0200000)
+            immed (me, disp)
+     elseif style = _bigint
+       then immed (me, disp / 0100000)
+            immed (me, (disp // 0100000) * 2 + 1)
+     elseif disp ~= 0 cor style = _short
+       then immed (me, disp)
+     end
+    end g_disp
+
+g_move_loc = proc (e: g_env, dst: locate, x: expr, xsrc: locate)
+    me: g_menv := e.menv
+    xea, xstyle, xdisp: int := g_sea (e, x, xsrc)
+    if xea = _immed cand xstyle = _long
+       then xstyle := _imuse
+       end
+    g_move_src (e, dst, xstyle, xdisp)
+    end g_move_loc
+
+%%% Dump a move instruction.
+g_move = proc (e: g_env, sea, sstyle, sdisp, dstyle, ddisp: int)
+    me: g_menv := e.menv
+    % Due to the wonders of the 68000, we have to swap the destination style
+    % field.
+    swapped: int := (dstyle / 010) + ((dstyle // 010) * 010)
+    minst (me, MOVE, swapped, sea)
+    g_disp (me, sstyle, sdisp)
+    g_disp (me, dstyle, ddisp)
+    end g_move
+
+%%% Dump the extension word returned by g_get_index_word () with the same args.
+%%% for an EA of the form d(A,I). ireg is the index
+%%% register (in _addrd or _datad form), size is either _long or _word,
+%%% disp is the displacement.
+g_index_word = proc (me: g_menv, ireg, size, disp: int)
+    immed (me, g_get_index_word (me, ireg, size, disp))
+    end g_index_word
+
+%%% Dump the extension word for an EA of the form d(A,I). ireg is the index
+%%% register (in _addrd or _datad form), size is either _long or _word,
+%%% disp is the displacement.
+g_get_index_word = proc (me: g_menv, ireg, size, disp: int) returns (int)
+    addreg: bool := ireg >= _addrd_RR
+    longval: bool := size = _long
+    return(i_set1(i_set1(i_or(i_and(disp,0377),(ireg//_addrd)*010000),15,addreg), 11, longval))
+    end g_get_index_word
+
+
+% For use during development.
+bug = proc (message: string)
+    signal failure ("\noptimization bug - " || message)
+    end bug
+

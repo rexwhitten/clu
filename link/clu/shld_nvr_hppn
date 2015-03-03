@@ -1,0 +1,13 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+Should_Never_Happen = proc [t: type] (Error_S: string, Item: t);
+    Dump_Bug_Info(Error_S);
+    PO: stream := stream$Primary_Output();
+    PI: stream := stream$Primary_Input();
+    while true do
+	stream$PutS(PO, "\nError:   ");
+	stream$PutL(PO, Error_S);
+	stream$Flush(PO);
+	_Exit(1);
+	end;
+    end Should_Never_Happen;

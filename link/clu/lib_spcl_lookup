@@ -1,0 +1,29 @@
+%% Copyright Massachusetts Institute of Technology 1987, 1989
+
+Library_Special_Lookup = proc (Nm_Str: string) returns (string)
+			   signals (cant_find)
+    own Init_It: bool := true
+    own LT: lib_tab
+    if (Init_It)
+       then LT := lib_tab$Create(57, Hash, string$Equal)
+	    Init_It := false
+	    Lib_F: stream := Open_Read(mach_constants$Lib_Index_File())
+	       except Others:
+			   signal Cant_Find
+		      end
+	    while (true) do
+		Nm: string := stream$GetS(Lib_F," \t\n")
+		stream$GetC(Lib_F)
+		Fl: string := stream$GetS(Lib_F," \t\n")
+		stream$GetC(Lib_F)
+		lib_tab$Bind(LT, Nm, Fl)
+		end
+	       except when End_of_File:
+		      end
+	    stream$Close(Lib_F)
+       end
+    return (lib_tab$Lookup(LT, Nm_Str))
+       except when Not_Found:
+		   signal Cant_Find
+	      end
+    end Library_Special_Lookup

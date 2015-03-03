@@ -1,0 +1,10 @@
+%% Copyright Massachusetts Institute of Technology 1981, 1989
+
+_Print_Bad_Signal = proc (Frm: _frame, SigS: string, SigVals: sequence[_obj]);
+    P_Out: pstream := pstream$Primary_Output();
+    RI: _rtn_info := _frm_table$Lookup(_Get_Frm_Table(), Frm.Addr);
+    pstream$Pause(P_Out, "");
+    pstream$Text(P_Out, "Routine ");
+    pstream$Text(P_Out, RI.Name);
+    _Print_Signal(P_OUt, SigS, SigVals);
+    end _Print_Bad_Signal;

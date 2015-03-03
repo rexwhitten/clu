@@ -1,0 +1,12 @@
+%% Copyright Massachusetts Institute of Technology 1980, 1989
+
+Start_Script = proc (S: string) returns (stream);
+    Strm: stream := Open_Write(":" || S || ".script");
+    stream$Add_Script( stream$Primary_Output(), Strm );
+    return (Strm);
+    end Start_Script;
+
+End_Script = proc (Strm: stream);
+    stream$Rem_Script( stream$Primary_Output(), Strm );
+    stream$Close(Strm);
+    end End_Script;

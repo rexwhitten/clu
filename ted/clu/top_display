@@ -1,0 +1,5 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+top_display = proc (e: env, msg: string)
+    _display_line(msg, 0)
+    _set_cursor_pos(0, _calc_hpos(msg, string$size(msg) + 1), true)
+    end top_display

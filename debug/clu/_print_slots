@@ -1,0 +1,75 @@
+%% Copyright Massachusetts Institute of Technology 1983, 1989
+
+%%% Print a numbered list of the invocations that routine x contains.
+%%% [user-interface routine].
+%%% (SEP/Nov  6 1984)
+
+_print_slots = proc (x: _obj) signals (not_found)
+    flag: bool := _enter_system()
+    rtn: _rtn_info := _get_rtn_info(x)
+       except when not_found:
+		   _exit_system(flag)
+		   signal not_found
+	      end
+    pp: pstream := pstream$primary_output()
+    i: int := 0
+    pstream$pause(pp, "")
+    for callee, slot: _obj in _call_slots(x, rtn) do
+	i := i + 1
+	pstream$putright(pp, int$unparse(i), 3)
+	if (_Is_Traced_Slot(x, slot))
+	   then pstream$Text(PP, ": * ");
+	   else pstream$Text(PP, ":   ");
+	   end;
+	if _obj$is_bvec(callee)
+	   then pstream$pause(pp, _cvt[_obj, string](callee))
+	   else _obj$print(callee, pp)
+		pstream$pause(pp, "")
+	   end
+	end
+    _exit_system(flag)
+    end _print_slots
+
+%%% Print a numbered list of the invocations that routine x contains which
+%%% contain the substring nm. [user-interface routine]
+%%% (SEP/Nov  6 1984)
+
+_print_slots_match = proc (x: _obj, nm: string) signals (not_found)
+    Stub_Rtn_Nm  = "__stub_routine"
+    flag: bool := _enter_system()
+    rtn: _rtn_info := _get_rtn_info(x)
+       except when not_found:
+		   _exit_system(flag)
+		   signal not_found
+	      end
+    pp: pstream := pstream$primary_output()
+    i: int := 0
+    pstream$pause(pp, "")
+    for callee, slot: _obj in _call_slots(x, rtn) do
+	i := i + 1
+	Callee_RI: _rtn_info := _Get_Rtn_Info(Callee)
+	   except when Not_Found:
+		       continue
+		  end
+	Callee_Nm: string := Callee_RI.Name
+	if ((string$IndexS(Nm, Callee_Nm) ~= 0) cor
+	    ((Callee_Nm = Stub_Rtn_Nm) cand
+	     (string$Indexs(Nm,
+			    _cvt[_obj, string]
+				(_Param_Fetch(Callee, 1))
+			    ) ~= 0)
+	     ))
+	   then pstream$putright(pp, int$unparse(i), 3)
+		if (_Is_Traced_Slot(x, slot))
+		   then pstream$Text(PP, ": * ");
+		   else pstream$Text(PP, ":   ");
+		   end;
+		if _obj$is_bvec(callee)
+		   then pstream$pause(pp, _cvt[_obj, string](callee))
+		   else _obj$print(callee, pp)
+			pstream$pause(pp, "")
+		   end
+	   end
+	end
+    _exit_system(flag)
+    end _print_slots_match

@@ -1,0 +1,14 @@
+~CLU/asm/*
+~CLU/cmp/gmenv
+~CLU/cmp/cdchan
+~CLU/cmp/dtchan
+~CLU/cmp/_bin_id
+~CLU/cmp/pjcl
+~CLU/cmp/_sav_state
+~CLU/cmp/_res_state
+~CLU/bin/mint
+~CLU/bin/octal
+~CLU/bin/hex
+#-symbols
+#jcl_size:1024
+#version:8

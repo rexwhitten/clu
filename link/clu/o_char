@@ -1,0 +1,5 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+Output_Char = proc (C: char, Env: lnk_env);
+    out_link_chan$Write_Long_Word(Env.Output, char$C2I(C));
+    end Output_Char;

@@ -1,0 +1,654 @@
+-------------------------------------------------------------------------------
+GETTING				       A			       DEBUGGER
+-------------------------------------------------------------------------------
+
+The compiler is called CLU.  It produces binary files with the suffix "bin".
+
+A static linker is used to create executable programs.  The linker is currently
+in ~CLU/exe/link, with ~CLU/exe/debug linked to it as well.  The linker has two
+basic modes: production mode and debugging mode.  LINK is the  production  mode
+interface,  and  DEBUG is the debugging mode interface.  In production mode the
+linker produces an executable file which includes only those routines  actually
+used by the program.  In debugging mode an inferior process is created and run,
+which contains all of the operations of the basic types,  as  well  as  various
+debugging facilities.  The basic way to invoke LINK (production mode) is
+	link file ... file^exename
+The main routine should be called "start_up", and should take no arguments  and
+return no results.  The basic way to invoke DEBUG (debugging mode) is
+	debug file ... file
+You  need  not  type  ".bin"  for  a  file,  since  that is the default suffix.
+Asterisks may be used for matching multiple files in  the  usual  way,  but  at
+shell level be careful to either quote them or put in ".bin".  For example,
+	debug parse*.bin checker coder
+would  link  and  start a debugging process containing all modules in the named
+and matching files (as well as all library routines  used  by  those  modules).
+The process starts up in a read/eval/print ("listen") loop, as described below.
+From this listen loop you can load new files and overload  old  modules.   When
+the  number  of files to load becomes large, you can create a file, with suffix
+"xload", containing a list of all the files (one per  line),  and  then  invoke
+the linker with
+	link @xloadname^exename
+or
+	debug @xloadname
+
+More documentation of LINK/DEBUG can be found in ~CLU/linker.help.
+
+A  number  of useful modules exist in the standard library.  A brief summary of
+these modules is in ~CLU/lib/short.help.  In general there is  one  module  per
+file,  with  the  name  of the file being the same as the name of the module so
+that LINK/DEBUG will automatically find and load them.
+
+Additional stream operations not documented in  the  reference  manual  can  be
+found  in ~CLU/stream.changes.  Terse documentation on primitives for low-level
+I/O hacking and such can be found in ~CLU/lib.
+
+-------------------------------------------------------------------------------
+DEBUGGER			    COMMAND				 SYNTAX
+-------------------------------------------------------------------------------
+
+When in the listen loop the following happens  repeatedly:  A  colon  (":")  is
+printed as a prompt, a line is read from the terminal, and is then evaluated as
+a sequence of commands.  As each command is evaluated, the results are  printed
+to  the  terminal  (including  error  cases),  and  the CPU time to execute the
+command is printed out (if _time is defined).
+
+When  typing  a line, rubout deletes a character typed in error, ^U deletes the
+current line, ^W deletes the last word on the line, ^R redisplays  the  current
+line,  ^X  starts  a  new  blank  line, ^L clears the screen and redisplays the
+current line, and ^\ causes line continuation.
+
+This  is  similar  to  what  happens  in  a  LISP  or  a MUDDLE.  It allows the
+programmer to invoke any procedure  known  to  the  DEBUGGER.   The  reader  is
+warned, however, that type-checking is not performed, so type errors can occur,
+which can cause the debugger to die completely, passing control back to DEBUG.
+
+The command language is approximately a subset of CLU, with very  little  error
+checking:
+
+ line	 = command		% single command
+	 | command ";" line	% multiple commands
+
+ command = expr			% simple expression
+	 | idlist "=" expr	% (multi-valued) equate/assignment
+
+ idlist = id
+	| id "," idlist
+
+ expr	= literal		      % a CLU literal
+	| id			      % an equated/assigned identifier
+	| module_name		      % a module name
+	| id "=" expr		      % an equate/assignment
+	| id "="		      % an unassignment
+	| expr "(" exprlist ")"	      % invocation
+	| varid			      % argument/local/own variable
+	| varid "=" expr	      % argument/local/own variable assignment
+	| expr "[" expr "]"	      % primitive fetch sugar
+	| expr "[" expr "]" "=" expr  % primitive store sugar
+	| record_cons		      % record-like constructor
+	| array_cons		      % array-like constructor
+
+ literal = "nil"
+	| "true"
+	| "false"
+	| int_lit
+	| char_lit
+	| string_lit
+	| real_lit
+	| "pi"			% stream$primary_input()
+	| "po"			% stream$primary_output()
+	| "ps"			% pstream$primary_output()
+
+ varid	= "?" id		% most recent argument on the stack
+	| "?" int id		% argument in specified frame on stack
+	| "@" id		% most recent local variable on the stack
+	| "@" int id		% local variable in specified frame on stack
+	| "&" id		% most recent own variable on the stack
+	| "&" int id		% own variable in specified frame on stack
+
+ module_name = type			   % type or type generator
+	| modid				   % simple routine
+	| modid "[" exprlist "]"	   % parameterized routine
+	| type "$" modid		   % simple cluster operation
+	| type "$" modid "[" exprlist "]"  % parameterized cluster operation
+	| type "$%" modid		   % simple cluster hidden routine
+	| type "$%" modid "[" exprlist "]" % parameterized cluster hidden
+					   % routine
+
+ type	= modid				% simple type or type generator
+	| modid "[" exprlist "]"	% parameterized type
+	| modid "[" speclist "]"	% record/struct/oneof/variant type
+
+ speclist = id ":" type
+	| id ":" type "," speclist
+
+ modid	= id
+	| "*" id		% * matches any sequence of characters
+	| id "*"
+	| id "*" id
+	
+ exprlist = expr
+	| expr "," exprlist
+
+ record_cons = type "$" "{" fieldlist "}"	% can be user type
+
+ fieldlist = id ":" expr
+	| id ":" expr "," fieldlist
+
+ array_cons = type "$" "[" exprlist "]"		% can be user type
+	| type "$" "[" expr ":" exprlist "]"
+
+As an example, to invoke int$add on 1 and 2, type:
+	int$add(1,2)
+To  invoke  string$substr  on "abc", getting a string of size 1 starting at the
+2nd character of "abc", type:
+	string$substr("abc", 2, 1)
+To invoke hidden routine hidden_r of cluster t with argument 3, type:
+	t$%hidden_r(3)
+Any module or operation name can contain a single  '*',  which  has  the  usual
+meaning of matching any sequence of characters.  For example,
+	*ay
+will match
+	array
+and
+	ps*$s*pth
+will match
+	pstream$set_max_depth
+To be legal, the pattern must match exactly one module or operation. 
+
+Parameterized procedures that don't use their parameters may be invoked without
+specifying parameters (e.g., array$fetch).  Every time you type a routine which
+actually  depends  on  parameters,  the debugger passes a routine descriptor up
+DEBUG, which instantiates the routine, and  passes  its  address  back  to  the
+debugger.   This is not an instantaneous event, but it is tolerably fast.  More
+importantly, this does NOT cause the stack to  be  discarded;  the  environment
+remains  intact.  Note that if you assign the routine to a variable, subsequent
+uses of the variable do not cause any of this rigamarole.
+
+Routines can also  be  obtained  using  the  _slot  routine  (see  below  under
+tracing),  which  extracts  a routine from an existing call of it in some other
+routine.
+
+The  primitive fetch and store sugars do not work based on the abstract type of
+an object, but rather on its primitive representation type.  These sugars  work
+when the representation of the collection object is an array, sequence, record,
+struct, string, _vec, or _bytevec.  For records and structs, the  lowest  index
+is  1,  as for sequences.  Care should be taken not to use store to modify what
+should be an immutable object.
+
+CPU time for command execution can be obtained by typing
+	_time=1
+Timing can be turned off by typing
+	_time=
+
+If execution of a command blows  up  in  some  fashion,  you  can  restart  the
+debugger with a clean stack by typing:
+	restart()
+
+When  in the debugger it is possible to interrupt a running program for various
+reasons.  The character that is used for this purpose is whatever character you
+have  defined  as  the QUIT character.  This will interrupt the current program
+the next time any routine is called and start a new command level.   From  this
+command  level  arbitrary  commands  can  again be typed (such as "frames()" to
+display the stack), and then
+	erret()
+can  be  used to resume execution from where it was interrupted.  A line with a
+single escape character on it is equivalent to erret().
+
+To find out which routines are loaded and available for use,
+	pmatch(S)
+will print out the routines with  names  containing  S  as  a  substring.   For
+example,
+	pmatch("int$")
+will print the names of all of the integer operations.
+
+If you are going to be debugging the same program for a while, and you may find
+that  you  are  always  typing the same set of abbreviations, tracing commands,
+etc.  when you first start up the  debugger.   You  can  make  this  easier  by
+placing such things in a text file.  Then
+	_xfile("filename")
+will execute the file as if you typed it directly.  The default suffix for  the
+file  name  is "xfile".  Note that you can have at most one LOAD command in the
+file, and it must be the last command.
+
+-------------------------------------------------------------------------------
+PRINTING								OBJECTS
+-------------------------------------------------------------------------------
+
+The listen loop will do either formatted or unformatted  printing  of  objects.
+Objects  are  printed  on  pstream$primary_output(),  and  the settings for the
+pstream control the formatting.  Three procedures affect this printing:
+	pstream$set_max_width(ps, int)
+controls the number of objects printed at any given depth,
+	pstream$set_max_depth(ps, int)
+controls the depth of nesting to which objects are printed, 
+	pstream$set_flat(ps, bool)
+controls  whether  the  printing  is to be all on one line or on multiple lines
+with reasonable indentation, and
+	pstream$set_wrap(ps, bool)
+controls whether printing will wrap at the edge of the screen.  When the  width
+or depth of printing is exceeded, this is indicated in the output with "...".
+
+Note  that  the type of an object is not known at runtime, and thus printing of
+some objects can only be best guesses.   Objects  of  user-defined  type  print
+according  to  their  representation.   Objects  of  built-in  types  and  type
+generators print as follows:
+
+null		NIL prints as FALSE
+bool		TRUE prints as 127, FALSE as itself
+char		chars with even integer reps print as themselves (quoted),
+                chars with odd integer reps print as the integer (rep - 1)/2.
+int		usual form (*)
+real            integer representation
+string		usual form, with escape sequences
+array		[low: element-list]   or   [low..high: element-list]
+sequence	[element-list]
+record		[component-list]
+struct		[component-list]
+variant		<integer-tag: value>
+oneof		<integer-tag: value>
+proctype	string name without parameters
+itertype	string name without parameters
+
+Uninitialized variables print as "???".
+
+(*) Integers with hexadecimal representations of the form 0X0000YZ
+    (value of integer = (0X0000YZ - 1)/2) will print as oneofs with 
+    tag X and value (YZ - 1)/2. 
+
+For records and structs, component names are not printed.  The  components  are
+reordered  in  increasing  lexicographic  order based on their component names.
+For  variants  and  oneofs,  the  tags  are  numbered   based   on   increasing
+lexicographic order of their names.
+
+Better formatted printing can be had via print operations of the various types.
+All  of  the  basic  types  and type generators supply print routines.  A print
+routine for a type T is of the form:
+	print = proc (x: T, pst: pstream)
+The various pstream operations used to implement print operations are described
+in ~CLU/lib/pstream.spc.
+
+-------------------------------------------------------------------------------
+				   DEBUGGING
+-------------------------------------------------------------------------------
+
+When an error occurs you will most likely be left in a command loop.  (If  not,
+DEBUG will usually say it found an unexpected termination of the debugger.)  At
+this point the stack can be printed with
+	frames()
+This  information  is  often  sufficient  to  determine  the cause of the error
+exactly.  Note that frames of suspended iterators are numbered "N;" while other
+frames  are  numbered  "N:".   To  get  a  less compact form of the top N stack
+frames, use
+	lframes(N)
+To display the stack without printing the actual arguments, use
+	fratm()
+To display the current slot of execution for all stack frames use
+	frasl()
+To display frame N complete with local variables, use
+	frame(N)
+To  display all own variables (both cluster owns and routine owns) of a routine
+P, use
+	_print_owns(P)
+Note that P is a routine object, not a string.  To get or set a particular  own
+variable of a routine P (when an activation of P is not on the stack) use
+	_get_own(P, "name")
+and
+	_set_own(P, "name", val)
+
+To force a particular routine activation on the stack to return, type
+	zrtn(N)
+if no results are to be returned; type
+	rtn(N, obj)
+if a single object is to be returned; type
+	mrtn(N, objs)
+if  a  number of objects are to be returned, where N is the number of the stack
+frame, and objs is a sequence of  objects.   Note  that  a  suspended  iterator
+cannot be forced to return.
+
+To force a particular routine activation on the stack to signal, type
+	zsig(N, "E")
+if no results are to be returned; type
+	sig(N, "E", obj)
+if a single object is to be returned; type
+	msig(N, "E", objs)
+if  a  number of objects are to be returned, where N is the number of the stack
+frame, "E" is a string naming the exception, and objs is a sequence of objects.
+Note that a suspended iterator cannot be forced to signal.
+
+To force a particular iterator  activation  on  the  stack  to  yield,  without
+otherwise affecting the activation, type
+	zyld(N)
+if no results are to be yielded; type
+	yld(N, obj)
+if a single object is to be yielded; type
+	myld(N, objs)
+if a number of objects are to be yielded, where N is the number  of  the  stack
+frame,  and  objs  is  a  sequence  of objects.  Note that a suspended iterator
+cannot be forced to yield.
+
+To retry a particular routine activation with the same arguments, type
+	retry(N)
+where N is the number of the stack  frame.   Note  that  a  suspended  iterator
+cannot be retried.
+
+To throw away the current computation and start with an empty stack, type
+	restart()
+
+To find all callers of a particular routine P, use
+	_callers(P)
+where P is a routine object, not a string.  To find  all  callers  of  routines
+matching a particular string, use
+	umatch(S)
+
+Another debugging aid is file scripting.  Executing
+	stream$add_script(from_stream, to_stream)
+will cause all subsequent input to or output from the from_stream to be  output
+to the to_stream.  This scripting can be turned off with
+	stream$rem_script(from_stream, to_stream)
+For example, if ST is a stream opened for writing to a file, then doing
+	stream$add_script(stream$primary_output(), st)
+will  force  all  terminal  I/O  to  go  to  the  file  (all  terminal input is
+automatically scripted to the terminal output stream).
+
+To help in opening streams,
+	open_read(S)
+	open_write(S)
+	open_append(S)
+where S is a file name string, return an open stream in the indicated mode.
+
+-------------------------------------------------------------------------------
+				  OVERLOADING
+-------------------------------------------------------------------------------
+
+You can load new or changed modules with
+	load("file_list")
+where  file_list  is a string which specifies the files to load (same syntax as
+in invoking DEBUG).  These files will  be  loaded  and  the  program  restarted
+(i.e., the current stack is thrown away).
+
+When  restarted,  a new stack will be used, but any owns will be unchanged.  To
+clear the owns (and the heap) call
+	_reset()
+
+If you are running DEBUG under the TED ^J command, you can get back into TED by
+typing ^Z.
+
+-------------------------------------------------------------------------------
+UNIMPLEMENTED							       ROUTINES
+-------------------------------------------------------------------------------
+
+The linker will automatically provide "stub" routines for  routines  which  are
+called  but  are not yet implemented.  In a production program, invoking a stub
+routine will cause the program  to  halt.   When  debugging,  invoking  a  stub
+routine will cause the name of the routine to be printed, and a new listen loop
+will then be entered.  The stack frame corresponding to this call will show  as
+the  routine  "__stub_routine".   This  frame  will have a local variable named
+"args" containing the actual arguments, which can be  seen  with  the  frame(N)
+routine  and  accessed  with "@args".  One can then use rtn, sig, yld, etc.  to
+force the  appropriate  return,  signal,  or  yields,  and  continue  with  the
+computation.
+
+If  an  implementation  for the routine is eventually loaded, calls to the stub
+routine will be changed to call the actual routine.  To find all routines which
+are called but have not been loaded, type
+	_missing()
+
+-------------------------------------------------------------------------------
+				    TRACING
+-------------------------------------------------------------------------------
+
+The major support for debugging programs is the  trace  facility.   Tracing  is
+accomplished using the following routines:
+
+	_trace_to(P)			% trace all calls to P
+	_trace_to_match("S")		% _trace_to(P) each match with S
+	_untrace_to(P)			% stop tracing calls to P
+	_untrace_to_match("S")		% _untrace_to(P) each match with S
+	_trace_from(P)			% trace all calls from P
+	_trace_from_match("S")		% _trace_from(P) each match with S
+	_untrace_from(P)		% stop tracing calls from P
+	_untrace_from_match("S")	% _untrace_from(P) each match with S
+	_trace(P)			% trace all calls to and from P
+	_trace_match("S")		% _trace(P) each match with S
+	_untrace(P)			% stop tracing calls to and from P
+	_untrace_match("S")		% _untrace(P) each match with S
+	_print_slots(P)			% list all calls from P
+	_print_slots_match(P, "S")	% list all calls from P matching with S
+	_print_range(P, low, high)	% list range of calls from P
+	_trace_range(P, low, high)	% trace range of calls from P
+	_untrace_range(P, low, high)	% stop tracing range of calls from P
+	_trace_slots_match(P, "S")	% trace calls from P matching S
+	_untrace_slots_match(P, "S")	% stop tracing calls from P matching S
+	_slot(P, N)			% obtain a particular invocation
+	_untrace_all()			% stop all tracing
+	_restore_tracing()		% restore suppressed tracing
+	_trace_signal("E")		% trace all signals of exception E
+	_trace_signal_match("S")	% _trace_signal("E") each match with S
+	_untrace_signal("E")		% stop tracing signals of exception E
+	_untrace_signal_match("S")	% _untrace_signal("E") each match with S
+	_untrace_all_signals()		% stop tracing all signals
+	_trace_uninitialized()		% trace uninitialized variable uses
+	_untrace_uninitialized()	% stop tracing uninit. variable uses
+
+To trace calls to and returns and yields from some routine P, type
+	_trace_to(P)
+To turn this tracing off, type
+	_untrace_to(P)
+To trace calls made from some routine P to other routines, type
+	_trace_from(P)
+To turn this tracing off, type
+	_untrace_from(P)
+To get both forms of tracing for a routine P, type
+	_trace(P)
+To turn this tracing off for P, type
+	_untrace(P)
+To print a numbered list of the invocations P contains, type
+	_print_slots(P)
+To print a range (inclusive) of the invocations P contains, type
+	_print_range(P, low_number, high_number)
+To print a numbered list of the invocations P contains which contain a
+substring S, type
+	_print_slots_match(P, "S")
+To trace a range (inclusive) of these invocations, type
+	_trace_range(P, low_number, high_number)
+To turn tracing off for a range, type
+	_untrace_range(P, low_number, high_number)
+
+To obtain a particular invocation contained in P, for use in other trace  calls
+or to invoke a parameterized routine, type
+	_slot(P, N)
+where N is the index of the invocation.
+
+To clear all tracing, type
+	_untrace_all()
+
+To trace all signals of a particular exception, type
+	_trace_signal("exceptionname")
+To stop tracing signals of a particular exception, type
+	_untrace_signal("exceptionname")
+To stop all tracing of signals, type
+	_untrace_all_signals()
+
+To _trace, _trace_to, or _trace_from all routines having a particular string as
+a substring, use _trace_match, _trace_to_match, or _trace_from_match.  To  stop
+such  tracing,  use  _untrace_match, _untrace_to_match, or _untrace_from_match.
+To _trace_range all slots matching a particular string, use _trace_slots_match.
+To  stop  such tracing, use _untrace_slots_match.  To _trace_signal all signals
+having a particular string as a substring, use  _trace_signal_match.   To  stop
+such tracing, use _untrace_signal_match.
+
+Uses of uninitialized variables are not detected by the compiler, and can  lead
+to abnormal termination of the debugger.  To detect uses of uninitialized local
+variables as arguments to routines, type
+	_trace_uninitialized()
+This will not work in routines compiled with LOCALS FALSE.  It is also somewhat
+slow.  To stop such tracing, type
+	_untrace_uninitialized()
+
+The  routines  described  above  control the setting and resetting of permanent
+breakpoints.  They do not control the  setting  and  resetting  of  (temporary)
+breakpoints  for current activations in the stack.  For example, _untrace_all()
+will not necessarily stop tracing completely, since there may be many temporary
+breakpoints set for current activations in the stack.
+
+To  restore  tracing  when  it  has  been  inhibitted  (i.e., by the Q, Y, or T
+commands below), type
+	_restore_tracing()
+
+When  a  breakpoint  is  hit,  some information is displayed, showing the stack
+frames involved, and "-- next --" will  be  printed.   At  each  appearance  of
+"-- next --"  a  single character command must be typed.  Case does not matter.
+Although the command character set is basically the same for every "-- next --"
+line, the activation the command refers to is generally different when entering
+a routine than when exiting a routine.
+
+Typing a carriage return to the "-- next --" line causes a new (nested)  listen
+loop  to start up, from which you can do arbitrary things before continuing via
+erret() or <esc><cr>.  If the breakpoint occurred  on  a  procedure  return  or
+iterator  yield, the first frame in the stack will be for a "_results" routine.
+The  "num_res"  argument  to  this  routine  contains  the  number  of  results
+returned/yielded, and the "res" argument is either the result (if there is only
+one) or a vector containing the results.  You can freely assign  to  or  modify
+the "res" argument to change the results.  For a procedure return, this is more
+or less equivalent to doing a rtn or mrtn.  For multiple results, result N  can
+be obtained via
+	?res[N]
+and replaced via
+	?res[N] = val
+Similarly,  if the breakpoint occurred on a signal, the first frame will be for
+a "_signals" routine.  Again, the "num_res" argument  contains  the  number  of
+results, the "res" argument contains the results, and the exception results can
+be changed by assigning to or modifying the "res" argument.
+
+The following commands always have the same interpretation:
+
+Char	Meaning
+----	-------
+
+<sp>	Continue until the next breakpoint is hit.
+
+F	(Frames)   Flip  the  callee-only/callee-caller  frame  printing  mode,
+	redisplay, and ask for another command.  When a breakpoint is hit,  the
+	current  activation of the routine being entered or exited (the callee)
+	is always displayed.  The current activation of the routine's caller is
+	optionally  displayed,  based  on  the  printing  mode selected by this
+	command.
+
+X	(eXchange)  Flip the short/long frame printing mode, redisplay, and ask
+	for another command.  When a breakpoint is hit, the current  activation
+	of  the  routine  being entered or exited, and (optionally) the current
+	activation of the routine's caller,  are  displayed  (in  that  order).
+	These  frames  are printed either in short form, which is the same form
+	that frames() uses, or in long  form,  which  is  the  same  form  that
+	lframes(N) uses.
+
+^L	Clear the screen, redisplay, and ask for another command.
+
+<cr>	Start  up  a  new  listen  loop.   When  continued  via  an erret() (or
+	"<esc><cr>") from the  listen  loop,  redisplay  and  ask  for  another
+	command.
+
+Q	(Quit)  Stop  all  tracing until the listen loop is reentered.  This is
+	not the same as doing _untrace_all(), because  none  of  the  permanent
+	breakpoints go away, they are just temporarily ignored.
+
+?	Print  a  terse  listing  of  the  commands and their meanings for this
+	breakpoint, and ask for another command.
+
+
+The  interpretation of the following commands depends on the type of breakpoint
+hit.  Each command makes some  change  to  the  set  of  breakpoints  and  then
+continues  execution unless indicated otherwise.  Below we use P as the name of
+the routine of interest.  When calling or resuming an iterator, P refers to the
+routine  being  called  or resumed.  When returning, signalling, or yielding, P
+refers to the routine being returned to, signalled to, or yielded to.
+
+
+Char	Meaning
+----	-------
+
+Y	(Yield) This has the effect of inhibitting all tracing of calls made by
+	the current activation of P, including all calls made from those calls,
+	etc.   Hence  the  next  breakpoint  to  be hit will be when P returns,
+	signals, or yields.  Other existing activations higher  in  the  stack,
+	and  subsequent  activations  not created during calls from the current
+	activation, will have breakpoints set just as if this command was never
+	typed.
+
+T	(Terminate) This has the same effect as the Y command, but in addition,
+	if P is an iterator, breakpoints will no longer be hit when the current
+	activation of P yields or is resumed.  However, a breakpoint will still
+	be hit when P returns or signals.
+
+A	(Allow) This command is only useful when resuming an iterator after a Y
+	command  has  previously  been  given for the activation.  This command
+	undoes the effect of the Y command for the current activation.
+
+S	(Step) This has the effect of a temporary  _trace_from(P).   This  only
+	applies to the current activation of P, no other.  The _trace_from will
+	even apply to iterators called by P that are currently suspended.
+
+U	(Unstep) This command is only useful when an S command  has  previously
+	been given for the activation.  This command undoes the effect of the S
+	command for the current activation only.  Note that undoing the  effect
+	of the S command is not the same as doing a temporary _untrace_from(P).
+	Breakpoints   previously   set   in   P    with    _trace_from(P)    or
+	_trace_range(P,...)   will still be hit.  This includes breakpoints for
+	any iterators called by  P  that  are  currently  suspended.   However,
+	tracing within those suspended iterators remains unaffected.
+
+
+For the following two commands a breakpoint is assumed to have been hit for  an
+invocation  of  P.   P may be being called, returning, yielding, signalling, or
+being resumed.  In all cases the  slot  effected  is  the  one  in  P's  caller
+corresponding to this call of P.
+
+
+Char	Meaning
+----	-------
+
+P	(Permanent)  This  command  is  only  useful  when  an  S  command  has
+	previously been given for P's caller.  This command has the effect of a
+	_trace_range on P's caller for the particular slot  from  which  P  was
+	called.   Thus  you  can initially step through a routine initially via
+	the S command, setting permanent breakpoints on particular  invocations
+	with  the P command, and then possibly even use the U command to remove
+	the remaining temporary breakpoints.  Execution does not continue after
+	this command; another command is asked for.
+
+K	(Kill)  This command is only useful when the breakpoint has been hit as
+	a result of a _trace_range on P's caller.  This command has the  effect
+	of an _untrace_range on P's caller for the particular slot from which P
+	was called.  Thus you can initially do a _trace_from on a routine,  and
+	then   selectively  remove  those  breakpoints  that  are  not  useful.
+	Execution does not continue after  this  command;  another  command  is
+	asked for.
+
+-------------------------------------------------------------------------------
+DEBUGGING			   PRODUCTION			       PROGRAMS
+-------------------------------------------------------------------------------
+
+In a production programs, a completely unhandled exception causes  the  program
+to die with the message
+	unhandled exception: exception-name string-arg-if-any
+or
+	failure: string-arg
+
+The linker normally produces symbols as part of a production program, so if you
+know something about the CLU run-time system, you can do  debugging  with  DBG.
+See ~CLU/dbg/dbg.doc.
+
+For  debugging purposes, it is sometimes useful to do something just before the
+program dies in this fashion, like dumping some information to a file.  You can
+accomplish  this  by  including  a procedure in your program with the following
+name and interface:
+
+	_unhandled_exception = proc (what: string)
+		end _unhandled_exception
+
+If the reader has been confused by all of this, one of the CLU group should  be
+consulted  (actually,  an ambitious hacker can just go and try things to see if
+they work).  Questions are best addressed to Bob Scheifler (RWS  at  MIT-XX  or
+MIT-BOLD)  and  Paul Johnson (PRJOHNSON@MIT-XX).  We can be reached by phone at
+(617)253-1945.
+

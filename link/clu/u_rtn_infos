@@ -1,0 +1,10 @@
+% Copyright Massachusetts Institute of Technology 1986, 1989
+
+Update_Rtn_Infos = proc (Env: lnk_env)
+    Name_Tab: name_sym_tab := Env.Name_Sym_Table;
+    for R_Inf: rtn_info in name_sym_tab$Elements(Name_Tab) do
+	%% No need to bind.
+	%% Instantiate the routine info so it is output with constants.
+	rtn_info$Instantiate(R_Inf, false, Env);
+	end;
+    end Update_Rtn_Infos

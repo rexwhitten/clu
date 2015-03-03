@@ -1,0 +1,8 @@
+dir ~CLU/link
+optimize
+externals false
+merge ~CLU/lib/lowlev,~CLU/lib/useful,link
+ce linker,68000
+dir ~CLU/link/clu
+bindir ~CLU/link/bin
+binsuf *

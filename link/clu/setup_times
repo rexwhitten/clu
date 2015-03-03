@@ -1,0 +1,27 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+Setup_Times = proc () returns (times);
+    own Zero_Time: time := time$Create(0, 0, 0, 0, 0, 0);
+    own Init_Time_Ent: time_ent := time_ent${ Start: Zero_Time,
+					      Stop:  Zero_Time };
+
+    return ( times${ Parse: time_ent$Copy(Init_Time_Ent),
+		     Load:  time_ent$Copy(Init_Time_Ent),
+		     Link:  time_ent$Copy(Init_Time_Ent),
+		     Setup: time_ent$Copy(Init_Time_Ent),
+		     Out:   time_ent$Copy(Init_Time_Ent),
+		     Outs:  out_times${ Consts:  Zero_Time,
+					Code:    Zero_Time,
+					Sigs:    Zero_Time,
+					Excpts:  Zero_Time,
+					SymTb:   Zero_Time,
+					SegMp:   Zero_Time,
+					Data:	 Zero_Time,
+					BSS:	 Zero_Time,
+					ReWrts:  Zero_Time,
+					FndRtns: Zero_Time,
+					RtnChns: Zero_Time,
+					Pnts:    Zero_Time,
+					Done:    Zero_Time }
+		    } );
+    end Setup_Times;

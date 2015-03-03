@@ -1,0 +1,96 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+ordered_set = cluster [t: type, key: type, val: type] is 
+	New, Find, Lookup, Elements, Get_First, Similar, Print, _gcd
+	    where t has get_key: proctype (t)    returns (key),
+		  t has create:  proctype (val)  returns (t),
+		  t has similar: proctype (t, t) returns (bool),
+		  t has print:   proctype (t, pstream),
+		  t has _gcd:    proctype (t, gcd_tab) returns (int),
+		  key has lt:    proctype (key, key) returns (bool),
+		  key has equal: proctype (key, key) returns (bool);
+
+    rep = array[t];
+
+    New = proc () returns (cvt);
+	return (rep$New());
+	end New;
+
+    Find = proc (OS: cvt, K: key, V: val) returns (t)
+	mOne = -1
+	Slot: int,
+	Dir: int := Find_Slot(OS, K);
+	if (Dir = 0)
+	   then return (OS[Slot]);
+	   end;
+	E: t := t$Create(V);
+	if (Dir < 0)
+	   then rep$AddH(OS, E);
+		for I: int in int$From_To_By(rep$High(OS), Slot+1, mOne) do
+		    OS[I] := OS[I-1];
+		    end;
+	   else rep$AddL(OS, E);
+		for I: int in int$From_To(rep$Low(OS), Slot-1) do
+		    OS[I] := OS[I+1];
+		    end;
+	   end;
+	OS[Slot] := E;
+	return (E);
+	end Find;
+
+    Lookup = proc (OS: cvt, K: key) returns (t) signals (not_found);
+	Slot: int,
+	Dir: int := Find_Slot(OS, K);
+	if (Dir = 0)
+	   then return (OS[Slot]);
+	   else signal Not_Found;
+	   end;
+	end Lookup;
+
+    Find_Slot = proc (OS: rep, K: key) returns (int, int);
+	Low:  int := rep$Low(OS);
+	High: int := rep$High(OS);
+	L: int := Low;
+	H: int := High;
+	while (L <= H) do			% Binary search
+	    M: int := (L + H)/2;
+	    E: t := OS[M];
+	    Tst_K: key := E.Key;
+	    if (K < Tst_K)
+	       then H := M - 1;
+	     elseif (K = Tst_K)
+	       then return(M, 0);
+	     else  L := M + 1; end;
+	    end;
+	% (H = L - 1) and entry should be inserted between them.
+	if ((High - L) <= (H - Low))
+	   then return (L, -1);
+	   else return (H,  1);
+	   end;
+	end Find_Slot;
+
+    Elements = iter (OS: cvt) yields (t);
+	for E: t in rep$Elements(OS) do
+	    yield (E);
+	    end;
+	end Elements;
+
+    Get_First = proc (OC: cvt) returns (t) signals (not_possible);
+	return (rep$Bottom(OC));
+	   except when Bounds: signal Not_Possible;
+		  end;
+	end Get_First;
+
+    Similar = proc (OS1, OS2: cvt) returns (bool);
+	return (rep$Similar(OS1, OS2));
+	end Similar;
+
+    Print = proc (OS: cvt, S: pstream);
+	rep$Print(OS, S);
+	end Print;
+
+    _gcd = proc (OS: cvt, Tab: gcd_tab) returns (int);
+	return (rep$_gcd(OS, Tab));
+	end _gcd;
+
+    end ordered_set;

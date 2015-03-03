@@ -1,0 +1,7 @@
+; Copyright	Massachusetts Institute of Technology     1989
+__stub_cluster = cluster is __stub_op
+
+__stub_op = qproc ()		; not actually used
+	end __stub_op
+
+end __stub_cluster

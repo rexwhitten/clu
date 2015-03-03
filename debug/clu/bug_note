@@ -1,0 +1,15 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+Bug_Note = proc (Why: string);
+    Bug_S: stream := stream$Open(
+			 file_name$Parse(System_Root() ||
+					 "/sys/debug.bug_notes"),
+			 "append");
+       except when Not_Possible (*):
+		   return;
+	      end;
+    stream$PutL(Bug_S,
+		date$Unparse(Now()) || " Bug Note: " ||
+		User_Name() || ":\n  " || Why);
+    stream$Close(Bug_S);
+    end Bug_Note;

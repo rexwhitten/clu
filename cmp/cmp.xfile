@@ -1,0 +1,7 @@
+locals false
+externals false
+optimize
+dir ~CLU/cmp
+merge ~CLU/lib/lowlev,~CLU/lib/useful,~CLU/lib/misc
+merge cmp
+ce syntax,passes,mc68000,codgen,bin,opcode

@@ -1,0 +1,28 @@
+;; Copyright Massachusetts Institute of Technology 1985, 1989
+
+_rusage = proc (who: int, buf: _wordvec) signals (bounds, not_possible(string))
+	iflt	cmpi	145, (rr)	;; buf must be at least 72 bytes long (CLU int 145).
+	then	signal	bounds
+		end
+	pea	4(rr)			;; Push buf.
+	move	who, n1
+	asr	1, n1			;; De-integerize who
+	move	n1, -(sp)		;; Push it.
+	clr	-(sp)			;; Hack pc.
+	moveq	%getrusage, n0
+	move	n0, -(sp)
+	trap	0			;; Do the call
+	scc	n1			;; Remember state of carry.
+	subq	4, sp			;; Pop pc.
+	clr	(sp)+			;; Pop args.
+	clr	(sp)+
+	ifne	tst	n1
+	then	moveq	1, n0		;; Restore n0.
+		return
+		end
+	movea	n0, rr
+	lea	1(rr, rr), rr		;; Save and integerize error code.
+	moveq	1, n0			;; Restore n0
+	_erstr(rr)
+	signal	not_possible(rr)
+	end _rusage

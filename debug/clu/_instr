@@ -1,0 +1,198 @@
+%%copyright Barbara Massachusetts Institute of Technology , 1989
+
+#extend
+
+_instr = cluster is instr_size
+
+    rep = null
+
+    %% Divisors to obtain various fields of a MC68000 instruction word.
+    op_bit = 	010000		%% Op_Code field (4 bits:   12-15)
+    size_bit = 	000100 		%% Size field	 (2 bits:   6-7)
+    dir_bit = 	000400		%% Dir field	 (1 bit:    8)
+    regx_bit = 	001000		%% RegX field	 (3 bits:   9-11)
+    modey_bit =	000010		%% ModeY field	 (3 bits:   3-5)
+    bit_54 = 	000020		%% Bits 5 and 4	 (2 bits:   4-5)
+    opmode_bit=	000100		%% Op_Mode field (3 bits:   6-8)
+    bit_11 =    004000		%% Bit 11	 (1 bit:    11)
+
+    op_rtn = proctype (int) returns (int)
+    ops = array[op_rtn]
+    own op_tab: ops :=			 % Indexed by op_code field.
+	    ops$[ 0:
+		  op0,                   % immediate ops, movep, bit ops
+		  moves,                 % move byte
+		  moves,                 % move long
+		  moves,                 % move word
+		  op4,                   % misc
+		  DBcc_Scc,              % DBcc, Scc, addq, subq
+		  Bcc,                   % Branch
+		  moveq_und,             % moveq
+		  op8,                   % or, divu, divs, sbcd
+		  op8,                   % sub, subx
+		  moveq_und,             % undefined
+		  cmp_eor,               % cmp, cmpm, eor
+		  op12,                  % and, mulu, muls, abcd
+		  op8,                   % add, addx
+		  shifts,                % shift, rotate instrs
+		  moveq_und]             % undefined
+
+    instr_size = proc(instr:int) returns(int)
+	op: int := (instr / op_bit)
+	return( op_tab[op](instr))
+	end instr_size
+
+    % First byte of operation word = 0
+    op0 = proc(instr: int) returns (int)
+	if (((instr / dir_bit) // 2) = 1)		%% Check dir field.
+	   then if (((instr / modeY_bit) // 8) = 1)
+		   then return (4)			%% movep
+		   else return (2 + ea_size(instr))	%% dynamic bit op
+		   end
+	 elseif (((instr / regx_bit) // 8) = 4)
+	   then return (4 + ea_size(instr))		%% static bit op
+	 else size: int := (instr / size_bit) // 4	%% Immediate op
+              if ((instr // 64) = 074)
+                 then return (4)                        % (op to CCR or SR)
+              elseif ( (size = 0) cor (size = 1) )	%% How big?
+		 then return (4 + ea_size(instr))	%% byte or word
+		 else return (6 + ea_size(instr))	%% long
+		 end
+	 end
+	end op0
+
+    % First byte of operation word = 1, 2, or 3.
+    moves = proc(instr: int) returns(int)
+	return (2 + high_ea_size(instr) + ea_size(instr))
+	end moves
+
+    % First byte of operation word = 4.
+    op4 = proc(instr: int) returns (int)
+	regx: int := (instr / regX_bit) // 8
+	if ( (((instr / dir_bit) // 2) = 1) cor	%% dir = 1 => lea, chk
+	     (regX < 4)			    cor	%% regx < 4 => neg, not, clr,
+                                                %%      mv_t_sr, mv_t_ccr, mv_f_sr
+	     ((regX = 5) cand ((instr // 64) = 074)) ) %% this => tst, tas
+	   then return (2 + ea_size(instr))	
+	 elseif (regX = 6)			%% regx = 6 => movem_ea_to_regs
+	   then return(4 + ea_size(instr))
+	 else size: int := (instr / size_bit) // 4
+	      if (regX = 4)
+		 then if ( (size ~= 0) cand
+			   (((instr / modeY_bit) // 8) = 0) )
+			 then return (2)	%% swap, ext
+		       elseif (size < 2)	%% nbcd, pea
+			 then return (2 + ea_size(instr))
+		       else return (4 + ea_size(instr))	%% movem_regs_to_ea
+		       end
+	       elseif (size = 1)		%% regX = 7
+		 then low_6: int := (instr // 64)
+                    if ( (((instr / modeY_bit) // 8) = 2) cor
+                         (low_6 = 062) cor (low_6 = 064) cor 
+                         (low_6 = 073) cor (low_6 = 072) )
+                        then return (4)         % link, stop, rtd or movec
+                        else return (2)		%% other randoms
+                        end
+	       else return (2 + ea_size(instr))	%% jsr, jmp
+	       end
+	 end
+	end op4
+
+    % First byte of operation word = 5
+    Dbcc_Scc = proc(instr: int) returns (int)
+	if ( (((instr / size_bit)  // 4) = 3) cand
+	     (((instr / modeY_bit) // 8) = 1) )
+	   then return (4)                  %% DBcc
+	   else return (2 + ea_size(instr)) %% Scc, addq, subq
+	   end
+	end DBcc_Scc
+
+    % First byte of operation word = 6.
+    Bcc = proc(instr: int) returns (int)
+	if ((instr // 0400) = 0)
+	   then return (4)		%% 16 bit displacement
+	   else return (2)		%%  8 bit displacement
+	   end
+	end Bcc
+
+    % First byte of operation word = 7, 10, or 15.
+    moveq_und = proc(instr: int) returns (int)
+	return (2)
+	end moveq_und
+
+    % First byte of operation word = 8, 9 or 13.
+    op8 = proc(instr: int) returns (int)
+	if ( (((instr / dir_bit) // 2) = 1) cand
+	     (((instr / bit_54)  // 4) = 0) )
+	   then return (2)			%% addx, subx, or sbcd
+	   else return (2 + ea_size(instr))	%% add(a), sub(a), or, divu, divs
+	   end
+	end op8
+
+    % First byte of operation word = 11.
+    cmp_eor =  proc(instr: int) returns (int)
+	size: int := (instr / size_bit) // 4
+        modeY: int := (instr / modeY_bit) // 8
+        dir: int := (instr / dir_bit) // 2
+
+        if ( (modeY ~= 1) cor (dir ~= 1) cor (size = 3))
+	   then return (2 + ea_size(instr))         %%cmp, cmpq,  eor
+	   else return (2)                          %%cmpm
+	   end
+	end cmp_eor
+
+    % First byte of operation word = 12.
+    op12 = proc(instr: int) returns (int)
+	mode: int := (instr / opmode_bit) // 8
+	if ( (((mode = 6) cand				%% exgm
+	       ((instr / modeY_bit) // 8) = 1)) cor
+	     (((mode = 5) cand				%% exg
+	       ((instr / bit_54) // 4) = 0))    cor
+	     (((mode = 4) cand				%% abcd
+	       ((instr / bit_54) // 4) = 0))
+	    )
+	   then return (2)
+	   else return (2 + ea_size(instr))		%% and, mulu, muls
+	   end
+	end op12
+
+    % First bytes of operation word = 14.
+    shifts = proc(instr: int) returns (int)
+	if (((instr / size_bit) // 4) = 3)
+	   then return (2 + ea_size(instr))         %% memory shift
+	   else return (2)                          %% data reg shift
+	   end
+	end shifts
+
+    ea_size = proc(instr:int) returns(int)
+	mode: int := (instr / modeY_bit) // 8
+	if (mode < 5)				%% Dn, An, (An), (An)+, -(An)
+	   then return (0)
+	   end
+	reg: int := instr // 8
+	if ((mode < 7) cor			%% d(An), d(An, Ri)
+	    (reg = 0)  cor			%% absolute short
+	    (reg = 2 ) cor			%% PC relative
+	    (reg = 3)  cor			%% PC rel. + Ri
+	    ((reg = 4) cand
+	     (((instr / size_bit) // 4) < 2)	%% immediate data, byte or word size
+	     ))
+	   then return (2)
+	   else return (4)			%% immed. long, abs. long
+	   end
+	end ea_size
+
+    high_ea_size = proc(instr: int) returns(int)
+	%% Only data alterable modes allowed.
+	mode: int := (instr / opmode_bit) // 8
+	if (mode < 5)				%% Dn, (An), (An)+, -(An)
+	   then return (0)
+	   end
+	if ((mode < 7) cor			%% d(An), d(An, Ri)
+	    (((instr / regX_bit) // 8) = 0))	%% absolute short
+	   then return (2)
+	   else return (4)			%% absolute long
+	   end
+	end high_ea_size
+
+    end _instr

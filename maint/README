@@ -1,0 +1,37 @@
+
+The scripts in this directory were used to update the copyrights on the
+clu files.  The ownership of the copyright was changed from Liskov to
+MIT; the current year was added; files citing an author were not put
+under copyright.
+
+These scripts may or may not be useful in the future.  There *are* some
+useful shell syntactic structures within them.
+
+checkatt - checks whether a file has an author or not
+owned    - is the last output of checkatt grepped for 'ATT'
+
+checker  - looks for copyrights
+checker.list - might exist and contain output from checker
+
+asmhead  - copyright for asm files
+cluhead  - copyright for clu files
+
+fixasm   - prepends asmhead onto files in asmadds
+		maintains a saved copy
+		wants input to continue for each file
+fixclu	 - prepends cluhead onto files in cluadds
+
+fixcopy  - might be useful
+
+inspect  - somewhat useful
+
+mute	 - mutates a Liskov copyright to an MIT copyright on files in mutlist
+mute.prog-	used by mute: may not be quite right cf refix
+
+recap    - reinspects mutlist files, griping if Liskov exists in file
+
+refix	 - remunged the order of years (?) cf ?bad mute.prog
+
+
+%%%%
+sometimes the copyright is not aesthetically placed

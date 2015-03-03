@@ -1,0 +1,131 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+qs = sequence[string]
+
+steps = qs$["begin_body",
+	    "bracket",
+	    "close_bracket",
+	    "cluster_body",
+	    "do",
+	    "elseif",
+	    "end",
+	    "except",
+	    "for_body",
+	    "head",
+	    "is",
+	    "op",
+	    "routine_body",
+	    "tag",
+	    "tag_body",
+	    "then",
+	    "then_body",
+	    "thenx_body",
+	    "when",
+	    "when_body",
+	    "where",
+	    "while_body",
+	    "coenter_body",
+	    "coenter_key",
+	    "coenterx_body",
+	    "enter_body",
+	    "enter_key",
+	    "enterx_body",
+	    "foreach",
+	    "seize_body",
+	    "argus"]
+
+set_env_variable = proc (e: env, c: char)
+		     signals (errmsg (string), stop(env, string))
+    name: string := get_string_arg (e, "Variable name", "")
+       resignal errmsg
+    if string$empty(name) then return end
+    prompt, default: string
+    if c = 'N'
+       then prompt := "New number value"
+	    if name = "change_limit"
+	       then default := int$unparse(e.change_limit)
+	     elseif name = "save_mode"  cor  name = "write_mode"  cor
+		    name = "umask"
+	       then default := i_ounparse(env$mfetch_num(e, name))
+	     else default := int$unparse(env$mfetch_num(e, name)) end
+       else prompt := "New string value"
+	    if name = "word_chars"
+	       then default := e.word_chars
+	       else default := env$mfetch_str(e, name)
+	       end
+       end except when not_found: default := "-- new variable --" end
+    nv: string := get_string_arg (e, prompt, default)
+       resignal errmsg
+    if nv = default then return end
+    if c = 'N'
+       then if name = "change_limit"
+	       then e.change_limit := int$parse (nv)
+	     elseif name = "save_mode"  cor  name = "write_mode"  cor
+		    name = "umask"
+	       then env$store_num(e, name, i_oparse (nv))
+	     else env$store_num(e, name, int$parse (nv)) end
+	       except when bad_format, overflow:
+			   signal errmsg ("Bad number value!")
+		      end
+     elseif name = "word_chars"
+       then e.word_chars := nv
+     else env$store_str (e, name, nv)
+     end
+    end set_env_variable
+
+set_indenter_option = proc (e: env, c: char)
+			signals (errmsg (string), stop(env, string))
+    name: string := get_string_arg (e, "Indenter variable name", "")
+       resignal errmsg
+    if string$empty(name) then return end
+    if name = "*"
+       then ienv$_reset()
+	    return
+       end
+    for step: int in qs$indexes(steps) do
+	if name = steps[step]
+	   then old: int := ienv$get (step)
+		new: string := get_string_arg (e, "New value", int$unparse (old))
+		   resignal errmsg
+		ienv$set (step, int$parse (new))
+		return
+	   end except when bad_format, overflow: signal errmsg ("Bad number!")
+		      end
+	end
+    signal errmsg ("No such variable!")
+    end set_indenter_option
+
+set_terminal_option = proc (e: env, c: char)
+			signals (errmsg (string), stop(env, string))
+    prompt = "Change terminal mode"
+    legal = "BCMPS"
+    help = "B: set default output speed to # baud\n" ||
+	   "C: set color (#=0: white on black, #~=0: black on white)\n" ||
+	   "M: set meta key (#=0: no meta key, #~=0: meta key)\n" ||
+	   "P: set padding (#=0: no padding, #~=0: do padding)\n" ||
+	   "S: set scrolling (#=0: no scrolling, #~=0: do scrolling)"
+    i: int, opt: char := get_option (e, prompt, legal, help, false)
+       resignal errmsg
+    if opt = 'B'
+       then _set_speed (i)
+	    _force_padding (_is_padding ())
+     elseif opt = 'C'
+       then if _set_color (i ~= 0)
+	       then env$clear (e) end
+     elseif opt = 'M'
+       then _set_meta (i ~= 0)
+     elseif opt = 'P'
+       then _force_padding (i ~= 0)
+     else _do_scrolling (i ~= 0)
+     end
+    end set_terminal_option
+
+set_overwrite_mode = proc (e: env, c: char)
+		       signals (errmsg (string), stop(env, string))
+    prompt = "Change text overwrite mode"
+    legal = "RS"
+    help = "R: reset to insert characters\n" ||
+	   "S: set to overwrite characters"
+    i: int, opt: char := get_option (e, prompt, legal, help, false)
+       resignal errmsg
+    e.overwrite := opt = 'S'
+    end set_overwrite_mode

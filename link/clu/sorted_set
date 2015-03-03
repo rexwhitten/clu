@@ -1,0 +1,92 @@
+%% Copyright Massachusetts Institute of Technology 1980, 1989
+
+sorted_set = cluster [t: type] is
+	create, insert, remove, elements, ss_to_a, ss_to_s, s_to_ss,
+	size, similar, print
+	    where t has print: proctype (t,pstream);
+
+    lt_type = proctype (t, t) returns (bool);
+    ts      = array[t]
+
+    rep = struct[ LT:       lt_type,
+		  Elmnts:   ts ];
+
+    Create = proc (LT: lt_type) returns (cvt);
+	return (rep${ LT:	LT,
+		      Elmnts:	ts$New() } );
+	end Create;
+
+    Insert = proc (SS: cvt, E: t);
+	mOne = -1
+	Es: ts := SS.Elmnts;
+	Slot: int,
+	Dir: int := Find_Slot(Es, SS.LT, E);
+	if (Dir < 0)
+	   then ts$AddH(Es, E);
+		for I: int in int$From_To_By(ts$High(Es), Slot+1, mOne) do
+		    Es[I] := Es[I-1];
+		    end;
+	   else ts$AddL(Es, E);
+		for I: int in int$From_To(ts$Low(Es), Slot-1) do
+		    Es[I] := Es[I+1];
+		    end;
+	   end;
+	Es[Slot] := E;
+	end Insert;
+
+    Find_Slot = proc (Es: ts, LT: lt_type, E: t) returns (int, int);
+	Low:  int := ts$Low(Es);
+	High: int := ts$High(Es);
+	L: int := Low;
+	H: int := High;
+	while (L <= H) do			% Binary search
+	    M: int := (L + H)/2;
+	    if (LT(E, Es[M]))
+	       then H := M - 1;
+	       else L := M + 1; end;
+	    end;
+	% (H = L - 1) and entry should be inserted between them.
+	if ((High - L) <= (H - Low))
+	   then return (L, -1);
+	   else return (H,  1);
+	   end;
+	end Find_Slot;
+
+    Remove = proc (SS: cvt) returns (t) signals (empty);
+	return (ts$RemL(SS.Elmnts));
+	   except when Bounds:
+		       signal Empty;
+		  end;
+	end Remove;
+
+    Elements = iter (SS: cvt) yields (t);
+	for E: t in ts$Elements(SS.Elmnts) do
+	    yield (E);
+	    end;
+	end Elements;
+
+    SS_to_A = proc (SS: cvt) returns (array[t]);
+	return (ts$Copy1(SS.Elmnts))
+	end SS_to_A;
+
+    SS_to_S = proc (SS: cvt) returns (sequence[t]);
+	return (sequence[t]$A2S(SS.Elmnts));
+	end SS_to_S;
+
+    S_to_SS = proc (S: sequence[t], LT: lt_type) returns (cvt);
+	return (rep${ LT:	LT,
+		      Elmnts:	sequence[t]$S2A(S) });
+	end S_to_SS;
+
+    Size = proc (SS: cvt) returns (int);
+	return (ts$Size(SS.Elmnts));
+	end Size;
+
+    Similar = proc (SS1, SS2: cvt) returns (bool);
+	return (SS1 = SS2);
+	end Similar;
+
+    Print = proc (SS: cvt, S: pstream);
+	ts$Print(SS.Elmnts, S);
+	end Print;
+    end sorted_set;

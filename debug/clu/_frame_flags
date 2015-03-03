@@ -1,0 +1,30 @@
+% Copyright Massachusetts Institute of Technology 1982, 1989
+
+%%% The _frame_flags determine the format for frame printing.
+%%% (SEP/Nov  6 1984)
+
+_frame_flags = cluster is get, comp_short_long, comp_one_two
+
+    rep = null
+
+    own do_one: bool := false		% false => print only callee frame
+					% true  => print caller frame also
+    own is_long: bool := false		% false => print frames in short form
+					% true  => print frames in long form
+
+    % Get logically returns "do_both" and "is_short"---the complements
+    % of the real stored flags (for some reason).
+
+    get = proc () returns (bool, bool)
+	return(~do_one, ~is_long)
+	end get
+
+    comp_short_long = proc ()
+	is_long := ~is_long
+	end comp_short_long
+
+    comp_one_two = proc ()
+	do_one := ~do_one
+	end comp_one_two
+
+    end _frame_flags

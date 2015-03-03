@@ -1,0 +1,167 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+move_by_list = proc (e: env, c: char)
+		 signals (errmsg(string), stop(env, string))
+    prompt = "Move by list"
+    legal = c2s(ctrla) || c2s(ctrlb) || c2s(ctrld) ||
+	    c2s(ctrle) || c2s(ctrlf) || c2s(ctrln) || c2s(ctrlp)
+    help = "^A: move backward up # levels\n" ||
+	   "^B: move backward over # lists\n" ||
+	   "^D: move forward down # levels\n" ||
+	   "^E: move forward up # levels\n" ||
+	   "^F: move forward over # lists\n" ||
+	   "^N: move forward up and down # times\n" ||
+	   "^P: move backward up and down # times"
+    own stack: act := act$new()
+    arg: int, opt: char := get_option(e, prompt, legal, help, false)
+       resignal errmsg
+    if arg = 0
+       then return end
+    act$trim(stack, 1, 0)
+    chars: string := env$fetch_str(e, "list_chars", "()[]{}\"'")
+    sign: int := 1
+    if arg > 0
+       then if opt = ctrla  cor  opt = ctrlb  cor  opt = ctrlp
+	       then sign := -1 end
+       else arg := -arg
+	    if opt = ctrla
+	       then opt := ctrle
+	     elseif opt = ctrlb
+	       then opt := ctrlf
+	     elseif opt = ctrlp
+	       then opt := ctrln
+	     else sign := -1
+		  if opt = ctrle
+		     then opt := ctrla
+		   elseif opt = ctrlf
+		     then opt := ctrlb
+		   elseif opt = ctrln
+		     then opt := ctrlp end
+	     end
+       end
+    cnt: int := arg
+    b: buf := e.buffer
+    oline, opos: int := buf$get_cursor(b)
+    line: int := oline
+    pos: int := opos
+    if sign < 0
+       then pos := pos - 1
+	    if pos = 0
+	       then pos := max_int
+		    line := line - 1
+	       end
+       end
+    inlit: bool := false
+    litc: char
+    skip: bool := false
+    cc: char
+    s: string := b[line]
+    if pos > 1  cand  pos < string$size(s)  cand
+       (string$indexc('"', chars) > 0  cor  string$indexc('\'', chars) > 0)
+       then xpos: int
+	    if sign > 0
+	       then xpos := 1
+	       else xpos := max_int
+	       end
+	    for cc, line, xpos in scan_buf_chars(b, line, xpos, sign) do
+		if xpos = pos
+		   then break end
+		if inlit
+		   then if skip
+			   then skip := false
+			 elseif cc = litc  cand
+				(sign > 0  cor  (xpos > 0  cand
+						 s[xpos - 1] ~= '\\'))
+			   then inlit := false
+			 elseif (cc = '\\'  cand  sign > 0)  cor  cc = litc
+			   then skip := true end
+		 elseif cc = '"'  cor  cc = '\''
+		   then inlit := true
+			litc := cc
+		 end
+		end
+       end
+    for cc, line, pos in scan_buf_chars(b, line, pos, sign) do
+	if inlit
+	   then if skip
+		   then skip := false
+		 elseif cc = litc  cand
+			(sign > 0  cor  (pos > 0  cand
+					 b[line][pos - 1] ~= '\\'))
+		   then inlit := false
+		 elseif (cc = '\\'  cand  sign > 0)  cor  cc = litc
+		   then skip := true end
+		continue
+	   end
+	if string$indexc(cc, chars) = 0
+	   then continue end
+	if string$indexc(cc, "([{<") > 0
+	   then if sign > 0
+		   then if opt = 'D'
+			   then opt := ctrln
+			 elseif opt ~= ctrld
+			   then act$addh(stack, cc)
+				continue
+			 end
+			pos := pos + 1
+		 elseif opt = ctrld  cor  opt = 'D'
+		   then break
+		 elseif opt = ctrlb
+		   then if int$abs(c2i(act$remh(stack)) - c2i(cc)) > 2
+			   then exit mismatch end
+			if ~act$empty(stack)
+			   then continue end
+		 elseif ~act$empty(stack)
+		   then if int$abs(c2i(act$remh(stack)) - c2i(cc)) > 2
+			   then exit mismatch end
+			continue
+		 elseif opt = ctrlp
+		   then opt := 'D'
+			continue
+		 end
+		oline := line
+		opos := pos
+		cnt := cnt - 1
+		if cnt = 0
+		   then break end
+	 elseif string$indexc(cc, ")]}>") > 0
+	   then if sign < 0
+		   then if opt = 'D'
+			   then opt := ctrlp
+			 elseif opt ~= ctrld
+			   then act$addh(stack, cc)
+				continue
+			 end
+			pos := pos - 1
+		 elseif opt = ctrld  cor  opt = 'D'
+		   then break
+		 elseif opt = ctrlf
+		   then if int$abs(c2i(act$remh(stack)) - c2i(cc)) > 2
+			   then exit mismatch end
+			if ~act$empty(stack)
+			   then continue end
+		 elseif ~act$empty(stack)
+		   then if int$abs(c2i(act$remh(stack)) - c2i(cc)) > 2
+			   then exit mismatch end
+			continue
+		 elseif opt = ctrln
+		   then opt := 'D'
+			continue
+		 end
+		oline := line
+		opos := pos + 1
+		cnt := cnt - 1
+		if cnt = 0
+		   then break end
+	 elseif cc = '"'  cor  cc = '\''
+	   then inlit := true
+		litc := cc
+	 end
+	end except when mismatch:
+			buf$set_cursor(b, line, pos)
+			signal errmsg("Mismatched bracket")
+		   when bounds:
+		   end
+    buf$set_cursor(b, oline, opos)
+    if cnt = arg
+       then _bell() end
+    end move_by_list

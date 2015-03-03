@@ -1,0 +1,36 @@
+%% Copyright Massachusetts Institute of Technology 1984, 1989
+
+Relocate = proc (Code_Address: address, Pos: int,
+		 UP_Uses: use_list, Size: int, Env: lnk_env)
+		 signals(overflow);
+    Input: in_chan := Env.Input;
+    Output: out_link_chan := Env.Output;
+    in_chan$Position(Input, Pos);
+    Delta: int := in_chan$Read_Long(Input)      %% May turn into two words.
+    	resignal overflow;
+    in_chan$Start_Block_Out_Mode(Input, Output, Size);
+    if (Delta > 0)				%% Initial Delta = 0 => no uses.
+       then Use_Idx: int := 0;
+	    while (Delta >= 0) do
+		in_chan$Advance(Input, Delta);
+		Use_Idx, Delta := in_chan$Read_2_Words_from_Block(Input);
+		use$Insert_Reference(UP_Uses[Use_Idx], Input, Env);
+		   except when Bounds:
+			       Should_Never_Happen
+				   [int]("UP_Use list index out of bounds", Use_Idx);
+			  when Not_Possible:
+			       Should_Never_Happen
+				   [null]("Can\'t get UP_Use reference.", nil);
+			  when Not_Fixed_Yet (A: address):
+			       rewrites$AddH(Env.Mach_Dependent.Rewrites,
+					     rewrite$Create(Input.Out_Position, A));
+			  end;
+		Delta := Delta - 4;     %% Delta includes the long word it is in.
+		end;
+	       except when End_of_Block:
+			   Should_Never_Happen
+			       [null]("End of code block reached prematurely.", nil);
+		      end;
+       end
+    in_chan$End_Block_Out_Mode(Input);
+    end Relocate;

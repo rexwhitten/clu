@@ -1,0 +1,307 @@
+; Copyright Massachusetts Institute of Technology 1980, 1989
+
+oneof = selector is make, is, value, o2v, v2o, equal, similar, copy, print,
+		    encode, decode, _gcd
+
+make = qselproc (val: seltype) returns (cvt)
+	move	selhead,n1		; get header
+	move	rr,-(sp)		; yes
+	ifeq	tstb	(sp)		; need to indirect?
+	then	moveb	n1,(sp)		; no, put tag in with value
+		movea	(sp)+,rr
+		return(rr)
+	end
+	moveq	8,n2			; get byte count
+	movea	heaphi,rr		; alloc
+	iflt	sub	n2,freecnt
+	then	jsr	memout
+	end
+	add	n2,heaphi
+	move	n1,(rr)
+	move	(sp)+,4(rr)		; store value
+	return(rr)
+	end make
+
+is = qselproc (one: cvt) returns (bool)
+	move	rr,-(sp)
+	moveq	0,n1
+	ifeq	moveb	(sp),n1		; get tag in reference if any
+	then	moveb	3(rr),n1	; get tag from header
+	end
+	addq	4,sp
+	cmpw	seltag,n1		; compare
+	seq	n1
+	return(n1)
+	end is
+
+value = qselproc (one: cvt) returns (seltype) signals (wrong_tag)
+	move	rr,-(sp)
+	moveq	0,n1
+	ifne	moveb	(sp),n1			; get tag in reference if any
+	then	clrb	(sp)			; clear tag field
+		movea	(sp)+,rr		; get value
+		ifeq	cmpw	seltag,n1	; test tag
+		then	return(rr)
+		end
+	else	addq	4,sp
+		movem	(rr),n1/rr		; atomically get tag and value
+		ifeq	cmpw	seltag,n1	; test tag
+		then	return(rr)
+		end
+	end
+	signal	wrong_tag
+	end value
+
+o2v = qproc (one: cvt) returns (variant[*])
+	move	rr,-(sp)
+	moveq	0,n1
+	ifeq	moveb	(sp),n1			; get tag in reference if any
+	then	addq	4,sp
+		movem	(rr),n1/r1		; atomically get tag and value
+	else	clrb	(sp)			; clear tag field
+		movea	(sp)+,r1		; get value
+		ori	%cell,,0,n1		; get header
+	end
+	moveq	8,n2				; get byte count
+	movea	heaphi,rr			; alloc
+	iflt	sub	n2,freecnt
+	then	jsr	memout
+	end
+	add	n2,heaphi
+	movem	n1/r1,(rr)
+	return(rr)
+	end o2v
+
+v2o = qproc (vnt: variant[*]) returns (cvt)
+	move	(rr),n1			; get tag
+	move	4(rr),-(sp)		; and value
+	ifeq	tstb	(sp)		; need to indirect?
+	then	moveb	n1,(sp)		; no, put tag in with value
+		movea	(sp)+,rr
+		return(rr)
+	end
+	moveq	8,n2			; get byte count
+	movea	heaphi,rr		; alloc
+	iflt	sub	n2,freecnt
+	then	jsr	memout
+	end
+	add	n2,heaphi
+	move	n1,(rr)
+	move	(sp)+,4(rr)		; store value
+	return(rr)
+	end v2o
+
+equal = proc (one1, one2: cvt) returns (bool)
+	    where each has equal: proctype (seltype, seltype) returns (bool)
+	rlist = selops[equal]
+	move	one1,-(sp)
+	moveq	0,n1
+	ifeq	moveb	(sp),n1			; get tag in reference if any
+	then	movea	(sp),r1
+		moveb	3(r1),n1		; get tag
+		move	4(r1),(sp)		; and value
+	else	clrb	(sp)			; clear tag field
+	end
+	move	rr,-(sp)
+	ifeq	moveb	(sp),n2			; get tag in reference if any
+	then	movem	(rr),n2/rr		; atomically get tag and value
+		addq	4,sp
+	else	clrb	(sp)			; clear tag field
+		movea	(sp)+,rr		; get value
+	end
+	ifeq	cmpb	n1,n2			; compare tags
+	then	movea	rlist,r1
+		aslw	2,n1
+		movea	(r1,n1/w),r1		; get equal op
+		r1(*, rr)			; compare
+		return(rr)
+	end
+	return(false)
+	end equal
+
+similar = proc (one1, one2: cvt) returns (bool)
+	    where each has similar: proctype (seltype, seltype) returns (bool)
+	rlist = selops[similar]
+	move	one1,-(sp)
+	moveq	0,n1
+	ifeq	moveb	(sp),n1			; get tag in reference if any
+	then	movea	(sp),r1
+		moveb	3(r1),n1		; get tag
+		move	4(r1),(sp)		; and value
+	else	clrb	(sp)			; clear tag field
+	end
+	move	rr,-(sp)
+	ifeq	moveb	(sp),n2			; get tag in reference if any
+	then	movem	(rr),n2/rr		; atomically get tag and value
+		addq	4,sp
+	else	clrb	(sp)			; clear tag field
+		movea	(sp)+,rr		; get value
+	end
+	ifeq	cmpb	n1,n2			; compare tags
+	then	movea	rlist,r1
+		aslw	2,n1
+		movea	(r1,n1/w),r1		; get similar op
+		r1(*, rr)			; compare
+		return(rr)
+	end
+	return(false)
+	end similar
+
+copy = proc (one: cvt) returns (cvt)
+	    where each has copy: proctype (seltype) returns (seltype)
+	rlist = selops[copy]
+	move	rr,-(sp)
+	moveq	0,n1
+	ifeq	moveb	(sp),n1			; get tag in reference if any
+	then	moveb	3(rr),n1		; get tag
+		movea	4(rr),rr		; and value
+	else	clrb	(sp)			; clear tag field
+		movea	(sp),rr			; get value
+	end
+	move	n1,(sp)
+	movea	rlist,r1
+	aslw	2,n1
+	movea	(r1,n1/w),r1			; get copy op
+	r1(rr)					; copy
+	move	(sp),n1				; get tag
+	move	rr,(sp)
+	ifeq	tstb	(sp)			; need to indirect?
+	then	moveb	n1,(sp)			; no, put tag in with value
+		movea	(sp),rr
+		return(rr)
+	end
+	ori	%cell,,0,n1			; get header
+	moveq	8,n2				; get byte count
+	movea	heaphi,rr			; alloc
+	iflt	sub	n2,freecnt
+	then	jsr	memout
+	end
+	add	n2,heaphi
+	move	n1,(rr)
+	move	(sp),4(rr)			; store value
+	return(rr)
+	end copy
+
+print = proc (one: cvt, pst: pstream)
+	    where each has print: proctype (seltype, pstream)
+	rlist = selops[print]
+	var	val,idx
+	move	one,val
+	moveq	0,n1
+	ifeq	moveb	val,n1			; get tag in reference if any
+	then	movea	val,rr
+		moveb	3(rr),n1		; get tag
+		move	4(rr),val		; and value
+	else	clrb	val			; clear tag field
+	end
+	aslw	2,n1
+	addqb	1,n1
+	move	n1,idx
+	ift	pstream$start(pst, "<")
+	then	movea	selnames,r1
+		move	idx,n1
+		add	n1,n1
+		movea	-2(r1,n1),rr		; get name
+		pstream$text(pst, rr)		; print it
+		pstream$text(pst, ": ")
+		movea	rlist,r1
+		move	idx,n1
+		movea	-1(r1,n1),r1		; get print op
+		r1(val, pst)			; print it
+	end
+	pstream$stop(pst, ">")
+	end print
+
+;; Encode oneof as tag, value.
+encode = proc (one: cvt, ist: istream) signals (not_possible(string))
+		where each has encode: proctype (seltype, istream)
+					signals (not_possible(string))
+	rlist = selops[encode]
+	var	tag, val
+
+	begin
+	move	one, -(sp)
+	clr	n1
+	ifne	tstb	(sp)		;; Is this a compact oneof?
+	then	moveb	(sp), n1	;; Yes, get tag.
+		clrb	(sp)
+		move	(sp)+, val  	;; Save value	
+	else	movea	(sp)+, r1	;; No, get ref.
+		moveb	3(r1), n1	;; Get tag.
+		move	4(r1), val	;; Save value.
+		end
+	add	n1, n1
+	addqb	1, n1			;; Integerize tag.
+	move	n1, tag			;; Save it for later.
+	move	rr, -(sp)		;; Push istream.
+	istream$%puti(*, n1)		;; Encode tag.
+	move	tag, n1
+	asl	1, n1			;; Make it a byte idx into rlist (+2)
+	movea	rlist, r1
+	movea	-2(r1, n1), r1		;; Get encode operation.
+	r1(val, ist)			;; Encode value.
+	end resignal not_possible
+	end encode
+
+decode = proc (ist: istream) returns (cvt)
+				signals (end_of_file, not_possible(string))
+		where each has decode: proctype (istream) returns (seltype)
+					signals (end_of_file, not_possible(string))
+	rlist = selops[decode]
+	var	tag
+
+	ifle	istream$%geti(rr)	;; Get tag (as CLU int).
+		move	rr, tag		;; Check tag.
+		cmpa	n0, rr
+		ble	next
+		movea	rlist, r1
+		lea	(rr, rr), rr	;; Get tag * 4 + 2.
+		cmpa	(r1), rr
+	then	movea	-2(r1, rr), r1	;; Get decode op.
+		r1(ist)			;; Decode value.
+		move	rr, -(sp)	;; Save it.
+		ifeq	tstb	(sp)	;; Should this be a compact oneof?
+		then	move	tag, n1	;; Yes.
+			asr	1, n1	;; De-integerize saved tag.
+			moveb	n1, (sp);; Put tag in with value.
+			movea	(sp)+, rr
+			return (rr)	;; Return it.
+			end	
+		move	8, n2		;; Must use non-compact form.
+		movea	heaphi, rr
+		iflt	sub	n2, freecnt	;; Alloc mem.
+		then	jsr	memout
+			end
+		add	n2, heaphi
+		move	tag, n1
+		asr	1, n1		;; De-integerize.
+		moveb	n1, 3(rr)	;; Store header.
+		movew	%cell, (rr)
+		move	(sp)+, 4(rr)	;; Store value.
+		return (rr)
+		end resignal end_of_file, not_possible
+	signal 	not_possible("bad format")
+	end decode
+
+_gcd = proc (one: cvt, tab: gcd_tab) returns (int)
+		where each has _gcd: proctype (seltype, gcd_tab) returns (int)
+	rlist = selops[_gcd]
+	ifeq	tstb	one
+	then	gcd_tab$%insert(rr, 8, <4: selops[_gcd]>, one)
+		return(rr)
+	end
+	moveq	0,n1
+	move	one,-(sp)
+	moveb	(sp),n1
+	clrb	(sp)
+	movea	rlist,r1
+	aslw	2,n1
+	movea	(r1,n1/w),r1
+	r1(*, rr)
+	move	rr,n7
+	neg	n7
+	addq	2,n7
+	return(n7)
+	end _gcd
+
+end oneof

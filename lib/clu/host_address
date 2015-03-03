@@ -1,0 +1,90 @@
+% Copyright Massachusetts Institute of Technology 1984, 1989
+
+host_address = proc (host: string) returns (int, int)
+		 signals (not_found, bad_address)
+    h: _bytevec
+    if string$indexc('.', host) > 0
+       then h := _cvt[string, _bytevec](string$append(host, '.'))
+       else ch: _chan := _chan$open(file_name$parse("/etc/hosts"), "read", 0)
+	       except when not_possible (*): signal not_found end
+	    buf: _bytevec := _bytevec$create(128)
+	    max: int := _chan$getb(ch, buf)
+	    b: string := _cvt[_bytevec, string](buf)
+	    h := _bytevec$create(16)
+	    idx: int := string$size(host) + 1
+	    while true do
+		if buf[1] = '#'
+		   then max := _skip_fill(buf, max, ch, '\n')
+			continue
+		   end
+		c: char := ' '
+		s: int := string$indexc(' ', b)
+		t: int := string$indexc('\t', b)
+		n: int
+		if s = 0  cor  (s > t  cand  t > 0)
+		   then s := t
+			c := '\t'
+		   end
+		_bytevec$move_lr(buf, 1, h, 1, s - 1)
+		h[s] := '.'
+		max := _skip_fill(buf, max, ch, c)
+		while true do
+		    if string$indexs(host, b) = 1  cand
+		       string$indexc(b[idx], " \t\n\000") ~= 0
+		       then exit found end
+		    s := string$indexc(' ', b)
+		    t := string$indexc('\t', b)
+		    n := string$indexc('\n', b)
+		    if s > 0  cand  (s < t  cor  t = 0)
+		       then if n > 0  cand  n < s
+			       then break end
+			    max := _skip_fill(buf, max, ch, ' ')
+		     elseif t = 0  cor  (n > 0  cand  n < t)
+		       then break
+		     else max := _skip_fill(buf, max, ch, '\t') end
+		    end
+		max := _skip_fill(buf, max, ch, '\n')
+		end except when end_of_file:
+				_chan$close(ch)
+				signal not_found
+			   when found:
+			   end
+	    _chan$close(ch)
+       end except when overflow, bad_format:
+		       signal bad_address
+		  end
+    begin
+	hs: string := _cvt[_bytevec, string](h)
+	a, b, c, d: int
+	t: int := _bytevec$indexc('.', h, 1)
+	if t = 0
+	   then exit bad_format end
+	a := int$parse(string$substr(hs, 1, t - 1))
+	s: int := t + 1
+	t := _bytevec$indexc('.', h, s)
+	if t = 0
+	   then d := a // 2**8
+		c := (a / 2**8) // 2**8
+		b := (a / 2**16) // 2**8
+		a := a / 2**24
+	   else b := int$parse(string$substr(hs, s, t - s))
+		s := t + 1
+		t := _bytevec$indexc('.', h, s)
+		if t = 0
+		   then d := b // 2**8
+			c := (b / 2**8) // 2**8
+			b := b / 2**16
+		   else c := int$parse(string$substr(hs, s, t - s))
+			s := t + 1
+			t := _bytevec$indexc('.', h, s)
+			if t = 0
+			   then d := c // 2**8
+				c := c / 2**8
+			   else d := int$parse(string$substr(hs, s, t - s))
+			   end
+		   end
+	   end
+	return(c + d * 2**8, a + b * 2**8)
+	end except when overflow, bad_format: end
+    signal bad_address
+    end host_address

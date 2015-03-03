@@ -1,0 +1,251 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+% An interactive calculator.
+
+str = string
+rtab = table[string, real]
+itab = table[string, bigint]
+
+start_up = proc ()
+    pi: stream := stream$primary_input()
+    po: stream := stream$primary_output()
+    jcl: str := get_jcl()
+    if str$empty(jcl)
+       then stream$putl(po, "Calculator, type ^D to quit.")
+	    stream$putl(po, "Operators: + - * / ! \\ ^    Assignment: =")
+	    stream$putl(po, "Float and BigInt modes.")
+	    stream$putl(po, "Type leading '#' to switch modes.")
+       end
+    s: str := jcl
+    rt: rtab := rtab$create(100,
+			    hash,
+			    string$equal)
+    it: itab := itab$create(100, hash, string$equal)
+    float: bool := true
+    while true do
+	if str$empty(jcl)
+	   then if float
+		   then stream$puts(po, "(Float) Expr: ")
+		   else stream$puts(po, "(BigInt) Expr: ")
+		   end
+		s := stream$getl(pi)
+		   except when end_of_file:
+			       stream$putc(po, '\n')
+			       return
+			  end
+	   end
+	if str$empty(s)
+	   then continue end
+	if s[1] = '#'
+	   then float := ~float
+		s := str$rest(s, 2)
+		if str$empty(s)
+		   then continue end
+	   end
+	if float
+	   then r: real, pos: int, tc: char := real_eval(s, 1, 0, rt)
+		stream$puts(po, "    = ")
+		stream$putl(po, h_form(r))
+	   else i: bigint, pos: int, tc: char := int_eval(s, 1, 0, it)
+		stream$puts(po, "    = ")
+		stream$putl(po, bigint$unparse(i))
+	   end except others (name: str):
+			   stream$putl(po, "Oops: " || name)
+			   if ~str$empty(jcl)
+			      then return end
+			   continue
+		      end
+	if ~str$empty(jcl)
+	   then return end
+	end
+    end start_up
+
+h_form = proc (r: real) returns (str)
+    if r = real$i2r(real$r2i(r))
+       then return(int$unparse(real$r2i(r))) end
+       except others: end
+    exp: int := real$exponent(r)
+       except others: exp := 0 end
+    if exp >= -4  cand  exp <= 6
+       then % can use fixed form
+	    i: int := exp
+	    if i < 1
+	       then i := 0 end
+	    s: str := f_form(r, i + 1, 7 - exp)
+	    i := str$size(s)
+	    while i > 1  cand  s[i] = '0' do
+		i := i - 1
+		end
+	    if i > 1  cand  s[i] = '.'
+	       then c: char := s[i - 1]
+		    if c >= '0'  cand  c <= '9'
+		       then i := i - 1 end
+	       end
+	    return(str$substr(s, 1, i))
+       else % have to use g form
+	    s: str := h_form(real$mantissa(r))
+	    es: str := "e+"
+	    if exp < 0
+	       then es := "e" end
+	    return(s || es || int$unparse(exp))
+       end
+    end h_form
+
+real_eval = proc (s: str, pos, level: int, t: rtab) returns (real, int, char)
+	      signals (overflow, underflow, zero_divide,
+		       complex_result, syntax_error, undefined_variable)
+    begin
+    accum, naccum: real
+    c, nc: char
+    pos, c := string_skip(s, pos, "  \t\t")
+    sign: bool := false
+    while c = '-' do
+	sign := ~sign
+	pos, c := string_skip(s, pos + 1, "  \t\t")
+	end
+    if str$indexc(c, "0123456789.") > 0
+       then % number is of the form X.Ye-Z
+	    ipos: int := pos
+	    pos, c := string_skip(s, pos, "09")
+	    if c = '.'
+	       then pos, c := string_skip(s, pos + 1, "09") end
+	    if c = 'e'  cor  c = 'E'
+	       then pos := pos + 1
+		    if string$indexc(s[pos], "+-") > 0
+		       then pos := pos + 1
+		       end except when bounds: end
+		    pos, c := string_skip(s, pos, "09")
+	       end
+	    accum := real$parse(str$substr(s, ipos, pos - ipos))
+	       except when bad_format: signal syntax_error end
+     elseif c = '('
+       then % parse a parenthesized expression
+	    accum, pos, c := real_eval(s, pos + 1, 0, t)
+	    if s[pos] ~= ')'
+	       then signal syntax_error
+	       else pos := pos + 1
+	       end except when bounds: end
+     elseif in_range_(c, "azAZ__")
+       then ipos: int := pos
+	    pos, c := string_skip(s, pos, "azAZ__09")
+	    id: str := str$substr(s, ipos, pos - ipos)
+	    pos, c := string_skip(s, pos, "  \t\t")
+	    if c = '='  cand  level = 0
+	       then accum, pos, c := real_eval(s, pos + 1, 0, t)
+		    rtab$alter(t, id, accum)
+	       else accum := rtab$lookup(t, id)
+		       except when not_found: signal undefined_variable end
+	       end
+     else signal syntax_error end
+    if sign
+       then accum := -accum end
+    while true do
+	pos, c := string_skip(s, pos, "  \t\t")
+	if str$indexc(c, " ,;)") > 0
+	   then return(accum, pos, c) end
+	kind: int := str$indexc(c, "+-*/!\\^")
+	if kind = 0
+	   then signal syntax_error end
+	nlevel: int := sequence[int]$[1, 1, 2, 2, 2, 2, 3][kind]
+	if c ~= '^'  cand  nlevel <= level
+	   then return(accum, pos, c) end
+	naccum, pos, nc := real_eval(s, pos + 1, nlevel, t)
+	if c = '-'
+	   then accum := accum - naccum
+	 elseif c = '+'
+	   then accum := accum + naccum
+	 elseif c = '*'
+	   then accum := accum * naccum
+	 elseif c = '/'
+	   then accum := accum / naccum
+	 elseif c = '!'
+	   then accum := real$i2r(real$trunc(accum) / real$trunc(naccum))
+	 elseif c = '\\'
+	   then accum := real$i2r(real$trunc(accum) // real$trunc(naccum))
+	 elseif c = '^'
+	   then accum := accum ** naccum end
+	end
+    end resignal overflow, underflow, zero_divide, complex_result, syntax_error, undefined_variable
+    end real_eval
+
+int_eval = proc (s: str, pos, level: int, t: itab) returns (bigint, int, char)
+	     signals (zero_divide, negative_exponent, syntax_error,
+		      undefined_variable)
+    begin
+    accum, naccum: bigint
+    c, nc: char
+    pos, c := string_skip(s, pos, "  \t\t")
+    sign: bool := false
+    while c = '-' do
+	sign := ~sign
+	pos, c := string_skip(s, pos + 1, "  \t\t")
+	end
+    if str$indexc(c, "0123456789") > 0
+       then ipos: int := pos
+	    pos, c := string_skip(s, pos, "09")
+	    accum := bigint$parse(str$substr(s, ipos, pos - ipos))
+	       except when bad_format: signal syntax_error end
+     elseif c = '('
+       then % parse a parenthesized expression
+	    accum, pos, c := int_eval(s, pos + 1, 0, t)
+	    if s[pos] ~= ')'
+	       then signal syntax_error
+	       else pos := pos + 1
+	       end except when bounds: end
+     elseif in_range_(c, "azAZ__")
+       then ipos: int := pos
+	    pos, c := string_skip(s, pos, "azAZ__09")
+	    id: str := str$substr(s, ipos, pos - ipos)
+	    pos, c := string_skip(s, pos, "  \t\t")
+	    if c = '='  cand  level = 0
+	       then accum, pos, c := int_eval(s, pos + 1, 0, t)
+		    itab$alter(t, id, accum)
+	       else accum := itab$lookup(t, id)
+		       except when not_found: signal undefined_variable end
+	       end
+     else signal syntax_error end
+    if sign
+       then accum := -accum end
+    while true do
+	pos, c := string_skip(s, pos, "  \t\t")
+	if str$indexc(c, " ,;)") > 0
+	   then return(accum, pos, c) end
+	kind: int := str$indexc(c, "+-*/!\\^")
+	if kind = 0
+	   then signal syntax_error end
+	nlevel: int := sequence[int]$[1, 1, 2, 2, 2, 2, 3][kind]
+	if c ~= '^'  cand  nlevel <= level
+	   then return(accum, pos, c) end
+	naccum, pos, nc := int_eval(s, pos + 1, nlevel, t)
+	if c = '-'
+	   then accum := accum - naccum
+	 elseif c = '+'
+	   then accum := accum + naccum
+	 elseif c = '*'
+	   then accum := accum * naccum
+	 elseif c = '/'  cor  c = '!'
+	   then accum := accum / naccum
+	 elseif c = '\\'
+	   then accum := accum // naccum
+	 elseif c = '^'
+	   then accum := accum ** naccum end
+	end
+    end resignal zero_divide, syntax_error, undefined_variable
+    end int_eval
+
+string_skip = proc (s: str, pos: int, match: str) returns (int, char)
+    while true do
+	c: char := s[pos]
+	if ~in_range_(c, match)
+	   then return(pos, c) end
+	pos := pos + 1
+	end
+       except when bounds: return(pos, ' ') end
+    end string_skip
+
+in_range_ = proc (c: char, s: string) returns (bool)
+    for i: int in int$from_to_by(1, string$size(s) - 1, 2) do
+	if c >= s[i]  cand  c <= s[i + 1]
+	   then return(true) end
+	end except when bounds: end
+    return(false)
+    end in_range_

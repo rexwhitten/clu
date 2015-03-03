@@ -1,0 +1,29 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+scan_buf_chars = iter (b: buf, line, pos, sign: int)
+		   yields (char, int, int)
+    lim: int := buf$size(b)
+    if sign > 0 then
+       for line in int$from_to(line, lim) do
+	   s: string := b[line]
+	   for pos in int$from_to(pos, string$size(s)) do
+	       yield(s[pos], line, pos)
+	       end
+	   if line < lim
+	      then yield('\n', line, string$size(s) + 1) end
+	   pos := 1
+	   end
+     elseif sign < 0 then
+       for line in int$from_to_by(line, 1, -1) do
+	   s: string := b[line]
+	   if pos > string$size(s)
+	      then pos := string$size(s)
+		   if line < lim
+		      then yield('\n', line, pos + 1) end
+	      end
+	   for pos in int$from_to_by(pos, 1, -1) do
+	       yield(s[pos], line, pos)
+	       end
+	   pos := max_int
+	   end
+     end
+    end scan_buf_chars

@@ -1,0 +1,75 @@
+; Copyright Massachusetts Institute of Technology 1980, 1989
+
+_tagcell = cluster [t: type] is create, get, set, set_value, equal, copy, _gcd
+
+create = qproc (tg: int, val: t) returns (cvt) signals (toobig)
+	iflt	move	tg,n1			; check tag
+		asr	1,n1
+		ble	next
+		cmpi	020000,n1
+	then	ori	%cell,,0,n1		; get header
+		movea	rr,r1
+		moveq	8,n2			; get byte count
+		movea	heaphi,rr		; alloc
+		iflt	sub	n2,freecnt
+		then	jsr	memout
+		end
+		add	n2,heaphi
+		movem	n1/r1,(rr)
+		return(rr)
+	end
+	signal	toobig
+	end create
+
+get = qproc (tc: cvt) returns (int, t)
+	movem	(rr),n1/rr
+	ext	n1
+	add	n1,n1
+	addqb	1,n1
+	return(n1, rr)
+	end get
+
+set = qproc (tc: cvt, tg: int, val: t) signals (toobig)
+	iflt	move	tg,n1		; check tag
+		asr	1,n1
+		ble	next
+		cmpi	020000,n1
+	then	ori	%cell,,0,n1
+		movea	tc,r1
+		movem	n1/rr,(r1)	; store
+		return
+	end
+	signal	toobig
+	end set
+
+set_value = qproc (tt: cvt, val: t)
+	movea	tt, r1
+	move	rr, 4(r1)
+	end set_value
+
+equal = qproc (tc1, tc2: cvt) returns (bool)
+	moveq	0,n1
+	cmpa	tc1,rr
+	seq	n1
+	return(n1)
+	end equal
+
+copy = qproc (tc: cvt) returns (cvt)
+	movem	(rr),n1/r1
+	moveq	8,n2			; get byte count
+	movea	heaphi,rr		; alloc
+	iflt	sub	n2,freecnt
+	then	jsr	memout
+	end
+	add	n2,heaphi
+	movem	n1/r1,(rr)
+	return(rr)
+	end copy
+
+_gcd = proc (tt: cvt, tab: gcd_tab) returns (int)
+			where t has _gcd: proctype (t, gcd_tab) returns (int)
+	gcd_tab$%insert(rr, 8, <5: t$_gcd>, tt)
+	return(rr)
+	end _gcd
+
+end _tagcell

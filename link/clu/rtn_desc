@@ -1,0 +1,470 @@
+%% Copyright Massachusetts Institute of Technology 1985, 1989
+
+rtn_desc = cluster is
+	init, create, similar, instantiate, bind,
+	closure, dummy_closure, call_string, copy,
+	lookup, find,
+	get_name, get_type_desc, get_parameters, set_parameters, get_a_parameter,
+	get_expected_arg_count, get_expected_result_count,
+	result_type, make_dummy_main, make_dummy_rtn,
+	has_dummy_params, is_dummy_param,
+	change_to_stub_rtn, is_stub_match, stub_insts_match,
+	print, unparse, stub_rtn_unparse, hasher, _gcd;
+
+    rep = record[
+	      a_Type:			 type_desc,
+	      b_Name:			 string,
+	      c_Parameters:		 params,
+	      d_Expected_Arg_Count:	 int,
+	      e_Expected_Result_Count:	 int
+		 ];
+
+    own Dummy_Param: constant;		%% Initialized by Init
+    own Dummy_Ps: params;		%% which is called by lnk_env
+
+    Init = proc (DPs: params);
+	Dummy_Ps := DPs;
+	Dummy_Param := params$Bottom(DPs);
+	end Init;
+
+    Create = proc (T: type_desc, N: string, P: params, A: int, R: int)
+	       returns (cvt);
+	return ( rep${
+		     a_Type:                    T,
+		     b_Name:                    N,
+		     c_Parameters:              P,
+		     d_Expected_Arg_Count:      A,
+		     e_Expected_Result_Count:   R
+		      });
+	end Create;
+
+    Similar = proc (R1, R2: cvt) returns (bool);
+	return ( rep$Similar(R1,R2) );
+	end Similar;
+
+    Bind = proc (Called_R_D: cvt, Calling_R_D: rtn_desc, Env: lnk_env)
+	     returns (cvt) signals (error(string));
+
+	return (
+	    rep${
+		a_Type:         	 type_desc$Bind(Called_R_D.a_Type,
+							Calling_R_D, Env),
+		b_Name:         	 Called_R_D.b_Name,
+		c_Parameters:   	 Bind_List[param](Called_R_D.c_Parameters,
+							  Calling_R_D, Env),
+		d_Expected_Arg_Count:    Called_R_D.d_Expected_Arg_Count,
+		e_Expected_Result_Count: Called_R_D.e_Expected_Result_Count
+		 }
+		);
+	   resignal Error;
+	end Bind;
+
+    Instantiate = proc (R: cvt, Env: lnk_env) signals (error(string));
+	R.a_Type := type_desc$Instantiate(R.a_Type, Env);
+	   resignal Error;
+	R.b_Name := Name_Instantiate(R.b_Name, Env);
+	%		%% Dont instantiate a parameter until it is really used.
+	end Instantiate;
+    
+
+    Closure = proc (R_D: cvt, Env: lnk_env)	 % R_D assumed to be bound.
+		returns (rtn_inst) signals (error(string));
+
+	Eqv_RD: rtn_desc;
+	R: r_template;
+
+        Eqv_RD,
+	R := rtn_desc$Find( up(R_D), Env ); % Find proper routines.
+	   resignal Error;
+	Rtn_Is_OK: bool,
+	Error_String: string := r_template$Validate_Match(Eqv_RD, R, Env);
+
+	while (true) do
+	    if (~ Rtn_Is_OK)
+	       then stream$PutL(Env.Options.List_Stream, Error_String);
+		    Eqv_RD, R := Unknown_Routine(up(R_D), Env);
+	       end;
+
+	    return (Routine_Closure(Eqv_RD, R, Env));
+	       except
+		  when Error(Err_S: string):
+		       Error_String := "Error for " ||
+				       Call_String(Eqv_RD, Env) ||
+				       Err_S;
+		       if (~ Is_Stub_Rtn(R))
+			  then Rtn_Is_OK := false;
+			       continue;
+			  else signal Error(Error_String);
+			  end
+		  end;
+	    end;    %% while (true) do
+	end Closure;
+
+
+    Lookup = proc (R_D: rtn_desc, Env: lnk_env) returns (rtn_desc, r_template)
+	       signals (not_found, error(string));
+	Rs: routine_list;
+	C_T: c_template;
+
+	N: string := down(R_D).b_Name;
+	T_D: type_desc := down(R_D).a_Type;
+
+	if (~ type_desc$Is_None(T_D))
+	   then	Svd_Look_in_Lib: bool := Env.Look_in_Library;
+		Env.Look_in_Library := false;
+		C_T := type_desc$Get_C_Template(T_D, Env);
+		   except when Need_To_Bind:
+			       Env.Look_in_Library := Svd_Look_in_Lib;
+			       T_D := type_desc$Bind(T_D, R_D, Env);
+				  resignal Error;
+			       C_T := type_desc$Get_C_Template(T_D, Env);
+			  end;
+		Env.Look_in_Library := Svd_Look_in_Lib;
+		Rs := C_T.Routines;
+		for R: r_template in routine_list$Elements(Rs) do
+		    if (N = R.Name)
+		       then R_D, R := r_template$Equiv_Routine(R, R_D, Env);
+			       resignal Error;
+			    return (R_D, R);
+		       end;
+		    end;
+		if (c_template$Is_Selector_Type(C_T))
+		   then Sel_Name: string,
+			Rtn_Name: string := Parse_Selector_Rtn_Name(N)
+			   except when Not_Selector:
+				       signal Not_Found;
+				  end;
+			for R: r_template in routine_list$Elements(Rs) do
+			    if ((Rtn_Name = R.Name) cand
+				(r_template$Is_Selector_Rtn(R)))
+			       then R_D, R := r_template$Equiv_Routine(
+						  R, R_D, Env);
+				       resignal Error;
+				    return (R_D, R);
+			       end;
+			    end;
+		   end;
+	   else R: r_template := rtn_tab$Lookup(Env.Routines, N);
+		   resignal Not_Found;
+		R_D, R := r_template$Equiv_Routine(R, R_D, Env);
+		   resignal Error;
+		return (R_D, R);
+	   end;
+	signal Not_Found;
+	end Lookup;
+    
+
+    Find = proc (R_D: rtn_desc, Env: lnk_env) returns (rtn_desc, r_template)
+	     signals (error(string));
+	R: r_template;
+	Rs: routine_list;
+	C_T: c_template;
+
+	N: string := down(R_D).b_Name;
+	T_D: type_desc := down(R_D).a_Type;
+	if (~ type_desc$Is_None(T_D))
+	   then C_T := type_desc$Get_C_Template(T_D, Env);
+		   except when Need_To_Bind:
+			       T_D := type_desc$Bind(T_D, R_D, Env);
+				  resignal Error;
+			       C_T := type_desc$Get_C_Template(T_D, Env);
+			  end;
+		Rs := C_T.Routines;
+		for R in routine_list$Elements(Rs) do
+		    if (N = R.Name)
+		       then R_D, R := r_template$Equiv_Routine(R, R_D, Env);
+			       resignal Error;
+			    return (R_D, R);
+		       end;
+		    end;
+		if (c_template$Is_Selector_Type(C_T))
+		   then Sel_Name: string,
+			Rtn_Name: string := Parse_Selector_Rtn_Name(N)
+			   except when Not_Selector:
+				       exit Not_Found;
+				  end;
+			for R in routine_list$Elements(Rs) do
+			    if ((Rtn_Name = R.Name) cand
+				(r_template$Is_Selector_Rtn(R)))
+			       then R_D, R := r_template$Equiv_Routine(
+						  R, R_D, Env);
+				       resignal Error;
+				    return (R_D, R);
+			       end;
+			    end;
+		   end;
+	   else Try_Library: bool := Env.Look_in_Library;
+		while (true) do
+		    R := rtn_tab$Lookup(Env.Routines, N);
+		       except when Not_Found:
+				   if (Try_Library)
+				      then Find_and_Load_File(N,
+							      Env);     %% Try in library.
+					      except when Cant_Find:
+							  break;
+						     end;
+					   Try_Library := false;   %% Don't try again.
+					   continue;
+				      else break;
+				      end;
+			      end;
+		    R_D, R := r_template$Equiv_Routine(R, R_D, Env);
+		       resignal Error;
+		    return (R_D, R);
+		    end;
+	   end;
+		except when Not_Found:
+			end;
+
+	if ( ~( ( ~ type_desc$Is_None(T_D) cand
+		  c_template$Is_Stub_Cluster(C_T) ) cor
+		type_desc$Is_Unknown_Result_Type(T_D) cor
+		Env.Ignore_Unknown
+	       ) )
+	   then Rtn_Name: string := rtn_desc$Unparse(R_D);
+		if (~ Missed_Before(Rtn_Name, Env))
+		   then LS: stream := Env.Options.List_Stream;
+			stream$PutS(LS, "Can\'t find ");
+			stream$PutL(LS, Rtn_Name);
+			Missed(Rtn_Name, Env);
+		   end;
+	   end;
+	   except when Not_Possible(*): end;
+	
+	R_D, R := Unknown_Routine(R_D, Env);
+	return (R_D, R);
+	end Find;
+
+    Missed = proc (N: string, Env: lnk_env);
+	as$AddH(Env.Missed_Routines, N);
+	end Missed;
+
+    Missed_Before = proc (N: string, Env: lnk_env) returns (bool);
+	for S: string in as$Elements(Env.Missed_Routines) do
+	    if (N = S)
+	       then return (true);
+	       end;
+	    end;
+	return (false);
+	end Missed_Before;
+    
+
+    Call_String = proc (R_D: cvt, Env: lnk_env) returns (string);
+	rtn_stk = array[rtn_desc];
+	Call_S: string;
+	if (rtn_stk$Empty(Env.Rtn_Stack))
+	   then Call_S := "call of ";
+	   else Call_S := Unparse(rtn_stk$Top(Env.Rtn_Stack)) ||
+			  " calling ";
+	   end;
+	return (Call_S || Unparse(up(R_D)) || "\n");
+	end Call_String;
+
+    Dummy_Closure = proc (R_D: rtn_desc, R: r_template, Env: lnk_env)
+		      signals (error(string));
+	rtn_stk = array[rtn_desc];
+	R_I: rtn_inst;
+	begin
+	    R_I := rtn_inst$Create(R_D, R, Env);
+	    if (R.Own_Count ~= 0)
+	       then R_I.Owns_Address := locate$Address_Advance(
+					    Env.Locates.Owns, R.Own_Count);
+	       end;
+	    rtn_stk$AddH(Env.Rtn_Stack, R_D);
+	    use_list$Instantiate(R.UP_Uses, R_I, false, Env);
+	       except when Error(Err_S: string):
+			   rtn_stk$RemH(Env.Rtn_Stack);
+			   exit Error(Err_S);
+		      end;
+	    rtn_stk$RemH(Env.Rtn_Stack);
+	    end;
+	   except when Error(Err_S: string):
+		       Err_S := "Error for " ||
+				Call_String(R_D, Env) ||
+				Err_S;
+		       signal Error(Err_S);
+		  end;
+	R.Name_Constant := constant$Instantiate(R.Name_Constant,
+						true, Env);
+	R.Instantiations := rtn_insts$AddH(R.Instantiations, R_I);
+	R_I.Is_Dummy := true;		%% So it will not be output.
+	end Dummy_Closure;
+
+
+    Get_Name = proc (R_D: cvt) returns (string);
+	return ( R_D.b_Name );
+	end Get_Name;
+
+    Get_Type_Desc = proc (R_D: cvt) returns (type_desc);
+	return ( R_D.a_Type );
+	end Get_Type_Desc;
+
+    Get_Parameters = proc (R: cvt) returns (params);
+	return ( R.c_Parameters );
+	end Get_Parameters;
+
+    Set_Parameters = proc (R: cvt, Ps: params);
+	R.c_Parameters := Ps;
+	end Set_Parameters;
+
+    Get_A_Parameter = proc (R: cvt, Index: int)
+			returns (constant) signals (bounds);
+	P: param := R.c_Parameters[Index];
+	   resignal Bounds;
+	if (P = Dummy_Param)
+	   then signal Bounds;
+	   else return (P);
+	   end;
+	end Get_A_Parameter;
+
+    Get_Expected_Arg_Count = proc (R_D: cvt) returns (int);
+	return (R_D.d_Expected_Arg_Count);
+	end Get_Expected_Arg_Count;
+
+    Get_Expected_Result_Count = proc (R_D: cvt) returns (int);
+	return (R_D.e_Expected_Result_Count);
+	end Get_Expected_Result_Count;
+
+    Result_Type = proc (R_D: rtn_desc, Env: lnk_env)
+		    returns (type_desc, rtn_desc)
+		    signals (error(string));
+	Eqv_RD: rtn_desc, R_T: r_template := rtn_desc$Find( R_D, Env );
+	   resignal Error;
+	if (Is_Stub_Rtn(R_T))
+	   then return (type_desc$Make_Unknown_Result_Type(R_D, Eqv_RD), Eqv_RD);
+	   else return (R_T.Result_Type, Eqv_RD);
+	   end;
+	end Result_Type;
+
+    Copy = proc (R_D: cvt) returns (cvt);
+	return (rep${
+		    a_Type:                    R_D.a_Type,
+		    b_Name:                    R_D.b_Name,
+		    c_Parameters:              params$Copy(R_D.c_Parameters),
+		    d_Expected_Arg_Count:      R_D.d_Expected_Arg_Count,
+		    e_Expected_Result_Count:   R_D.e_Expected_Result_Count
+		     } );
+	end Copy;
+    
+
+    Make_Dummy_Main = proc (R_T: r_template) returns (cvt);
+	Ps: params;
+	if (R_T.Param_Count = 0)
+	   then Ps := params$New();
+	   else Ps := Dummy_Ps;
+	   end;
+	return (rep${
+		    a_Type:                    type_desc$Make_None(),
+		    b_Name:                    R_T.Name,
+		    c_Parameters:              Ps,
+		    d_Expected_Arg_Count:      R_T.Arg_Count,
+		    e_Expected_Result_Count:   R_T.Result_Count
+		     } );
+	end Make_Dummy_Main;
+
+    Make_Dummy_Rtn = proc (R_T: r_template, C_T: c_template) returns (cvt);
+	Ps: params;
+	C_D: c_desc := c_desc$Make_Dummy(C_T.Name, (C_T.Param_Count = 0));
+	if (R_T.Param_Count = 0)
+	   then Ps := params$New();
+	   else Ps := Dummy_Ps;
+	   end;
+	return (rep${
+		    a_Type:                    type_desc$Make_Cluster_Type(C_D),
+		    b_Name:                    R_T.Name,
+		    c_Parameters:              Ps,
+		    d_Expected_Arg_Count:      R_T.Arg_Count,
+		    e_Expected_Result_Count:   R_T.Result_Count
+		     } );
+	end Make_Dummy_Rtn;
+
+    Has_Dummy_Params = proc (R_D: cvt) returns (bool);
+	return (R_D.c_Parameters = Dummy_Ps);
+	end Has_Dummy_Params;
+
+    Is_Dummy_Param = proc (P: constant) returns (bool);
+	return (P = Dummy_Param);
+	end Is_Dummy_Param;
+
+    Change_to_Stub_Rtn = proc (R_D: cvt, Env: lnk_env) returns (cvt);
+	Parms: params := params$[
+			     constant$Make_Int( R_D.d_Expected_Arg_Count ),
+			     constant$Make_String( Unparse(up(R_D)) )
+				 ];
+	R_D.c_Parameters := params$Copy(R_D.c_Parameters);
+	return (rep${ a_Type:			 type_desc$Make_None(),
+		      b_Name:                    Stub_Rtn_Name_String,
+		      c_Parameters:              Parms,
+		      d_Expected_Arg_Count:      -1,
+		      e_Expected_Result_Count:   -1
+		     });
+	end Change_to_Stub_Rtn;
+
+    Is_Stub_Match = proc (RD: cvt, RI: rtn_inst) returns (bool);
+	Parms: params := RI.Params;
+	PArg_Count: int := constant$Get_Int(Parms[1]);
+	return (((RD.d_Expected_Arg_Count = PArg_Count) cor
+		 (RD.d_Expected_Arg_Count = -1) cor
+		 (PArg_Count = -1)
+		 ) cand
+		(Unparse(up(RD)) = constant$Get_String(Parms[2])));
+	end Is_Stub_Match;
+
+    Stub_Insts_Match = proc (RI1, RI2: rtn_inst) returns (bool);
+	Ps1: params := RI1.Params;
+	Ps2: params := RI2.Params;
+	return ((RI1.R_Template.Name = Stub_Rtn_Name_String) cand
+		(RI2.R_Template.Name = Stub_Rtn_Name_String) cand
+		(param$Similar(Ps1[2], Ps2[2])) cand
+		((param$Similar(Ps1[1], Ps2[1])) cor
+		 (constant$Get_Int(Ps1[1]) = -1) cor
+		 (constant$Get_Int(Ps2[1]) = -1)) );
+	   except when Bounds:
+		       return (false);
+		  end;
+	end Stub_Insts_Match;
+
+    Is_Stub_Rtn = proc (R: r_template) returns (bool);
+	return (R.Name = Stub_Rtn_Name_String);
+	end Is_Stub_Rtn;
+
+    Stub_Rtn_Unparse = proc (R_D: cvt) returns (string);
+	return (constant$Get_String(R_D.c_Parameters[2]));
+	end Stub_Rtn_Unparse;
+
+    Print = proc (R: cvt, S: pstream);
+	rep$Print(R, S);
+	end Print;
+
+
+    Unparse = proc (R: cvt) returns (string);
+	S: string;
+	if (~ type_desc$Is_None(R.a_Type))
+	   then S := type_desc$Unparse(R.a_Type) || "$";
+	   else S := "";
+	   end;
+	S := S || R.b_Name;
+	if ((~ params$Empty(R.c_Parameters)) cand
+	    (R.c_Parameters ~= Dummy_Ps))
+	   then S := (S || "[" ||
+		      Unparse_List[constant](R.c_Parameters,
+					     vMax_List_Output_Length) ||
+		      "]" );
+	   end;
+	return (S);
+	end Unparse;
+
+    Hasher = proc (RD: cvt, Size: int) returns (int);
+	return (int$Mod( (Hash(type_desc$Unparse(RD.a_Type), Size) +
+			  Hash(RD.b_Name, Size) +
+			  params$Size(RD.c_Parameters) +
+			  RD.d_Expected_Arg_Count +
+			  RD.e_Expected_Result_Count),
+			 Size));
+	end Hasher;
+
+    _gcd = proc (RD: cvt, Tab: gcd_tab) returns (int);
+	return (rep$_gcd(RD, Tab));
+	end _gcd;
+
+    end rtn_desc;

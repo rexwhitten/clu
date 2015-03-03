@@ -1,0 +1,88 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+rtn_type = cluster is
+	similar, bind, instantiate, find_cluster,
+	get_argument_list, get_return_list, get_signal_list,
+	print, unparse, hasher, _gcd;
+
+    rep = record[
+	      a_Name:	     string,		 %% Kind of routine.
+	      b_Arg_List:    types,
+	      c_Return_List: types,
+	      d_Signal_List: sequence[x_desc]];
+
+    Similar = proc (RT1, RT2: cvt) returns (bool);
+	return ( rep$Similar(RT1,RT2) );
+	end Similar;
+
+    Bind = proc (RT: cvt, R_D: rtn_desc, Env: lnk_env) returns (cvt)
+	     signals (error(string));
+	return (
+	    rep${
+		a_Name: RT.a_Name,
+		b_Arg_List:     Bind_List[type_desc](RT.b_Arg_List, R_D, Env),
+		c_Return_List:  Bind_List[type_desc](RT.c_Return_List, R_D, Env),
+		d_Signal_List:  Bind_List[x_desc](RT.d_Signal_List, R_D, Env)
+		 } );
+	   resignal Error;
+	end Bind;
+
+    Instantiate = proc (RT: cvt, Env: lnk_env) signals (error(string));
+	begin
+	    RT.b_Arg_List := Instantiate_List[type_desc](RT.b_Arg_List, Env);
+	    RT.c_Return_List := Instantiate_List[type_desc](RT.c_Return_List, Env);
+	    RT.d_Signal_List := Instantiate_List[x_desc](RT.d_Signal_List, Env);
+	    end;
+	   resignal Error;
+	end Instantiate;
+
+    Find_Cluster = proc (RT: cvt, Env: lnk_env) returns (c_template);
+	return (c_template$Find_Cluster(RT.a_Name, Env));
+	end Find_Cluster;
+
+    Get_Argument_List = proc (RT: cvt) returns (types);
+	return (RT.b_Arg_List);
+	end Get_Argument_List;
+
+    Get_Return_List = proc (RT: cvt) returns (types);
+	return (RT.c_Return_List);
+	end Get_Return_List;
+
+    Get_Signal_List = proc (RT: cvt) returns (sequence[x_desc]);
+	return (RT.d_Signal_List);
+	end Get_Signal_List;
+
+    Print = proc (R: cvt, S: pstream);
+	rep$Print(R, S);
+	end Print;
+
+    Unparse = proc (R: cvt) returns (string);
+	S: string := R.a_Name;
+	S := S || "(" || Unparse_List[type_desc](R.b_Arg_List,
+						 vMax_List_Output_Length) || ")";
+	if (~ types$Empty(R.c_Return_List))
+	   then S := S || " returns (" ||
+		     Unparse_List[type_desc](R.c_Return_List,
+					     vMax_List_Output_Length) || ")";
+	   end;
+	if (~ sequence[x_desc]$Empty(R.d_Signal_List))
+	   then S := S || " signals (" ||
+		     Unparse_List[x_desc](R.d_Signal_List,
+					  vMax_List_Output_Length) || ")";
+	   end;
+	return (S);
+	end Unparse;
+
+    Hasher = proc (R: cvt, Size: int) returns (int);
+	return (int$Mod( (Hash(R.a_Name, Size) +
+			  (types$Size(R.b_Arg_List) * 3) +
+			  (types$Size(R.c_Return_List) * 5) +
+			  (sequence[x_desc]$Size(R.d_Signal_List) * 7)
+			  ), Size) );
+	end Hasher;
+
+    _gcd = proc (RT: cvt, Tab: gcd_tab) returns (int);
+	return (rep$_gcd(RT, Tab));
+	end _gcd;
+
+    end rtn_type;

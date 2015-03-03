@@ -1,0 +1,13 @@
+%% Copyright Massachusetts Institute of Technology 1984, 1989
+
+Output_String = proc (S: string, Env: lnk_env) returns (address);
+    if ( string$Size(S) > vMax_ByteVec_Size )
+       then Should_Never_Happen[string]("String too big to be output.", S);
+       end;
+    Out: out_link_chan := Env.Output;
+    Addr: address := out_link_chan$Start_Object(Out);
+    out_link_chan$Write_Word_Pair(Out, vByteVec_Head,
+				  ((2 * string$Size(S)) + 1));
+    out_link_chan$Write_Chars(Out, S);	%% Will pad to long word with zeroes.
+    return (Addr);
+    end Output_String;

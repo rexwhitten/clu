@@ -1,0 +1,11 @@
+%% Copyright Massachusetts Institute of Technology 1984, 1989
+
+Output_Space_Blocks = proc (Env: lnk_env);
+    SBs: space_blocks := Env.Space_Blocks;
+    while (true) do
+	space_block$Output(space_blocks$RemL(SBs), %% Output them in normal order;
+			   Env);
+	end;
+       except when Bounds:
+	      end;
+    end Output_Space_Blocks;

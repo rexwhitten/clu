@@ -1,0 +1,22 @@
+%% Copyright Massachusetts Institute of Technology 1980, 1989
+
+Unparse_List = proc [t: type] (T_List: sequence[t], Max_Num: int) returns (string)
+	    where t has unparse: proctype (t) returns (string);
+    S: string := "";
+    First: bool := true;
+    Count: int := 1;
+    Last: int := sequence[t]$Size(T_List);
+    for E: t in sequence[t]$Elements(T_List) do
+	if ((Count < Max_Num) cor (Count = Last))
+	   then if (First)
+		   then First := false;
+		   else S := S || ", ";
+		   end;
+		S := S || t$Unparse(E);
+	 elseif (Count = Max_Num)
+	   then S := S || "...";
+	 end;
+	Count := Count + 1;
+	end;
+    return (S);
+    end Unparse_List;

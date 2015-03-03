@@ -1,0 +1,59 @@
+; Copyright Massachusetts Institute of Technology 1985, 1989
+
+_environ = qproc (name: string) returns (string) signals (not_found)
+	move	(rr),n1				; get size
+	asr	1,n1
+	movea	n1,r2
+	movea	environ,r1
+	moveq	0,n2
+	movew	2(r1),n2			; number to skip
+	asl	2,n2
+	lea	8(r1,n2),r1			; get to variables
+	qloop
+again:		move	(r1)+,n7		; get next
+		beq	none
+		cmpib	'=',(r2,n7)		; right size?
+		bne	this
+		lea	4(rr),r3
+		movea	n7,r4
+		move	n1,n2
+		qloop
+			cmpmb	(r3)+,(r4)+	; match?
+			bne	again
+			subq	1,n2		; more?
+			bne	this
+		end
+	end
+	lea	1(r2,n7),r3			; get start addr
+	ifeq	move	(r1),n2			; another after?
+	then	movea	r3,r4			; no
+		qloop
+			tstb	(r4)+		; find end
+			bne	this
+		end
+		move	r4,n2
+	end
+	subq	1,n2
+	move	n2,n4				; save end addr
+	sub	r3,n2				; get size
+	move	n2,n1
+	asl	1,n1
+	addq	1,n1
+	addq	7,n2				; get byte count
+	andib	-4,n2
+	movea	heaphi,rr			; alloc
+	iflt	sub	n2,freecnt
+	then	jsr	memout
+	end
+	add	n2,heaphi
+	movea	rr,r1
+	move	n1,(r1)+
+	qloop
+		moveb	(r3)+,(r1)+		; copy bytes
+		cmp	r3,n4			; done?
+		bne	this
+	end
+	movea	n0,r1
+	return(rr)
+none:	signal	not_found
+	end _environ

@@ -1,0 +1,10 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+Output_Reference = proc (Addr: address, Env: lnk_env);
+    Output_Address(Addr, Env);
+       except when Not_Possible:
+		   Output_Int(-1, Env);
+		   %%Should_Never_Happen[address](
+		   %%     "Unable to output reference.", Addr);
+	      end;
+    end Output_Reference;

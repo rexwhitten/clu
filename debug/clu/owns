@@ -1,0 +1,124 @@
+% Copyright Massachusetts Institute of Technology 1981, 1989
+
+qs = sequence[string]
+
+%%% Display all own variables (both cluster owns and routine owns) of routine
+%%% rtn. [user-interface routine]
+%%% (SEP/Nov  7 1984)
+
+_print_owns = proc (rtn: _obj) signals (non_routine)
+	trcflg: bool := _enter_system()
+	name: string := _routine_name(rtn)
+	   except when non_routine:
+			_exit_system(trcflg)
+			signal non_routine
+		  end
+	tab: _rtn_table := _get_rtn_table()
+	ri: _rtn_info := _rtn_table$lookup(tab, name)
+	   except when not_found:
+			_exit_system(trcflg)
+			signal non_routine
+		   end
+	pp: pstream := pstream$primary_output()
+	flat: bool := pp.flat
+	pp.flat := true
+	pstream$pause(pp, "")
+	names: qs := ri.clust_owns_names
+	for i: int in qs$indexes(names) do
+		pstream$text(pp, names[i])
+		pstream$text(pp, ": ")
+		pstream$putspace(pp, 8 - string$size(names[i]))
+		   except when negative_field_width: end
+		_obj$print(_own_get(rtn, i, true), pp)
+		pstream$pause(pp, "")
+		end
+	if ~qs$empty(names)  cand  ri.num_owns > 0
+	   then pstream$pause(pp, "") end
+	names := ri.owns_names
+	for i: int in qs$indexes(names) do
+		pstream$text(pp, names[i])
+		pstream$text(pp, ": ")
+		pstream$putspace(pp, 8 - string$size(names[i]))
+		   except when negative_field_width: end
+		_obj$print(_own_get(rtn, i, false), pp)
+		pstream$pause(pp, "")
+		end
+	pp.flat := flat
+	_exit_system(trcflg)
+	end _print_owns
+
+%%% Return the value of the named own variable of routine rtn. Use this when an
+%%% no activation of rtn is on the stack. [user-interface routine]
+%%% (SEP/Nov  7 1984)
+
+_get_own = proc (rtn: _obj, name: string) returns (_obj)
+					  signals (non_routine, none)
+	trcflg: bool := _enter_system()
+	rname: string := _routine_name(rtn)
+	   except when non_routine:
+			_exit_system(trcflg)
+			signal non_routine
+		  end
+	tab: _rtn_table := _get_rtn_table()
+	ri: _rtn_info := _rtn_table$lookup(tab, rname)
+	   except when not_found:
+			_exit_system(trcflg)
+			signal non_routine
+		   end
+	names: qs := ri.clust_owns_names
+	for i: int in qs$indexes(names) do
+		if name = names[i]
+		   then x: _obj := _own_get(rtn, i, true)
+			_exit_system(trcflg)
+			return(x)
+		   end
+		end
+	names := ri.owns_names
+	for i: int in qs$indexes(names) do
+		if name = names[i]
+		   then x: _obj := _own_get(rtn, i, false)
+			_exit_system(trcflg)
+			return(x)
+		   end
+		end
+	_exit_system(trcflg)
+	signal none
+	end _get_own
+
+%%% Set the named own variable of routine rtn to have value val. Use this when
+%%% no activation of rtn is on the stack. [user-interface routine]
+%%% (SEP/Nov  7 1984)
+
+_set_own = proc (rtn: _obj, name: string, val: _obj)
+						signals (non_routine, none)
+	trcflg: bool := _enter_system()
+	rname: string := _routine_name(rtn)
+	   except when non_routine:
+			_exit_system(trcflg)
+			signal non_routine
+		  end
+	tab: _rtn_table := _get_rtn_table()
+	ri: _rtn_info := _rtn_table$lookup(tab, rname)
+	   except when not_found:
+			_exit_system(trcflg)
+			signal non_routine
+		   end
+	names: qs := ri.clust_owns_names
+	for i: int in qs$indexes(names) do
+		if name = names[i]
+		   then _own_set(rtn, i, true, val)
+			_exit_system(trcflg)
+			return
+		   end
+		end
+	names := ri.owns_names
+	for i: int in qs$indexes(names) do
+		if name = names[i]
+		   then _own_set(rtn, i, false, val)
+			_exit_system(trcflg)
+			return
+		   end
+		end
+	_exit_system(trcflg)
+	signal none
+	end _set_own

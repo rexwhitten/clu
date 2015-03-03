@@ -1,0 +1,12 @@
+%% Copyright Massachusetts Institute of Technology 1980, 1989
+
+Instantiate_Exception = proc (E: string, Env: lnk_env) returns (inst_except);
+    Const: constant := constant$Make_String(E);
+    Const := constant$Instantiate(Const, true, Env);
+    E := constant$Get_String(Const);
+    New_Excpt: excpt_str :=excpt_str${ Const:   Const,
+				       Str:	E
+				      };
+    Inst_Ex: inst_except := inst_excepts$Find(Env.Inst_Excepts, E, New_Excpt);
+    return (Inst_Ex);
+    end Instantiate_Exception;

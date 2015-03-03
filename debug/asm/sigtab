@@ -1,0 +1,16 @@
+;; Copyright Massachusetts Institute of Technology 1984, 1989
+
+_get_sig_tab = proc () returns (sequence[_signal_block]) signals (no_table)
+	ifeq	move	sigtab, n1
+	then	signal	no_table
+	else	return (n1)
+		end
+	end _get_sig_tab
+
+_set_sig_tab = qproc (tb: sequence[_signal_block])
+	move	rr, sigtab
+	end _set_sig_tab
+
+_clear_sig_tab = qproc ()
+	clr	sigtab
+	end _clear_sig_tab

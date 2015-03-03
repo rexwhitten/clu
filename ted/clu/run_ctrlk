@@ -1,0 +1,38 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+run_ctrlk = proc (e: env, c: char) signals (errmsg(string), stop(env, string))
+    own alt: bool := false
+    if c = ctrlat
+       then prompt = "Change ^K mode"
+	    legal = "RS"
+	    help = "R: reset to normal mode\n" ||
+		   "S: set to delete to end of line when not at it and #=1"
+	    i: int, opt: char := get_option (e, prompt, legal, help, false)
+	    alt := opt = 'S'
+	    return
+       end resignal errmsg
+    arg: int := e.this_arg
+    b: buf := e.buffer
+    line, pos: int := buf$get_cursor(b)
+    nline, npos: int
+    if arg = 0  cor  (alt  cand  arg = 1  cand  pos <= string$size(b[line]))
+       then nline := line
+	    npos := max_int
+     elseif arg > 0
+       then nline, npos := buf$add_cursor(b, arg, 0)
+     elseif arg = -1
+       then nline := line
+	    npos := 1
+     else nline, npos := buf$add_cursor(b, arg + 1, 0)
+     end
+    nb: buf := buf$sub_buf(b, nline, npos)
+    if e.last_char = ctrlk
+       then kb: buf := e.killed
+	    if arg >= 0
+	       then buf$set_cursor(kb, buf$size(kb), max_int)
+	       else buf$set_cursor(kb, 1, 1)
+	       end
+	    buf$insert_buf(kb, nb)
+       else e.killed := nb
+       end
+    env$delete1(e, line, pos)
+    end run_ctrlk

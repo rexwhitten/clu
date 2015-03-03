@@ -1,0 +1,6 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+Output_Strings_Section = proc (Env: lnk_env, Get_Times: bool);
+    out_link_chan$Output_Strings_Section(Env.Output,
+					 Env.Mach_Dependent.A_Strings);
+    end Output_Strings_Section;

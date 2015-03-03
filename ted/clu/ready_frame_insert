@@ -1,0 +1,24 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+ready_frame_insert = proc (e: env)
+	b: buf := e.buffer
+	if buf$empty(b)
+	   then return end
+	line, pos: int := buf$get_cursor(b)
+	low, max: int := buf$get_frame(b)
+	if string$empty(b.name)
+	   then if line <= max / 2
+		   then line := 1
+			pos := 1
+		   else line := max + 10
+			pos := max_int
+		   end
+		b.name := e.fname
+		env$maybe_change(e)
+	   else if line - low <= max - line
+		   then line := low - 3
+		   else line := max + 1
+		   end
+		   pos := 1
+	   end
+	buf$set_cursor(b, line, pos)
+	end ready_frame_insert

@@ -1,0 +1,16 @@
+%% Copyright Massachusetts Institute of Technology 1984, 1989
+
+Output_Sig_Handler_Call = proc (Env: lnk_env);
+    Out: out_link_chan := Env.Output;
+    %%%%% These are words (not longs).
+    out_link_chan$Write_Word_Pair(Out,
+				  vSig_Call_Instrs[1],	%% Output instrs.
+				  vSig_Call_Instrs[2]);
+    AH, AL: int := address$A_to_Ints(Get_Siggy_Address(Env), Env.Locates);
+    out_link_chan$Write_Word_Pair(Out,
+				  vSig_Call_Instrs[3],	%% More of instrs.
+				  AH);			%% High half of addr.
+    out_link_chan$Write_Word_Pair(Out,
+				  AL,			%% Low half of addr.
+				  0);			%% Pad bytes.
+    end Output_Sig_Handler_Call;

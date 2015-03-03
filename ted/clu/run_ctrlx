@@ -1,0 +1,68 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+run_ctrlx = proc (e: env, c: char) signals (errmsg(string), stop(env, string))
+    prompt = "^X command"
+    help_msg = "^B: backward by paragraph/sentence\n" ||
+	       "^C: set backup-on-write mode\n" ||
+	       "^D: enter draw mode\n" ||
+	       "^E: end of paragraph/sentence\n" ||
+	       "^F: forward by paragraph/sentence\n" ||
+	       "^H: multiple buffer commands\n" ||
+	       "^I: move by indentation\n" ||
+	       "^K: set ^K mode\n" ||
+	       "^M: check for mail\n" ||
+	       "^P: search for pattern |#| times\n" ||
+	       "    (#>0: prefix with ^X^@, #=0: set confirm mode)\n" ||
+	       "^R: redisplay current line + #\n" ||
+	       "^S: set search mode\n" ||
+	       "^W: multiple window commands\n" ||
+	       "^X: execute macro file\n" ||
+	       "^Y: execute named macro # times (#<1: define macro)\n" ||
+	       "^Z: move by list\n" ||
+	       " B: box # lines\n" ||
+	       " C: change case of marked text\n" ||
+	       " E: set red & blue function keys\n" ||
+	       " I: set indenter variable\n" ||
+	       " M: set ^N/^P mode\n" ||
+	       " N: set environment variable to number\n" ||
+	       " O: set text overwrite mode\n" ||
+	       " R: restrict buffer between mark and cursor\n" ||
+	       " S: set environment variable to string\n" ||
+	       " T: set terminal mode\n" ||
+	       " W: check spelling of word (#=0: kill speller)\n" ||
+	       " X: sort current file (#<0: reverse sort)\n" ||
+	       " Z: set to GC every 2**(#-4) megabytes"
+    arg: int, opt: char := get_option(e, prompt, "", help_msg, false)
+       resignal errmsg
+    e.this_arg := arg
+    if opt = ctrlb cor opt = ctrle cor opt = ctrlf then move_by_region(e, opt)
+     elseif opt = ctrlc then set_backup_mode(e, opt)
+     elseif opt = ctrld then enter_draw_mode(e, opt)
+     elseif opt = ctrlh then run_multiple_buffers(e, opt)
+     elseif opt = ctrli then move_by_indent(e, opt)
+     elseif opt = ctrlk then run_ctrlk(e, ctrlat)
+     elseif opt = ctrlm then check_for_mail(e, opt)
+     elseif opt = ctrlp then pattern_search(e, opt)
+     elseif opt = ctrlr then line, pos: int := buf$get_cursor(e.buffer)
+			     _redisplay_line(e.top_line + line -
+					     e.window_top + arg + 1)
+     elseif opt = ctrls then run_ctrls(e, ctrlat)
+     elseif opt = ctrlw then run_multiple_windows(e, opt)
+     elseif opt = ctrlx then exec_macro_file(e, opt)
+     elseif opt = ctrly then run_str_macro(e, opt)
+     elseif opt = ctrlz then move_by_list(e, opt)
+     elseif opt = 'B' then construct_box(e, opt)
+     elseif opt = 'C' then change_case(e, opt)
+     elseif opt = 'E' then run_ctrlsk(e, ctrlat)
+     elseif opt = 'I' then set_indenter_option(e, opt)
+     elseif opt = 'M' then run_ctrlnp(e, ctrlat)
+     elseif opt = 'N' cor opt = 'S' then set_env_variable(e, opt)
+     elseif opt = 'O' then set_overwrite_mode(e, opt)
+     elseif opt = 'R' then restrict_buf_option(e, opt)
+     elseif opt = 'T' then set_terminal_option(e, opt)
+     elseif opt = 'X' then sort_buffer(e, opt)
+     elseif opt = 'W' then check_spelling(e, opt)
+     elseif opt = 'Z' then arg := 2 ** (14 + int$min(int$max(1, arg), 10))
+			   _gc$control(arg * 7, arg * 4 - 1)
+     else signal errmsg("Bad ^X option: '" || c2s(opt) || "'")
+     end resignal errmsg, stop
+    end run_ctrlx

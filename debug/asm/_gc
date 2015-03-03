@@ -1,0 +1,1273 @@
+; Copyright Massachusetts Institute of Technology 1980,, 1989
+
+;	Low order bit assignment in 'references':
+;		0  ref
+;		1  non-ref
+
+;	The high byte of a reference may contain a oneof tag, and must
+;	be ignored.  References are tested via:
+;		move	...,n3
+;		moveq	3,n1
+;		andb	n3,n1
+;		bne	notheap
+;		andi	refmask,n3
+;		cmp	heaplo,n3
+;		blt	notheap
+;		cmp	heaphi,n3
+;		bge	notheap
+
+objbit1	= 30		; object header kind bits
+objbit2	= 29
+objbit3 = 0
+
+; High/Low order bit assignments in object headers:
+;   m00 ... 0  vec  (vector: sequence/struct/record/array real part)
+;   m00 ... 1  bvec (byte vector: string)
+;   m11 ... x  cell (oneof/variant/any)
+;   m01 ... x  adv  (array dope vector)
+
+; U	0/hh/l/[27]/h			(last bit)
+; IPLV	10/len[20]/idx[10]		@idx: -disp
+; IPSV	11/len[14]/11/-cnt[14]		@cnt: tag[8]/ref[23]/last[1]
+; IPA	111/pred[13]/10000000001100
+; IPC	11/tag[14]/1000000000000100
+; L	10/len[20]/idx[10]		@idx: 000/delta[13]/[15]/kind[1]
+; S	11/cnt[14]/0/hh/delta[13]
+;
+; L	10/len[20]/idx[10]		@idx: 0x/delta[14]/[15]/kind[1]
+; S	0x/delta[14]/hh/cnt[14]
+
+; x=0: from addr of this obj
+; x=1: from addr of this obj + delta from chain group
+
+refmask	= 0000377,,0177777	; mask for clearing oneof tags in refs
+maxsiz	= 037777		; maximum size for short objects
+long	= 0100000		; long marked object (LH of header)
+short	= 0140000		; short marked object (LH of header)
+ipvbit	= 14			; for saying if object is vec in progress
+ipcell	= 0100000+4		; marked cell in progress (RH of header)
+ipadv	= 0100000+dv%rel	; marked adv in progress (RH of header)
+dnbvc	= 0040000		; marked bvec (RH of header)
+markbit = 31			; for saying which objects are marked
+longbit	= 30			; for saying which objects are long
+lasthbt	= 28			; for saying if object is last in block (head)
+lastrbt = 0			; for saying if object is last in block (ref)
+last	= 020			; for saying if object is last in block (mem)
+lenmask	= 0037777,,0176000	; for extracting size of long object
+idxmask	= 01777			; for extracting index into deltas table
+deltbit	= 14			; for saying if group delta should be added in
+lnlog2	= 10			; header shift count to make room for index
+dltlog2 = 14			; shift count to compute size of deltas table
+ptrmask	= 017777		; mask for chain pointers
+cgshift	= 5			; amount to shift addr left for group #
+pred	= 017777,,0		; array predict mask
+prede	= 037			; array exponent predict mask
+
+_gc = cluster is count, control, gc
+
+wvec	addmask	{2}				; GC parameters
+wvec	reloc	{1}				; relocation delta
+
+count = qproc () returns (int)
+	movea	numgcs,rr		; return number of GC's performed
+	return(rr)
+	end count
+
+control = qproc (addon, mask: int) signals (illegal)
+	move	rr,n6
+	asr	1,n6
+	ifhi	move	addon,n5			; check values
+		ble	next
+		asr	1,n5
+		cmp	n6,n5
+	then	not	n6
+		movem	n5/n6,addmask
+		move	heaphi,n1			; choose new GC point
+		sub	heaplo,n1
+		add	n5,n1
+		and	n6,n1
+		add	heaplo,n1
+		ifgt	cmp	heapmx,n1
+		then	move	heapmx,n1
+		end
+		move	n1, gcpoint
+		ifgt    cmp	brkaddr, n1
+		then	move	brkaddr, n1
+		end
+		iflt	sub	heaphi,n1
+		then	clr	n1
+		end
+		move	n1,freecnt
+		return
+	end
+	signal	illegal
+	end control
+
+%reloc = proc (delta: int)
+	db%code_addr = 24
+	move	rr,n1
+	ifeq	asr	1,n1
+	then	return
+	end
+	move	n1,reloc			; set relocation delta
+	lea	_gc$gc,r1
+	movea	db%code_addr(r1),r1
+	jsr	(r1)			        ; force gc
+	move	reloc,n1
+	clr	reloc				; forget relocation
+	movea	heaphi,r1			; get from addr
+	lea	(r1,n1),r2			; get to addr
+	move	r1,n2
+	sub	heaplo,n2			; get amount
+	asr	2,n2
+	add	n1,heaplo			; new heaplo
+	move	r2,heaphi			; new heaphi
+	add	n1,heapmx			; new heapmx
+	add	n1, brkaddr			; new brkaddr
+	ifge	subq	1,n2
+	then	loop
+			move	-(r1),-(r2)	; move it
+			dbra	n2,this
+			swap	n2
+			subqw	1,n2
+			blt	next
+			swap	n2
+		end
+	end
+	asr	2,n1
+	subq	1,n1
+	loop
+		clr	-(r2)			; clear it
+		dbra	n1,this
+		swap	n1
+		subqw	1,n1
+		blt	next
+		swap	n1
+	end
+	end %reloc
+
+;	The main routine, called via normal procedure call mechanism.
+;	Own variables and the stack are the only roots.
+;	All reference registers are ignored.
+;	Zeroes all words between the old heaphi and the new heaphi.
+
+gc = qproc ()
+
+	wvec	deltas	{-010000}	; the delta table for large objects
+					; heap size / 2^(14-2)
+	wvec	chinit	{1}		; start of global chain (or <0)
+	wvec	chains	{-004000}	; chains to used blocks
+					; heap size / 2^11
+	wvec	chend	{1}
+	wvec	used	{1}		; number of heap bytes used
+	own	old_ep			; saved environment pointer
+	own	old_sp			; saved stack pointer
+	own	allptr			; allocation index into delta table
+	own	nextmp			; next segment map for root generator
+
+;	Setup: Initialize tables, pointers, global registers
+
+;	Global register usage:
+;		n7  refmask
+;		ep  reference to high end of heap
+;		sp  reference to low end of heap
+
+setup:	tas	gcflag			; say we are in GC
+	addq	2,numgcs		; count number of GC's
+	lea	deltas,r2		; force correct order in memory
+	lea	chinit,r1
+	lea	chains,rr
+	lea	chend,r3
+	move	n0,-(sp)		; VA_ANON
+	clr	-(sp)
+;	moveq	%ovadvise,n0
+;	move	n0,-(sp)
+;	trap	0			; advise paging strategy
+	movem	ep/sp,old_ep		; save ep and sp
+	movea	heaplo,sp		; get low end of heap
+	movea	heaphi,ep		; get high end of heap
+	suba	r2,r1			; get size of delta table
+	move	r1,n1
+	asr	2,n1
+	bset	markbit,n1
+	move	n1,allptr		; set up delta table allocation index
+	move	r3,n2
+	sub	rr,n2
+	asr	2,n2
+	qloop
+		clr	-(r3)		; clear out chain table
+		dbra	n2,this
+	end
+	move	refmask,n7		; get reference mask
+
+;	Phase I:  Trace from all roots.
+
+;	Register usage:
+;		n0  total number of bytes used
+;		n1  header of current object
+;		n2  size in bytes of current object
+;		n3  pointer to current object (possibly with tag)
+;		n5  pointer to previous object (0 => end of recursion)
+;		n6  end of owns or stack elts
+;		rr  deltas pointer if long object
+;		r1  pointer to current object (without tag)
+;		r4  loop body address for root generator
+;		pp  pointer into owns or stack
+
+phase1:	moveq	0,n0				; clear byte count
+	moveq	0,n5				; clear recursion register
+	lea	maybe,r4			; invoke root generator
+	bra	roots
+	jmp	phase2
+maybe:	blt	rooter				; done if already marked
+
+markit:	ifne	bclr	lasthbt,n1			; remember if last
+	then	addqb	1,n5
+	end
+	ifeq	btst	objbit2,n1			; VEC or BVEC?
+	then	ifne	btst	objbit3,n1		; yes, BVEC?
+		then	asr	1,n1			; yes, get size
+			move	n1,n2
+			addq	7,n2
+			andib	-4,n2
+			ifle	cmpi	maxsiz,n1	; short?
+			then	ori	dnbvc,,short,n1	; yes
+				swap	n1
+				bra	mark_done
+			end
+			subq	1,allptr		; get a slot
+			moveq	lnlog2,n4		; fix header
+			asl	n4,n1
+			move	allptr,n4
+			or	n4,n1
+			lea	deltas,rr
+			aslw	2,n4
+			addaw	n4,rr			; index into deltas
+			clr	(rr)			; set ptr, kind
+			bra	mark_done
+		end
+		lea	2(r1,n1),r2			; get end + 1
+		asr	2,n1				; get size
+		move	n1,n2
+		ifgt	cmpi	maxsiz,n1		; long?
+		then	subq	1,allptr		; yes, get a slot
+			moveq	lnlog2,n4		; fix header
+			asl	n4,n1
+			move	allptr,n4
+			or	n4,n1
+			move	n1,(r1)			; store header
+			lea	deltas,rr
+			aslw	2,n4
+			addaw	n4,rr			; index into deltas
+			not	n2
+			asl	2,n2
+			qloop
+				; n2 has -disp, r2 has rel
+long_loop:			addq	4,n2		; bump disp
+				beq	next		; done?
+				move	-(r2),n4	; no
+				moveq	3,n1		; ref?
+				andb	n4,n1
+				bne	this
+				movea	n4,r3
+				and	n7,n4
+				cmp	sp,n4		; in heap?
+				blt	this
+				cmp	ep,n4
+				bge	this
+				exg	n4,r3		; yes
+				move	(r3),n1		; get header
+				blt	this		; marked?
+				move	n2,(rr)		; no, save -disp
+				movea	r3,r1
+				move	n5,(r2)		; save old ref
+				move	n3,n5		; make current ref old
+				move	n4,n3		; make new ref current
+				bra	markit		; recurse
+			end
+			moveq	1,n1
+			move	n1,(rr)			; set ptr, kind
+			move	(r1),n1			; reget header
+			move	n1,n2
+			andi	lenmask,n2
+			lsr	lnlog2+-2,n2		; get size in bytes
+			addq	4,n2
+			bra	mark_done
+		end
+		oriw	short,n2			; fix header
+		swap	n2
+		notw	n1
+		movew	n1,n2
+		qloop
+			; n2 has header, r2 has rel
+short_loop:		addqw	1,n2			; bump count
+			beq	next			; done?
+			move	-(r2),n4		; no
+			moveq	3,n1			; ref?
+			andb	n4,n1
+			bne	this
+			movea	n4,r3
+			and	n7,n4
+			cmp	sp,n4			; in heap?
+			blt	this
+			cmp	ep,n4
+			bge	this
+			exg	n4,r3			; yes
+			move	(r3),n1			; get header
+			blt	this			; marked?
+			move	n2,(r1)			; no, save header
+			movea	r3,r1
+			move	n5,(r2)			; save old ref
+			move	n3,n5			; make current ref old
+			move	n4,n3			; make new ref current
+			bra	markit			; recurse
+		end
+		move	n2,n1				; reget header
+		swap	n2
+		subiw	short+-1,n2			; get size in bytes
+		asl	2,n2
+mark_done:	add	n2,n0				; add to total used
+		lea	(r1,n2),r2			; bump to next object
+		ifge	move	(r2),n4			; next marked?
+		then	orib	last,(r2)		; no, show it as last
+			bclr	lastrbt,n5		; last obj in block?
+			bne	chain_done
+			bra	search			; no
+		end
+		bclr	lastrbt,n5			; last obj in block?
+		bne	chain_done
+		ifeq	btst	longbit,n4		; next long?
+		then	andiw	idxmask,n4		; yes, get index
+			aslw	2,n4
+			lea	deltas,r3
+			addaw	n4,r3
+			tst	(r3)			; in progress?
+			blt	search
+			ifne	movew	(r3),n4		; no, back ptr?
+			then	movew	n2,(r3)		; yes, set ptr to this
+				subw	n2,n4
+				orw	n4,n1		; set ptr to prev
+				bra	chain_done
+			end
+			move	r1,n4
+			sub	sp,n4
+			oriw	ptrmask,n4
+			exg	n4,r2
+			sub	sp,n4
+			oriw	ptrmask,n4
+			cmp	r2,n4			; same chain?
+			bne	search
+			movew	n2,(r3)			; yes, set ptr to this
+			bra	chain_done
+		end
+		ifne	tstw	n4			; in progress?
+			blt	next
+			btst	longbit,n1		; no, this long?
+		then	ifne	andiw	ptrmask,n4	; no, back ptr?
+			then	subw	n4,2(r2)	; yes
+				orw	n2,2(r2)	; set ptr to this
+				subw	n2,n4
+				orw	n4,n1		; set ptr to prev
+				bra	chain_done
+			end
+			move	r1,n4
+			sub	sp,n4
+			oriw	ptrmask,n4
+			movea	n4,r3
+			move	r2,n4
+			sub	sp,n4
+			oriw	ptrmask,n4
+			cmp	r3,n4			; same chain?
+			bne	search
+			orw	n2,2(r2)		; set ptr to this
+			bra	chain_done
+		end
+search:		move	r1,n4				; get group #
+		sub	sp,n4
+		asl	cgshift,n4
+		swap	n4
+		andib	-4,n4
+		lea	chains,r2
+		addaw	n4,r2				; index into chains
+		ifeq	move	(r2),n4			; first?
+		then	move	r1,(r2)			; yes
+			bra	chain_done
+		end
+		ifgt	cmpa	n4,r1			; should be first?
+		then	move	r1,(r2)			; yes
+			move	r1,n2
+			sub	n4,n2
+			ifne	btst	longbit,n1	; long?
+			then	orw	n2,n1		; no, set ptr to prev
+				bra	chain_done
+			end
+			movew	n2,(rr)			; yes, set ptr to prev
+			bra	chain_done
+		end
+		movea	n4,r2
+		qloop
+			move	(r2),n4			; get header
+			ifeq	btst	longbit,n4	; long?
+			then	andiw	idxmask,n4	; yes, get index
+				aslw	2,n4
+				lea	deltas,r3
+				addaw	n4,r3
+				ifeq	movew	(r3),n4	; more?
+				then	suba	r1,r2	; no
+					movew	r2,(r3)	; set ptr to this
+					bra	chain_done
+				end
+				subaw	n4,r2		; move back
+				cmpa	r2,r1		; here?
+				blt	this
+				addaw	n4, r2		; yes, move up.
+				move	r2,n2
+				sub	r1,n2
+				movew	n2,(r3)		; set ptr to this
+				subw	n2,n4
+				ifne	btst	longbit,n1 ; long?
+				then	orw	n4,n1	   ; no, set ptr to prev
+					bra	chain_done
+				end
+				movew	n4,(rr)		   ; yes, set ptr to prev
+				bra	chain_done
+			end
+			ifeq	andiw	ptrmask,n4	; more?
+			then	move	r2,n4		; no
+				sub	r1,n4
+				orw	n4,2(r2)	; set ptr to this
+				bra	chain_done
+			end
+			subaw	n4,r2			; move back
+			cmpa	r2,r1			; here?
+			blt	this
+			addaw	n4,r2			; yes, move up
+			subw	n4,2(r2)
+			move	r2,n2
+			sub	r1,n2
+			orw	n2,2(r2)		; set ptr to this
+			subw	n2,n4
+			ifeq	btst	longbit,n1	; long?
+			then	movew	n4,(rr)		; yes, set ptr to prev
+				bra	chain_done
+			end
+			orw	n4,n1			; no, set ptr to prev
+		end
+chain_done:	move	n1,(r1)				; store header back
+		move	n5,n4
+		beq	rooter				; get next root if done
+		and	n7,n5
+		movea	n5,r1				; make old ref current
+		move	(r1),n1				; get header
+		ifeq	btst	longbit,n1		; long?
+		then	andiw	idxmask,n1		; yes, get index
+			aslw	2,n1
+			lea	deltas,rr		; point into deltas
+			addaw	n1,rr
+			move	(rr),n2			; get -count
+			movea	r1,r2
+			suba	n2,r2			; get rel
+			move	(r2),n5			; get old ref
+			move	n3,(r2)			; restore ref
+			move	n4,n3
+			bra	long_loop
+		end
+		ifne	btst	ipvbit,n1		; VEC?
+		then	move	n1,n2			; yes, save header
+			ext	n1			; get rel
+			aslw	2,n1
+			movea	r1,r2
+			suba	n1,r2
+			move	(r2),n5			; get old ref
+			move	n3,(r2)			; restore ref
+			move	n4,n3
+			bra	short_loop
+		end
+		extw	n1
+		move	(r1,n1/w),n5			; get old ref
+		move	n3,(r1,n1/w)			; restore ref
+		move	n4,n3
+		ifeq	cmpib	4,n1			; CELL?
+		then	movew	%cell,n1		; yes, fix header
+cell_done:		moveq	8,n2			; get size in bytes
+			bra	mark_done
+		end
+		movew	%adv,n1				; ADV, fix header
+		moveq	dv%blen,n2			; get size in bytes
+		bra	mark_done
+	end
+	ifne	btst	objbit1,n1			; CELL?
+	then	oriw	short,n1			; yes, fix header
+		swap	n1
+		move	4(r1),n4
+		moveq	3,n2				; ref?
+		andb	n4,n2
+		bne	cell_done
+		movea	n4,r3
+		and	n7,n4
+		cmp	sp,n4				; in heap?
+		blt	cell_done
+		cmp	ep,n4
+		bge	cell_done
+		exg	n4,r3				; yes
+		move	(r3),n2				; get header
+		blt	cell_done			; marked?
+		movew	ipcell,n1			; no, fix header
+		movem	n1/n5,(r1)			; save header, old ref
+		move	n2,n1				; reget header
+		movea	r3,r1
+		move	n3,n5				; make current ref old
+		move	n4,n3				; make new ref current
+		bra	markit				; recurse
+	end
+	movea	dv%rel(r1),r3				; ADV
+	lea	1(r3),r2
+	suba	dv%lcnt(r1),r3				; get ref
+	move	r3,dv%rel(r1)				; store it
+	ori	short,,0,n1				; fix header
+	if	cmpa	sp,r3				; in heap?
+		blt	this
+		cmpa	ep,r3
+		bge	this
+		move	(r3)+,n4			; yes, marked?
+		blt	this
+		tst	defer				; no, deferred?
+		blt	notrim
+		tst	dv%max(r1)			; empty?
+		bge	next
+		move	n1,n2				; yes, predict?
+		andi	pred,n2
+		bne	next
+		move	[],dv%rel(r1)			; no, zap real part
+		moveq	3,n4
+		move	n4,dv%lcnt(r1)
+	then	movew	%adv,n1				; fix header
+		moveq	dv%blen,n2			; get size in bytes
+		bra	mark_done
+notrim:		movew	ipadv,n1			; fix header
+		move	n1,(r1)				; save header
+		bra	trimdn
+	end
+	movew	ipadv,n1				; fix header
+	move	n1,(r1)					; save header
+	move	dv%max(r1),n2				; get size
+	addq	2,n2
+	add	n2,n2
+	bclr	lasthbt,n4
+	subq	2,n4
+	cmp	n2,n4					; any free space?
+	beq	trimdn
+	moveq	0,n1
+	ifne	moveb	dv%predm(r1),n1			; get predict
+	then	movea	n4,rr
+		moveb	(r1),n4
+		andib	prede,n4
+		addqb	2,n4
+		asl	n4,n1
+		move	rr,n4
+	end
+	ifle	cmp	n2,n1				; predict <= size?
+	then	move	n2,n1				; yes, use size
+	elflt	cmp	n1,n4				; no, vec size < predict?
+	then	move	n4,n1				; yes, use vec size
+	end
+	ifgt	cmp	n1,n4				; length changing?
+	then	sub	n4,-(r3)			; yes, set new length
+		add	n1,(r3)+
+		addq	4,n1				; clear one extra
+	end
+	cmpi	3,dv%lcnt(r1)				; need to move?
+	beq	dohigh
+	sub	dv%lcnt(r1),n4				; vec size - lcnt
+	sub	n2,n4					; - size
+	addq	6,n4					; + 6 = hcnt + 3
+	if	ifgt	cmp	dv%lcnt(r1),n4		; leave near high end?
+		then	moveq	3,n4			; no move to low end
+			move	n4,dv%lcnt(r1)
+			bra	this
+		end
+		move	-4(r3),n4			; yes, get free space
+		bclr	lasthbt,n4
+		sub	n2,n4
+		addq	1,n4
+		cmp	dv%lcnt(r1),n4			; need to move down?
+		bge	next
+		move	n4,dv%lcnt(r1)			; yes, set new lcnt
+		lea	-3(r3,n4),r3			; get to addr
+	then	movea	r2,rr
+		movea	r3,r2				; new rel
+		ifne	move	n2,n4			; get amount
+		then	asr	2,n4
+			subq	1,n4
+			loop
+				move	(rr)+,(r3)+	; move down
+				dbra	n4,this
+				swap	n4
+				subqw	1,n4
+				blt	next
+				swap	n4
+			end
+			movea	dv%rel(r1),r3		; reget ref
+			addq	4,r3
+		end
+	end
+	move	r2,n4
+	ifgt	sub	r3,n4
+	then	asr	2,n4
+		subq	1,n4
+		loop
+			clr	(r3)+			; clear low end
+			dbra	n4,this
+			swap	n4
+			subqw	1,n4
+			blt	next
+			swap	n4
+		end
+	end
+	movea	dv%rel(r1),r3				; reget ref
+	addq	4,r3
+dohigh:	adda	n2,r2					; get end of data
+	add	r3,n1					; get end of vec
+	ifgt	sub	r2,n1
+	then	asr	2,n1
+		subq	1,n1
+		loop
+			clr	(r2)+
+			dbra	n1,this
+			swap	n1
+			subqw	1,n1
+			blt	next
+			swap	n1
+		end
+	end
+trimdn:	movea	dv%rel(r1),r3				; get ref
+	move	(r3),n1					; reget vec header
+	move	n5,dv%rel(r1)				; save old ref
+	move	n3,n5					; make current ref old
+	movea	r3,r1					; reget ref
+	move	r1,n3					; make new ref current
+	bra	markit					; recurse
+
+;	Phase II: Assign new addresses to marked objects, unify chains.
+
+;	Register usage:
+;		n0  first delta to new address,,...
+;		n1  header of current object
+;		n2  size in bytes of current object
+;		n3  pointer to possible new first object of current block
+;		n4  maxsiz
+;		n5  second delta to new address,,back ptr of first object
+;		n6  -4
+;		rr  pointer to current object
+;		r1  pointer to first object of current block
+;		r3  crossover address for second delta
+;		r4  last allocated heap address
+;		pp  pointer into chain table
+
+phase2:	move	n0,used					; save total bytes used
+	beq	final					; done if none
+	move	maxsiz,n4
+	moveq	-4,n6
+	move	n6,chinit
+	movea	ep,r1
+	movea	ep,r3
+	lea	(sp,n0),r4
+	lea	chend,pp
+	qloop
+		move	-(pp),n3			; anything there?
+		beq	this
+		blt	next				; done?
+new_cg:		movea	n3,rr
+		move	(rr),n1				; get header
+		qloop
+			ifeq	btst	longbit,n1	; long?
+			then	move	n1,n2		; yes
+				andiw	idxmask,n1	; get index
+				aslw	2,n1
+				lea	deltas,r2
+				addaw	n1,r2		; index into deltas
+				andi	lenmask,n2
+				asr	lnlog2+-2,n2	; get size in bytes
+				addq	4,n2
+				tstw	2(r2)		; BVEC?
+				bne	next_obj
+				asr	2,n2		; yes
+				addq	6,n2
+				andib	-4,n2
+				bra	next_obj
+			end
+			swap	n1
+			ifeq	btst	objbit2,n1	; VEC or BVEC?
+			then	move	n1,n2		; yes, get size
+				and	n4,n2
+				ifeq	btst	objbit1,n1	; VEC?
+				then	aslw	2,n2		; yes
+					addq	4,n2
+					bra	next_obj
+				end
+				addqw	7,n2
+				andb	n6,n2
+				bra	next_obj
+			end
+			moveq	dv%blen,n2
+			ifne	btst	objbit1,n1	; CELL?
+			then	moveq	8,n2		; yes
+			end
+next_obj:		adda	n2,rr			; get to next object
+			move	(rr),n1			; marked?
+			bge	next
+			cmpa	r1,rr			; and before old start?
+			blt	this
+		end
+		move	rr,n0				; get delta
+		sub	r4,n0
+		cmp	n4,n0				; too big?
+		ble	got_delta
+		move	rr,n1				; yes, get addr of last
+		sub	n2,n1
+		sub	sp,n1
+		move	n1,n2				; save it
+		asl	cgshift,n1
+		swap	n1
+		andb	n6,n1				; get group #
+		lea	chains,r2
+		addaw	n1,r2				; index into chains
+		move	n3,n5
+		sub	sp,n5
+		asl	cgshift,n5
+		swap	n5
+		andb	n6,n5				; get group #
+		subw	n5,n1				; get difference
+		iflt	tst	(r2)+			; group already used?
+		then	move	n0,n5			; yes
+			add	-(r2),n0		; get delta
+			bchg	deltbit,n0		; show extra delta
+			subqw	4,n1			; another group?
+			blt	got_delta
+			swap	n0			; yes
+			exg	n0,n5			; swap deltas
+			andi	-1,,-1+-ptrmask,n2	; get crossover
+			add	sp,n2
+			movea	n2,r3
+		end
+		move	n4,n2				; get group delta
+		sub	n0,n2
+		move	n4,n0				; set first delta
+		bchg	deltbit,n0			; show extra delta
+		qloop
+			move	n2,-(r2)		; save group delta
+			subqw	4,n1			; another group?
+			bge	this
+		end
+got_delta:	swap	n0
+		suba	n3,rr				; get total alloc
+		suba	rr,r4				; bump alloc ptr
+		movea	n3,rr
+		move	(rr),n1
+		movew	n1,n5				; save back ptr
+		btst	longbit,n1			; long?
+		bne	short_obj
+		move	n1,n2				; yes
+		andiw	idxmask,n1			; get index
+		aslw	2,n1
+		lea	deltas,r2
+		addaw	n1,r2				; index into deltas
+		andi	lenmask,n2
+		asr	lnlog2+-2,n2			; get size in bytes
+		addq	4,n2
+		ifeq	movew	2(r2),n0		; BVEC?
+		then	asr	2,n2			; yes
+			addq	6,n2
+			andb	n6,n2
+		end
+		movew	(r2),n5				; save back ptr
+		move	n0,(r2)				; fix it
+		bra	fixed_obj
+		loop
+			btst	longbit,n1		; long?
+			bne	short_obj
+			move	n1,n2
+			andiw	idxmask,n1		; yes, get index
+			aslw	2,n1
+			lea	deltas,r2
+			addaw	n1,r2			; index into deltas
+			andi	lenmask,n2
+			asr	lnlog2+-2,n2		; get size in bytes
+			addq	4,n2
+			ifeq	movew	2(r2),n0	; BVEC?
+			then	asr	2,n2		; yes
+				addq	6,n2
+				andb	n6,n2
+			end
+			move	n0,(r2)			; fix it
+			bra	fixed_obj
+short_obj:		swap	n1
+			ifeq	btst	objbit2,n1	; VEC or BVEC?
+			then	move	n1,n2		; yes, get size
+				and	n4,n2
+				ifeq	btst	objbit1,n1	; VEC?
+				then	movew	n2,n1		; yes
+					aslw	2,n2
+					addq	4,n2
+					bra	fix_obj
+				end
+				bchg	objbit2+-15,n1
+				addqw	7,n2
+				andb	n6,n2
+				bra	fix_obj
+			end
+			moveq	8,n2
+			ifeq	btst	objbit1,n1	; ADV?
+			then	bchg	objbit1+-15,n1	; yes
+				moveq	dv%blen,n2
+			end
+fix_obj:		movew	n1,n0			; get new header
+			move	n0,(rr)			; store it
+fixed_obj:		adda	n2,rr			; get to next object
+			move	(rr),n1			; marked?
+			bge	next
+			cmpa	r1,rr			; and before old start?
+			bge	next_cg
+			cmpa	r3,rr			; no, crossover?
+			blt	this
+			move	n5,n0			; yes, set new delta
+			movea	ep,r3			; no further crossover
+		end
+		cmpa	r1,rr				; before old start?
+		bge	next_cg
+		move	r1,(rr)				; yes, fix up new chain
+		oriw	short,(rr)
+next_cg:	movea	n3,r1
+		andiw	ptrmask,n5			; back ptr?
+		beq	this
+		ext	n5				; yes
+		sub	n5,n3				; move back
+		bra	new_cg
+	end
+	movew	short,(ep)				; terminate chain
+	move	r1,(pp)					; save new chain
+
+;	Phase III:  Find and fix all references
+
+;	Register usage:
+;		n0  deltbit
+;		n1  header of current object
+;		n2  idxmask
+;		n3  pointer to current object
+;		n4  relocation delta
+;		n5  -4
+;		rr  pointer to pointer to current object
+;		r1  pointer to current object
+;		r2  pointer to deltas
+;		r3  pointer to chains
+
+phase3:	moveq	deltbit,n0
+	lea	deltas,r2
+	lea	chains,r3
+	move	idxmask,n2
+	move	reloc,n4
+	moveq	-4,n5
+	lea	fxroot,r4				; invoke root generator
+	bra	roots
+	jmp	doheap
+fxroot:	iflt						; long?
+	then	and	n2,n1				; yes, get index
+		aslw	2,n1
+		move	(r2,n1/w),n1			; get delta
+	end
+	swap	n1
+	ext	n1
+	ifne	bclr	n0,n1				; only one?
+	then	sub	sp,n3				; no, get group #
+		asl	cgshift,n3
+		swap	n3
+		andb	n5,n3
+		sub	(r3,n3/w),n1			; add group delta
+	end
+	sub	n4,n1					; less any relocation
+	sub	n1,-4(pp)				; fix reference
+	bra	rooter
+doheap:	movea	chinit,rr
+donext:	iflt	move	(rr)+,n1			; long?
+	then	ifne	btst	longbit,n1		; maybe, end of block?
+		then	and	n7,n1			; yes, done?
+			beq	phase4
+			movea	n1,rr			; no
+			bra	donext
+		end
+		move	n1,n6
+		andi	lenmask,n1			; get length
+		asr	lnlog2+-2,n1
+		and	n2,n6				; get deltas index
+		aslw	2,n6
+		tstw	2(r2,n6/w)			; BVEC?
+		bne	fix_vec
+		asr	2,n1				; yes
+		addq	3,n1
+		andb	n5,n1
+		adda	n1,rr				; bump to next
+		bra	donext
+	end
+	ifeq	btst	objbit2+-15,n1			; VEC or BVEC?
+	then	ifne	bclr	objbit1+-15,n1		; yes, BVEC?
+		then	addqw	3,n1			; yes
+			andb	n5,n1
+			addaw	n1,rr			; bump to next
+			bra	donext
+		end
+		ext	n1				; VEC
+		aslw	2,n1
+fix_vec:	move	rr,n6
+		adda	n1,rr
+		movea	rr,r4
+		loop
+			cmp	r4,n6			; any more?
+			bge	donext
+			move	-(r4),n3		; no, get next
+			moveq	3,n1			; ref?
+			andb	n3,n1
+			bne	this
+			and	n7,n3
+			cmp	sp,n3			; in heap?
+			blt	this
+			cmp	ep,n3
+			bge	this
+			movea	n3,r1			; yes
+			iflt	move	(r1),n1		; long?
+			then	and	n2,n1		; yes, get index
+				aslw	2,n1
+				move	(r2,n1/w),n1	; get delta
+			end
+			swap	n1
+			ext	n1
+			ifne	bclr	n0,n1		; only one?
+			then	sub	sp,n3		; no, get group #
+				asl	cgshift,n3
+				swap	n3
+				andb	n5,n3
+				sub	(r3,n3/w),n1	; add group delta
+			end
+			sub	n4,n1			; less any relocation
+			sub	n1,(r4)			; fix reference
+		end
+	end
+	ifne	btst	objbit1+-15,n1			; CELL?
+	then	move	(rr)+,n3			; yes
+		moveq	3,n1				; ref?
+		andb	n3,n1
+		bne	donext
+		and	n7,n3
+		cmp	sp,n3				; in heap?
+		blt	donext
+		cmp	ep,n3
+		bge	donext
+		movea	n3,r1				; yes
+		iflt	move	(r1),n1			; long?
+		then	and	n2,n1			; yes, get index
+			aslw	2,n1
+			move	(r2,n1/w),n1		; get delta
+		end
+		swap	n1
+		ext	n1
+		ifne	bclr	n0,n1			; only one?
+		then	sub	sp,n3			; no, get group #
+			asl	cgshift,n3
+			swap	n3
+			andb	n5,n3
+			sub	(r3,n3/w),n1		; add group delta
+		end
+		sub	n4,n1				; less any relocation
+		sub	n1,-4(rr)			; fix reference
+		bra	donext
+	end
+	lea	dv%blen+-4(rr),rr			; ADV, bump to next
+	movea	dv%rel+-dv%blen(rr),r1			; get ref
+	move	dv%lcnt+-dv%blen(rr),n1			; get lcnt
+	add	n1,dv%rel+-dv%blen(rr)			; make rel
+	iflt	move	(r1),n6				; get vec size
+	then	andi	lenmask,n6
+		moveq	lnlog2,n3
+		asr	n3,n6
+	elfge	cmpa	sp,r1				; in heap?
+		blt	this
+		cmpa	ep,r1
+	then	asr	2,n6				; no
+	else	ext	n6				; yes
+	end
+	asr	2,n1
+	sub	n1,n6					; - lcnt
+	move	dv%max+-dv%blen(rr),n3
+	asr	1,n3
+	sub	n3,n6					; - max = new hcnt
+	moveb	n6,dv%rel+-dv%blen(rr)			; store low byte
+	subb	n6,n6
+	orw	n6,dv%lcnt+-dv%blen(rr)			; store high byte
+	cmpa	sp,r1					; in heap?
+	blt	donext
+	cmpa	ep,r1
+	bge	donext
+	iflt	move	(r1),n1				; yes, long?
+	then	and	n2,n1				; yes, get index
+		aslw	2,n1
+		move	(r2,n1/w),n1			; get delta
+	end
+	swap	n1
+	ext	n1
+	ifne	bclr	n0,n1				; only one?
+	then	move	r1,n3				; no, get group #
+		sub	sp,n3
+		asl	cgshift,n3
+		swap	n3
+		andb	n5,n3
+		sub	(r3,n3/w),n1			; add group delta
+	end
+	sub	n4,n1					; less any relocation
+	sub	n1,dv%rel+-dv%blen(rr)			; fix rel
+	bra	donext
+
+;	Phase IV:  Restore headers, compact heap.
+
+;	Register usage:
+;		n1  header of current object
+;		n3  maxsiz
+;		n4  -4
+;		n5  idxmask
+;		rr  pointer (in)to current object
+;		r2  pointer to deltas
+;		r4  start address of next chain group
+
+phase4:	movea	sp,r4
+	move	maxsiz,n3
+	moveq	-4,n4
+	move	idxmask,n5
+	movea	chinit,rr
+movnxt:	iflt	move	(rr)+,n1			; long?
+	then	ifne	btst	longbit,n1		; maybe, end of block?
+		then	and	n7,n1			; yes, done?
+			beq	final
+			movea	n1,rr			; no
+			bra	movnxt
+		end
+		move	n1,n2
+		andi	lenmask,n1			; get length
+		asr	lnlog2+-2,n1
+		and	n5,n2
+		aslw	2,n2
+		ifeq	tstw	2(r2,n2/w)		; BVEC?
+		then	asr	1,n1			; yes
+			addqb	1,n1
+			move	n1,n2
+			asr	1,n2
+			addq	3,n2
+			andb	n4,n2
+		else	move	n1,n2			; VEC
+			addqb	2,n1
+		end
+		move	n1,(r4)+			; store new header
+		ifeq	cmpa	r4,rr			; moving?
+		then	adda	n2,rr			; no
+			movea	rr,r4
+			bra	movnxt
+		end
+		asr	2,n2
+		subq	1,n2
+		loop
+			move	(rr)+,(r4)+		; move it
+			dbra	n2,this
+			swap	n2
+			subqw	1,n2
+			blt	movnxt
+			swap	n2
+		end
+	end
+	ifeq	btst	objbit2+-15,n1			; VEC or BVEC?
+	then	ifne	bclr	objbit1+-15,n1		; yes, BVEC?
+		then	ext	n1			; yes
+			move	n1,n2
+			addw	n1,n1
+			addqb	1,n1
+			addqw	3,n2
+			andb	n4,n2
+		else	ext	n1			; VEC
+			aslw	2,n1
+			move	n1,n2
+			addqb	2,n1
+		end
+		move	n1,(r4)+			; store new header
+		ifeq	cmpa	r4,rr			; yes, moving?
+		then	adda	n2,rr			; no
+			movea	rr,r4
+			bra	movnxt
+		end
+		asr	2,n2				; more?
+		beq	movnxt
+		subqw	1,n2
+		qloop
+			move	(rr)+,(r4)+		; move it
+			dbra	n2,this
+		end
+		bra	movnxt
+	end
+	ifne	btst	objbit1+-15,n1			; CELL?
+	then	andw	n3,n1
+		movew	%cell,(r4)+			; store new header
+		movew	n1,(r4)+
+		move	(rr)+,(r4)+			; store ref
+		bra	movnxt
+	end
+	andw	n3,n1					; ADV
+	oriw	%adv,n1
+	movew	n1,(r4)+				; store predict
+	moveb	dv%lcnt+-4(rr),(r4)+			; store hcnt
+	moveb	dv%rel+-4(rr),(r4)+
+	move	(rr)+,(r4)+				; store max
+	move	(rr)+,(r4)+				; store low
+	move	(rr)+,n1				; store rel
+	and	n7,n1
+	move	n1,(r4)+
+	move	(rr)+,n1				; store lcnt
+	and	n7,n1
+	move	n1,(r4)+
+	bra	movnxt
+
+;	Final: Zero unused heap and stack.
+
+final:	move	used,n1
+	lea	(sp,n1),pp		; get new heaphi
+	move	pp,heaphi
+	movem	addmask,n5/n6		; choose new GC point
+	ifne	tst	n5
+		bne	this
+		tst	n6
+	then	add	n5,n1
+		and	n6,n1
+	else	addi	016,,0,n1
+		andi	-8,,0,n1
+	end
+	add	heaplo,n1
+	ifgt	cmp	heapmx,n1
+	then	move	heapmx,n1
+	end
+	move	n1, gcpoint
+	ifgt	cmp	brkaddr, n1
+	then	move	brkaddr, n1
+	end
+	sub	heaphi,n1
+	move	n1,freecnt
+	move	ep,n1
+	sub	pp,n1
+	asr	2,n1
+	loop
+		clr	(pp)+		; zero them out
+		dbra	n1,this
+		swap	n1
+		subqw	1,n1
+		blt	next
+		swap	n1
+	end
+	suba	r1,r1			; clear ref registers
+	suba	r2,r2
+	suba	r3,r3
+	suba	r4,r4
+	suba	pp,pp
+	movem	old_ep,ep/sp		; restore ep and sp
+	clr	4(sp)			; VA_NORM
+;	moveq	%ovadvise,n0		; advise paging strategy
+;	move	n0,-(sp)
+;	trap	0
+	addq	8,sp
+
+; moved down to just before returning.
+;	moveq	1,n0			; restore 0
+
+	movea	sp,rr			; clear out stack
+	loop
+		movew	1024,n1		; look for 1K contiguous zeros
+		qloop
+			tst	-(rr)
+			dbne	n1,this
+		end
+		beq	next
+		qloop
+			clr	(rr)	; clear it
+			tst	-(rr)
+			bne	this
+		end
+	end
+	;; If there's more than a megabyte of free heap, cut back the
+	;; breakpoint. The new breakpoint will be the next half Mb boundary
+	;; above the top of the heap that leaves at least 1/8Mb of
+	;; free space.
+	ifgt    move    brkaddr, n1
+	        sub	heaphi, n1
+		cmp	020,,0, n1
+	then    move    heaphi, n1		;; Find next 1/2Mb boundary
+						;; above the heap.
+                add     010,,0, n1
+;;
+;; This mask must be wrong.  It leaves only the low bits.
+;;                and     #7,,#ffff, n1
+;; The inverse mask must be what is wanted!
+		and	-8,,0,n1
+		move    n1, n2
+                iflt    sub 	heaphi, n2	;; Is there at least a 1/8Mb of
+			cmpi	02,,0, n2	;; free space at this boundary?
+		then	add	010,,0, n1	;; No, Use next 1/2Mb boundary.
+			add	010,,0, n2
+		end
+		move	n1, brkaddr		;; Fix up the brkaddr
+		iflt	cmp	freecnt, n2	;; Fix up freecnt if gcpoint is
+		then	move	n2, freecnt	;; greater than new brkaddr.
+			end
+		move	n1, -(sp)
+		clr	-(sp)
+		move	%brk, n0
+                move    n0, -(sp)
+		trap	0
+                clr     4(sp)
+		addq    8, sp
+	end
+
+	moveq	1,n0			; restore 0
+	clrb	gcflag			; say we are out of GC
+	return
+
+;	Root Generator
+;	Yields addr of heap ref in pp, heap ref in r1, and header in n1.
+
+roots:	move	schain,nextmp
+	qloop
+		ifne	move	nextmp,n6		; more maps?
+		then	movea	n6,pp			; yes
+			move	nxtmap(pp),nextmp	; save next one
+			movem	owncnt(pp),n6/pp	; get owns
+			asr	1,n6
+			beq	this
+			add	pp,n6			; get end
+		else	movea	old_sp,pp		; do stack
+			move	stkhi,n6
+		end
+rooter:		qloop
+			cmp	pp,n6			; done?
+			ble	next
+			move	(pp)+,n3
+			moveq	3,n1			; ref?
+			andb	n3,n1
+			bne	this
+			and	n7,n3
+			cmp	sp,n3			; in heap?
+			blt	this
+			cmp	ep,n3
+			bge	this
+			movea	n3,r1			; yes
+			move	(r1),n1			; get header
+			jmp	(r4)			; yield
+		end
+		cmpa	stkhi,pp			; really done?
+		bne	this
+	end
+	jmp	-4(r4)					; yes, return
+
+	end gc
+
+end _gc

@@ -1,0 +1,61 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+run_ctrlsn = proc (e: env, c: char) signals (errmsg(string), stop(env, string))
+
+    prompt = "Edit/List/Scan/Type matching files"
+    mprompt = "Match file spec(s)"
+    legals = "ILPRST"
+    help = "I: insert list of matching file names into buffer\n" ||
+	   "L: list matching file names\n" ||
+	   "P: scan matching files for pattern match\n" ||
+	   "R: recursive edit matching files\n" ||
+	   "S: scan matching files for string match\n" ||
+	   "T: type out matching files"
+    arg: int, opt: char := get_option(e, prompt, legals, help, false)
+       resignal errmsg
+
+    fns: string, afn: afnt := get_file_list(e, mprompt, opt = 'R')
+       resignal errmsg
+
+    if opt = 'I' then
+       for fn: fname in afnt$elements(afn) do
+	   env$insert1(e, fname$unparse(fn))
+	   env$insert1(e, "\n")
+	   end
+       return
+       end
+
+    if opt = 'R' then
+       ne: env, name: string := winset$push(e, "Recurse", fns)
+       update_title(ne, "---- Buffer: " || name || " [] (^^ to exit)")
+       err: bool := false
+       insert_new_files(ne, fns, afn)
+	  except when errmsg (why: string):
+		      _bell()
+		      top_display(ne, why)
+		      err := buf$empty(ne.buffer)
+		 end
+       while ~err do
+	   ted(ne)
+	   if ~buf$any_changed(ne.buffer)  cor
+	      mconfirm(ne, "Exit to old edit level", true)
+	      then break end
+	   end except when errmsg (*): end
+       winset$pop(ne)
+       bufset$kill_buf(e, name)
+	  except when errmsg (*): end
+       return
+       end
+
+    if opt = 'L'
+       then list_files(e, afn, fns, "Matches")
+       else obj: string
+	    if opt = 'P'
+	       then obj := get_string_arg(e, "Search pattern",
+					  env$fetch_str(e, "psearch", ""))
+	       else obj := env$fetch_str(e, "search", "")
+		    if opt = 'S' then
+		       obj := get_string_arg(e, "Search string", obj) end
+	       end resignal errmsg
+	    scan_type_files(e, afn, fns, opt, obj)
+       end
+    end run_ctrlsn

@@ -1,0 +1,28 @@
+;; Copyright Massachusetts Institute of Technology 1985, 1989
+
+_get_priority = proc (which, who: int) returns (int)
+					signals (not_possible(string))
+	move	rr, n1
+	asr	1, n1			;; De-integerize who.
+	move	n1, -(sp)		;; Push who.
+	move	which, n1
+	asr	1, n1			;; De-integerize which.
+	move	n1, -(sp)		;; Push which.
+	clr	-(sp)			;; Push hack pc.
+	moveq	%getpriority, n0
+	move	n0, -(sp)		;; Getpriority
+	trap	0			;; Do the call.
+	scc	n1			;; Remember state of carry.
+	addq	4, sp			;; Pop pc.
+	clr	(sp)+			;; Pop args.
+	clr	(sp)+
+	movea	n0, rr
+	lea	1(rr,rr), rr		;; Save and integerize result.
+	moveq	1, n0
+	ifne	tstb	n1
+	then	return (rr)
+		end
+	_erstr (rr)
+	signal not_possible(rr)
+	end _get_priority
+

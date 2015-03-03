@@ -1,0 +1,224 @@
+; Copyright Massachusetts Institute of Technology 1980, 1989
+
+variant = selector is make, change, is, value, v_gets_v, v_gets_o, equal,
+		      similar, similar1, copy, copy1, print, 
+		      encode, decode, _gcd
+
+make = qselproc (val: seltype) returns (cvt)
+	movea	rr,r1
+	move	selhead,n1		; get header
+	moveq	8,n2			; get byte count
+	movea	heaphi,rr		; alloc
+	iflt	sub	n2,freecnt
+	then	jsr	memout
+	end
+	add	n2,heaphi
+	movem	n1/r1,(rr)
+	return(rr)
+	end make
+
+change = qselproc (vnt: cvt, val: seltype)
+	movea	vnt,r1
+	move	selhead,n1		; get header
+	movem	n1/rr,(r1)		; atomically update tag and value
+	end change
+
+is = qselproc (vnt: cvt) returns (bool)
+	movew	seltag,n2
+	moveq	0,n1
+	cmpw	2(rr),n2		; compare
+	seq	n1
+	return(n1)
+	end is
+
+value = qselproc (vnt: cvt) returns (seltype) signals (wrong_tag)
+	movem	(rr),n1/rr		; atomically get tag and value
+	ifeq	cmpw	seltag,n1	; check tag
+	then	return(rr)
+	end
+	signal	wrong_tag
+	end value
+
+v_gets_v = qproc (vnt1, vnt2: cvt)
+	movem	(rr),n1/rr		; atomically get tag and value
+	movea	vnt1,r1
+	movem	n1/rr,(r1)		; atomically set tag and value
+	end v_gets_v
+
+v_gets_o = qproc (vnt: cvt, one: oneof[*])
+	move	rr,-(sp)
+	moveq	0,n1
+	ifeq	moveb	(sp),n1			; get tag in reference if any
+	then	addq	4,sp
+		movem	(rr),n1/rr		; atomically get tag and value
+	else	clrb	(sp)			; clear tag field
+		movea	(sp)+,rr		; get value
+		ori	%cell,,0,n1		; get header
+	end
+	movea	vnt,r1
+	movem	n1/rr,(r1)			; atomically set tag and value
+	end v_gets_o
+
+equal = qproc (vnt1, vnt2: cvt) returns (bool)
+	moveq	0,n1
+	cmpa	vnt1,rr
+	seq	n1
+	return(n1)
+	end equal
+
+similar = proc (vnt1, vnt2: cvt) returns (bool)
+	    where each has similar: proctype (seltype, seltype) returns (bool)
+	rlist = selops[similar]
+	movem	(rr),n2/rr		; atomically get tag and value
+	movea	vnt1,r1
+	movem	(r1),n1/r1		; atomically get tag and value
+	ifeq	cmpw	n1,n2		; compare tags
+	then	aslw	2,n1
+		movea	rlist,r2
+		movea	(r2,n1/w),r2	; get similar op
+		r2(r1, rr)		; compare
+		return(rr)
+	end
+	return(false)
+	end similar
+
+similar1 = proc (vnt1, vnt2: cvt) returns (bool)
+	    where each has equal: proctype (seltype, seltype) returns (bool)
+	rlist = selops[equal]
+	movem	(rr),n2/rr		; atomically get tag and value
+	movea	vnt1,r1
+	movem	(r1),n1/r1		; atomically get tag and value
+	ifeq	cmpw	n1,n2		; compare tags
+	then	aslw	2,n1
+		movea	rlist,r2
+		movea	(r2,n1/w),r2	; get equal op
+		r2(r1, rr)		; compare
+		return(rr)
+	end
+	return(false)
+	end similar1
+
+copy = proc (vnt: cvt) returns (cvt)
+	    where each has copy: proctype (seltype) returns (seltype)
+	rlist = selops[copy]
+	movem	(rr),n1/rr		; atomically get tag and value
+	ext	n1
+	move	n1,-(sp)		; save tag
+	aslw	2,n1
+	movea	rlist,r1
+	movea	(r1,n1/w),r1		; get copy op
+	r1(rr)				; copy
+	movea	rr,r1
+	move	(sp)+,n1		; get header
+	ori	%cell,,0,n1
+	moveq	8,n2			; get byte count
+	movea	heaphi,rr		; alloc
+	iflt	sub	n2,freecnt
+	then	jsr	memout
+	end
+	add	n2,heaphi
+	movem	n1/r1,(rr)
+	return(rr)
+	end copy
+
+copy1 = qproc (vnt: cvt) returns (cvt)
+	movem	(rr),n1/r1		; atomically get tag and value
+	moveq	8,n2			; get byte count
+	movea	heaphi,rr		; alloc
+	iflt	sub	n2,freecnt
+	then	jsr	memout
+	end
+	add	n2,heaphi
+	movem	n1/r1,(rr)
+	return(rr)
+	end copy1
+
+print = proc (vnt: cvt, pst: pstream)
+	    where each has print: proctype (seltype, pstream)
+	rlist = selops[print]
+	var	val,idx
+	movea	vnt,rr
+	movem	(rr),n1/rr			; atomically get tag and value
+	ext	n1
+	aslw	2,n1
+	addqb	1,n1
+	movem	n1/rr,idx
+	ift	pstream$start(pst, "<")
+	then	movea	selnames,r1
+		move	idx,n1
+		add	n1,n1
+		movea	-2(r1,n1),rr		; get name
+		pstream$text(pst, rr)		; print it
+		pstream$text(pst, ": ")
+		move	idx,n1
+		movea	rlist,r1
+		movea	-1(r1,n1),r1		; get print op
+		r1(val, pst)			; print it
+	end
+	pstream$stop(pst, ">")
+	end print
+
+encode = proc (vnt: cvt, ist: istream) signals (not_possible(string))
+		where each has encode: proctype (seltype, istream)
+					signals (not_possible(string))
+	rlist = selops[encode]
+	begin
+	move	rr, -(sp)		;; Push istream.
+	movea	vnt, r1
+	movea	n0, rr
+	moveaw	2(r1), rr		;; Get tag.
+	lea	1(rr, rr), rr		;; Integerize it.
+	istream$%puti(*, rr)		;; Encode it.
+	movea	vnt, rr
+	clr	n1
+	moveb	3(rr), n1		;; Get tag again.
+	asl	2, n1			;; Make it into a byte idx into rlist.
+	movea	rlist, r1
+	movea	(r1, n1), r1		;; Get encode operation.
+	movea	4(rr), rr		;; Get value.
+	r1(rr, ist)			;; Encode it.
+	end resignal not_possible
+	end encode
+
+decode = proc (ist: istream) returns (cvt)
+				signals (end_of_file, not_possible(string))
+		where each has decode: proctype (istream) returns (seltype)
+					signals (end_of_file, not_possible(string))
+	rlist = selops[decode]
+	var	tag
+
+	ifle	istream$%geti(rr)	;; Get tag (as CLU int).
+		cmpa	n0, rr		;; Check it.
+		ble	next
+		move	rr, tag		;; Save it.
+		movea	rlist, r1
+		lea	(rr, rr), rr	;; Get tag * 4 + 2.
+		cmpa	(r1), rr
+	then	movea	-2(r1, rr), r1	;; Get decode op.
+		r1(ist)			;; Decode value.
+		move	rr, -(sp)	;; Save it.
+		move	8, n2
+		movea	heaphi, rr
+		iflt	sub	n2, freecnt	;; Alloc mem.
+		then	jsr	memout
+			end
+		add	n2, heaphi
+		move	tag, n1
+		asr	1, n1		;; De-integerize.
+		moveb	n1, 3(rr)	;; Store header.
+		movew	%cell, (rr)
+		move	(sp)+, 4(rr)	;; Store value.
+		return (rr)
+		end resignal end_of_file, not_possible
+	signal 	not_possible("bad format")
+	end decode
+
+
+
+_gcd = proc (vnt: cvt, tab: gcd_tab) returns (int)
+		where each has _gcd: proctype (seltype, gcd_tab) returns (int)
+	gcd_tab$%insert(rr, 8, <4: selops[_gcd]>, vnt)
+	return(rr)
+	end _gcd
+
+end variant

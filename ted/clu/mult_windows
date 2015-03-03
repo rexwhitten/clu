@@ -1,0 +1,103 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+run_multiple_windows = proc (e: env, c: char)
+			 signals (errmsg (string), stop(env, string))
+
+    valid = c2s (ctrlb) || c2s (ctrlk) || c2s (ctrln) || c2s (ctrlp) ||
+	    c2s(ctrlr) || c2s (ctrls) || c2s (ctrlt) || "DNPU"
+
+    help = "^B: move bottom of this window down # lines\n" ||
+	   "^K: kill current window\n" ||
+	   "^N: go down # windows\n" ||
+	   "^P: go up # windows\n" ||
+	   "^S: split current window (#=0,1: in half, #~=0,1: |#| lines)\n" ||
+	   "^R: split current window and read files (#=0,1: in half, #~=0,1: |#| lines)\n" ||
+	   "^T: move top of this window up # lines\n" ||
+	   " D: go down # windows to cursor\n" ||
+	   " N: scroll next window (|#|=1: screenful, |#|~=1: # lines)\n" ||
+	   " P: scroll previous window (|#|=1: screenful, |#|~=1: # lines)\n" ||
+	   " U: go up # windows to cursor"
+
+    own killed: bool := false
+    own killee: string
+
+    arg: int, cc: char := get_option(e, "Multiple window command",
+				     valid, help, false)
+       resignal errmsg
+    if cc = ctrlb then
+       winset$grow_bot(e, arg)
+     elseif cc = ctrlk then
+       ne: env := winset$remove(e)
+       killee := e.name
+       killed := true
+       signal stop(env$choose_cursor(ne), "")
+     elseif cc = ctrln  cor  cc = ctrlp then
+       if cc = ctrlp then arg := -arg end
+       signal stop(env$choose_cursor(winset$next(e, arg)), "")
+     elseif cc = 'D'  cor  cc = 'U' then
+       if cc = 'U' then arg := -arg end
+       if arg = 0
+	  then env$choose_window(e)
+	  else signal stop(winset$next(e, arg), "")
+	  end
+     elseif cc = ctrlr then
+       name, fns: string, names: afnt := get_buffer_files(e)
+       if arg = 1
+	  then arg := 0
+	elseif arg < 0
+	  then arg := -arg end
+       e := winset$split(e, name, arg)
+       insert_new_files(e, fns, names)
+	  except when errmsg (why: string): signal stop(e, why) end
+       signal stop(e, "")
+     elseif cc = ctrls then
+       if killed
+	  then if bufset$is_displayed(killee)
+		  then killed := false
+		  else bufset$fetch(killee)
+			  except when bad_name: killed := false end
+		  end
+	  end
+       if ~killed
+	  then killee := e.prev
+	       if ~bufset$is_displayed(killee)
+		  then bufset$fetch(killee)
+		       killed := true
+		  end except when bad_name: end
+	  end
+       if ~killed
+	  then killee := env$fetch_str(e, "last_result", "Result")
+	       if ~bufset$is_displayed(killee)
+		  then bufset$fetch(killee)
+		       killed := true
+		  end except when bad_name: end
+	  end
+       if ~killed
+	  then killee := e.name
+	       killed := true
+	       for b: buf, bname, fnm: string in bufset$all_buffers() do
+		   if ~bufset$is_displayed(bname)
+		      then killee := bname
+			   break
+		      end
+		   end
+	  end
+       name: string := find_named_buffer(e, killee)
+	  except when not_found (s: string):
+		      name := bufset$create_buf(s, "", buf$create())
+		 end
+       if arg = 1
+	  then arg := 0
+	elseif arg < 0
+	  then arg := -arg end
+       e := winset$split(e, name, arg)
+       killed := false
+       signal stop(e, "")
+     elseif cc = ctrlt then
+       winset$grow_top(e, arg)
+     else dir: int := 1
+	  if cc = 'P' then dir := -1 end
+	  ne: env := winset$next(e, dir)
+	  if arg = 1  cor  arg = -1 then arg := ne.size * arg end
+	  ne.window_top := ne.window_top + arg
+     end resignal errmsg
+    end run_multiple_windows

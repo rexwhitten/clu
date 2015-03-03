@@ -1,0 +1,11 @@
+; Copyright Massachusetts Institute of Technology 1985, 1989
+
+_get_pid = qproc () returns (int)
+	moveq	%getpid,n0
+	move	n0,-(sp)
+	trap	0
+	movea	n0,rr
+	lea	1(rr,rr),rr
+	moveq	1,n0			; restore 0
+	return(rr)
+	end _get_pid

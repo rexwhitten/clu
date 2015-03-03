@@ -1,0 +1,103 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+input = cluster is peek,		% peek a char
+		   getc,		% read a char
+		   pending,		% any input ready ?
+		   pending_wait,	% wait a while for input
+		   push,		% push back on input
+		   in_macro,		% test if in macro
+		   still_macro,		% test if still macro chars
+		   push_macro,		% push macro back on input
+		   flush_macro,		% flush any macro input
+		   chan,		% input chan
+		   reset
+
+    rep = null          % own data is what is important
+
+    own peeks: act
+    own rstart: int
+
+    peek = proc () returns (char)
+	return(act$top(peeks))
+	   except when bounds: end
+	rstart := -1
+	c: char := _image$getc()
+	act$addh(peeks, c)
+	return(c)
+	end peek
+
+    getc = proc () returns (char)
+	if act$empty(peeks)
+	   then rstart := -1
+		return(_image$getc())
+	   else return(act$remh(peeks))
+	   end
+	end getc
+
+    pending = proc () returns (bool)
+	if ~act$empty(peeks)
+	   then return(true)
+	 elseif _image$pending()
+	   then rstart := -1
+		act$addh(peeks, _image$getc())
+		return(true)
+	 else return(false) end
+	end pending
+
+    pending_wait = proc () returns (bool)
+	if ~act$empty(peeks)
+	   then return(true)
+	 elseif _image$pending_wait()
+	   then rstart := -1
+		act$addh(peeks, _image$getc())
+		return(true)
+	 else return(false) end
+	end pending_wait
+
+    push = proc (c: char)
+	if rstart > act$size(peeks)
+	   then rstart := -1 end
+	act$addh(peeks, c)
+	end push
+
+    in_macro = proc () returns (bool)
+	return(rstart >= 0 cand rstart <= act$size(peeks))
+	end in_macro
+
+    still_macro = proc () returns (bool)
+	return(rstart >= 0 cand rstart < act$size(peeks))
+	end still_macro
+
+    push_macro = proc (s: string)
+	if ~string$empty(s)
+	   then z: int := act$size(peeks)
+		if rstart < 0 cor rstart > z then rstart := z end
+		for i: int in int$from_to_by(string$size(s), 1, -1) do
+		    act$addh(peeks, s[i])
+		    end
+	   end
+	end push_macro
+
+    flush_macro = proc () returns (string)
+	s: string
+	if rstart >= 0 cand rstart < act$size(peeks)
+	   then s := _cvt[_bytevec, string](
+				_bytevec$create(act$size(peeks) - rstart))
+		for i: int in int$from_to(1, string$size(s)) do
+		    _cvt[string, _bytevec](s)[i] := act$remh(peeks)
+		    end
+	   else s := ""
+	   end
+	rstart := -1
+	return(s)
+	end flush_macro
+
+    chan = proc () returns (_chan)
+	return(_chan$primary_input())
+	end chan
+
+    reset = proc ()
+	peeks := act$new()
+	rstart := -1
+	end reset
+
+    end input

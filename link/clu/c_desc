@@ -1,0 +1,118 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+c_desc = cluster is
+	init, create, bind, instantiate, similar, get_name, get_a_parameter,
+	get_param_count, make_dummy, is_dummy, is_dummy_param,
+	canon_hasher, print, unparse, _gcd;
+
+    rep = record [
+	      a_Name:	 string,
+	      b_Params:  params];
+
+    own Dummy_Param: constant;		%% Initialized by Init
+    own Dummy_Ps: params;		%% which is called by lnk_env
+
+    Init = proc (DPs: params);
+	Dummy_Ps := DPs;
+	Dummy_Param := params$Bottom(DPs);
+	end Init;
+
+    Create = proc (Nm: string, Ps: params) returns (cvt);
+	return (rep${a_Name:	Nm,
+		     b_Params:	Ps});
+	end Create;
+
+    Bind = proc (PC: cvt, R_D: rtn_desc, Env: lnk_env) returns (cvt)
+	     signals (error(string));
+
+	Bound_Ps: params := Bind_List[param](PC.b_Params, R_D, Env);
+	   resignal Error;
+
+	return ( rep${
+		     a_Name:   PC.a_Name,
+		     b_Params: Bound_Ps
+		      } );
+	end Bind;
+
+
+    Instantiate = proc (C: cvt, E: lnk_env);
+	C.a_Name := Name_Instantiate(C.a_Name, E);
+	%		%% Dont instantiate a parameter until it is really used.
+	end Instantiate;
+
+    Similar = proc (C1, C2: cvt) returns (bool);
+	return ( rep$Similar(C1,C2) );
+	end Similar;
+
+    Get_Name = proc (C: cvt) returns (string);
+	return ( C.a_Name );
+	end Get_Name;
+
+    Get_A_Parameter = proc (C: cvt, I: int) returns (constant) signals (bounds);
+	P: param := C.b_Params[I];
+	   resignal Bounds;
+	if (P = Dummy_Param)
+	   then signal Bounds;
+	   else return (P);
+	   end;
+	end Get_A_Parameter;
+
+    Get_Param_Count = proc (C: cvt) returns (int);
+	if (C.b_Params = Dummy_Ps)
+	   then return (-1);
+	   end;
+	return (params$Size(C.b_Params));
+	end Get_Param_Count;
+
+    Make_Dummy = proc (N: string, Has_No_Params: bool) returns (cvt);
+	Ps: params;
+	if (Has_No_Params)
+	   then Ps := params$New();
+	   else Ps := Dummy_Ps;
+	   end;
+	return ( rep${ a_Name:	  N,
+		       b_Params:  Ps
+		      } );
+	end Make_Dummy;
+
+    Is_Dummy = proc (C: cvt) returns (bool);
+	return (C.b_Params = Dummy_Ps);
+	end Is_Dummy;
+
+    Is_Dummy_Param = proc (P: constant) returns (bool);
+	return (P = Dummy_Param);
+	end Is_Dummy_Param;
+
+    Canon_Hasher = proc (C: cvt, Size: int, Env: lnk_env) returns (int);
+	H: int;
+	Ps: params := C.b_Params;
+	H := (params$Size(Ps) +
+	      param$Canon_Hasher(params$Bottom(Ps), Size, Env));
+	   except when Bounds:
+		       H := 0;
+		  end;
+	return (int$Mod((Hash(C.a_Name, Size) + H),
+			Size));
+	end Canon_Hasher;
+
+    Print = proc (C: cvt, S: pstream);
+	rep$Print(C, S);
+	end Print;
+
+    Unparse = proc (C: cvt) returns (string);
+	S: string := C.a_Name;
+	if ((~ params$Empty(C.b_Params)) cand
+	    (C.b_Params ~= Dummy_Ps))
+	   then S := (S || "[" ||
+		      Unparse_List[constant](C.b_Params,
+					     vMax_List_Output_Length) ||
+		      "]" );
+	   end;
+	return (S);
+	end Unparse;
+
+    _gcd = proc (CD: cvt, Tab: gcd_tab) returns (int);
+	return (rep$_gcd(CD, Tab));
+	end _gcd;
+
+    end c_desc;

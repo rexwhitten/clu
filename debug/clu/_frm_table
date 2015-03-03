@@ -1,0 +1,51 @@
+% Copyright Massachusetts Institute of Technology 1981, 1989
+
+%%% The frame table is used to look up rtn_info for a routine given a return
+%%% address to that routine. A "return address" is defined as being greater
+%%% than the start of the routine code and less than or equal to the address
+%%% immediately following the routine code. This means that an address which
+%%% is the start of a routine's code will result in the routine info for the
+%%% previous routine in memory. This is intentional!
+%%% (SEP/Jan 23 1985)
+
+_frm_table = cluster is lookup, elements
+
+    rep = sequence[tab]
+    tab = sequence[_rtn_info]
+
+    lookup = proc (ft: cvt, addr: _obj) returns (_rtn_info) signals (not_found)
+	info: _rtn_info
+	if _obj$is_routine(addr)
+	   then return (_Get_Rtn_Info(Addr))
+	   end
+	for t: tab in rep$elements(ft) do
+	    h: int := tab$size(t)
+	    if h > 0
+	       then l: int := 1
+		    while l < h do
+			m: int := (l + h + 1) / 2
+			info := t[m]
+			if addr <= info.raw_routine
+			   then h := m - 1
+			   else l := m
+			   end
+			end
+		    info := t[l]
+		    if addr > info.raw_routine  cand
+		       addr.addr <= (info.raw_routine.addr + info.code_size)
+		       then return(info) end
+	       end
+	    end
+	signal not_found
+	end lookup
+
+    elements = iter (ft: cvt) yields (_rtn_info)
+	for t: tab in rep$elements(ft) do
+	    for info: _rtn_info in tab$elements(t) do
+		if ~_rtn_info$is_overloaded(info)
+		   then yield(info) end
+		end
+	    end
+	end elements
+
+    end _frm_table

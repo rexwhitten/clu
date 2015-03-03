@@ -1,0 +1,413 @@
+%	GSTMT2 CLU
+% Copyright Massachusetts Institute of Technology 1980, 1989
+%	MC68000 Assembler: statement generator
+
+# extend
+
+g_yield = proc (e: g_env, exprs: exprlist)
+	me: g_menv := e.menv
+	z: int := exprlist$size(exprs)
+	if ~g_env$in_iter(e)
+	   then g_env$err(e, "YIELD in procedure")
+	elseif z ~= e.res_count
+	   then g_env$err(e, "wrong number of yield values") end
+	loc: int
+	if z > 1
+	   then xinst(me, PEA, _pcdsp)
+		loc := pcrel(me)
+		starok: bool := true
+		for i: int in int$from_to(1, z) do
+			x: expr := exprs[i]
+			tagcase x.abs
+			   tag star:
+				if ~starok
+				   then g_env$err(e, "illegal use of * expression") end
+			   others:
+				if i = z
+				   then g_expr(e, x, idnkind$make_areg(_RR))
+				   else g_expr(e, x, idnkind$make_tos(nil))
+				   end
+				starok := false
+			   end
+			end
+	elseif z = 1
+	   then g_expr(e, exprlist$top(exprs), idnkind$make_areg(_RR)) end
+	ainst(me, MOVEA, _R4, _idisp_EP)
+	immed(me, 8)
+	ainst(me, MOVEA, _PP, _addrd_EP)
+	ainst(me, MOVEA, _EP, _indir_EP)
+	if z > 1
+	   then xinst(me, JMP, _indir_R4)
+		g_menv$store_offset(me, loc, g_menv$next_loc(me))
+	   else xinst(me, JSR, _indir_R4)
+	   end
+	if ~(e.rparm_count = 0  cand  e.cparm_count = 0)
+	   then ainst(me, MOVEA, _PP, _idisp_EP)
+		immed(me, -4)
+	   end
+	end g_yield
+
+g_signal = proc (e: g_env, sig: condition)
+	me: g_menv := e.menv
+	if g_env$in_qproc(e)
+	   then minst(me, MOVE, pdecr_SP_, _addrd_EP)
+		ainst(me, MOVEA, _EP, _addrd_SP)
+		if ~(e.rparm_count = 0  cand  e.cparm_count = 0)
+		   then minst(me, MOVE, pdecr_SP_, _addrd_SP) end
+		if e.arg_count > 0
+		   then minst(me, MOVE, pdecr_SP_, _addrd_RR) end
+	   end
+	starok: bool := true
+	for x: expr in exprlist$elements(sig.vals) do
+		tagcase x.abs
+		   tag star:
+			if ~starok
+			   then g_env$err(e, "illegal use of * expression") end
+		   others:
+			g_expr(e, x, idnkind$make_tos(nil))
+			starok := false
+		   end
+		end
+	te: g_tenv := e.tenv
+	val: mref := g_tenv$store_signal(te, sig)
+	disp: int := g_tenv$add_use(te, _use_signal, val)
+	xinst(me, JSR, _long)
+	udesc(me, disp)
+	if sig.name = "failure"
+	   then return end
+	for xsig: exception in exceptionlist$elements(e.xsignals) do
+		if sig.name = xsig.name
+		   then if exprlist$size(sig.vals) ~= typelist$size(xsig.types)
+			   then g_env$err(e, "wrong number of signal values")
+			   end
+			return
+		   end
+		end
+	g_env$err(e, "signal not listed in header")
+	end g_signal
+
+g_break = proc (e: g_env)
+	me: g_menv := e.menv
+	if g_env$in_for(e)
+	   then ainst(me, MOVEA, _SP, _idisp_EP)
+		immed(me, g_env$for_env(e, 1))
+	elseif g_env$in_qfor(e)
+	   then ainst(me, ADDQ, 4, _addrd_SP)
+	elseif ~g_env$in_loop(e)
+	   then g_env$err(e, "BREAK outside of LOOP/FOR") end
+	g_env$add_next(e, binst(me, BRA))
+	end g_break
+
+g_continue = proc (e: g_env)
+	me: g_menv := e.menv
+	if g_env$in_loop(e)
+	   then g_env$add_this(e, binst(me, BRA))
+	elseif g_env$in_for(e)
+	   then xinst(me, MOVEM, _idisp_EP)
+		immed(me, 0140000)
+		immed(me, e.iter_env)
+		immed(me, RTS)
+	elseif g_env$in_qfor(e)
+	   then ainst(me, MOVEA, _EP, _addrd_PP)
+		immed(me, RTS)
+	else g_env$err(e, "CONTINUE outside of LOOP/FOR") end
+	end g_continue
+
+g_body = proc (e: g_env, stmts: stmtlist)
+	for s: stmt in stmtlist$elements(stmts) do
+		g_stmt(e, s)
+		end
+	end g_body
+
+g_label = proc (e: g_env, s: labelstmt)
+	tagcase s.idn.kind
+	   tag flabel (locs: ai):
+		me: g_menv := e.menv
+		nxtstmt: int := g_menv$next_loc(me)
+		for loc: int in ai$elements(locs) do
+			g_menv$store_offset(me, loc, nxtstmt)
+			end
+		s.idn.kind := idnkind$make_label(nxtstmt)
+	   others:
+	   end
+	g_stmt(e, s.stmt)
+	end g_label
+
+g_resignal = proc (e: g_env, x: resignalstmt)
+	exval = g_menv$add_except_val
+	me: g_menv := e.menv
+	start: int := g_menv$next_loc(me)
+	g_stmt(e, x.stmt)
+	g_menv$add_handler(me)
+	exval(me, start)
+	exval(me, g_menv$next_loc(me) - start)
+	exval(me, 0)
+	exval(me, namelist$size(x.resigs))
+	te: g_tenv := e.tenv
+	xsigs: exceptionlist := e.xsignals
+	for sig: name in namelist$elements(x.resigs) do
+		desc: mref := g_tenv$store_str(te, sig)
+		exval(me, g_tenv$add_use(te, _use_exception, desc))
+		if sig = "failure"
+		   then continue end
+		ok: bool := false
+		for xsig: exception in exceptionlist$elements(xsigs) do
+			if sig = xsig.name
+			   then ok := true
+				break
+			   end
+			end
+		if ~ok
+		   then g_env$err(e, "resignal not listed in header") end
+		end
+	end g_resignal
+
+g_except = proc (e: g_env, x: exceptstmt)
+	exval = g_menv$add_except_val
+	te: g_tenv := e.tenv
+	me: g_menv := e.menv
+	start: int := g_menv$next_loc(me)
+	g_stmt(e, x.stmt)
+	arm_ends: ai := ai$new()
+	ai$addh(arm_ends, binst(me, BRA))
+	len: int := g_menv$next_loc(me) - start
+	restore: int := g_env$for_env(e, 0)
+	arms: handlerlist := x.arms
+	z: int := handlerlist$size(arms)
+	for i: int in handlerlist$indexes(arms) do
+		arm: handler := arms[i]
+		hstart: int := g_menv$next_loc(me)
+		g_menv$add_handler(me)
+		exval(me, start)
+		exval(me, len)
+		exval(me, hstart)
+		exval(me, namelist$size(arm.names))
+		for sig: name in namelist$elements(arm.names) do
+			desc: mref := g_tenv$store_str(te, sig)
+			exval(me, g_tenv$add_use(te, _use_exception, desc))
+			end
+		g_handler(e, arm, restore)
+		if i < z  cor  mothersarm$is_arm(x.others_)
+		   then ai$addh(arm_ends, binst(me, BRA)) end
+		end
+	tagcase x.others_
+	   tag arm (arm: othersarm):
+		e.line := arm.line
+		g_menv$add_handler(me)
+		exval(me, start)
+		exval(me, len)
+		exval(me, g_menv$next_loc(me))
+		exval(me, 0)
+		g_othersarm(e, arm, restore)
+	   others:
+	   end
+	nxtstmt: int := g_menv$next_loc(me)
+	for loc: int in ai$elements(arm_ends) do
+		g_menv$store_offset(me, loc, nxtstmt)
+		end
+	end g_except
+
+g_handler = proc (e: g_env, arm: handler, restore: int)
+	me: g_menv := e.menv
+	vars: idnlist := arm.vars
+	for i: int in int$from_to_by(idnlist$size(vars), 1, -1) do
+		g_move_src(e, vars[i].kind, _pincr_SP, 0)
+		end
+	if restore = 0
+	   then ainst(me, LEA, _SP, _idisp_EP)
+		g_env$add_fixup(e, g_menv$next_loc(me))
+		immed(me, 0)
+	   else ainst(me, MOVEA, _SP, _idisp_EP)
+		immed(me, restore)
+	   end
+	if ~(e.rparm_count = 0  cand  e.cparm_count = 0)
+	   then ainst(me, MOVEA, _PP, _idisp_EP)
+		immed(me, -4)
+	   end
+	g_body(e, arm.body)
+	end g_handler
+
+g_othersarm = proc (e: g_env, arm: othersarm, restore: int)
+	me: g_menv := e.menv
+	if ~(e.rparm_count = 0  cand  e.cparm_count = 0)
+	   then ainst(me, MOVEA, _PP, _idisp_EP)
+		immed(me, -4)
+	   end
+	hack: bool := false
+	tagcase arm.var
+	   tag idn (id: idn):
+		g_move_src(e, id.kind, _addrd_RR, 0)
+		hack := id.str = "_error_"
+	   others:
+	   end
+	if restore ~= 0
+	   then ainst(me, MOVEA, _SP, _idisp_EP)
+		immed(me, restore)
+	elseif ~hack
+	   then ainst(me, LEA, _SP, _idisp_EP)
+		g_env$add_fixup(e, g_menv$next_loc(me))
+		immed(me, 0)
+	end
+	g_body(e, arm.body)
+	end g_othersarm
+
+e_instval = proc (e: g_env, val: instval) returns (operand)
+	tagcase val
+	   tag indir (reg: idn):
+		return(operand$make_indir(e_areg(e, reg)))
+	   tag pincr (reg: idn):
+		return(operand$make_pincr(e_areg(e, reg)))
+	   tag pdecr (reg: idn):
+		return(operand$make_pdecr(e_areg(e, reg)))
+	   tag idisp (pair: instpair):
+		x: expr := e_expr(e, pair.disp)
+		disp: int
+		tagcase x.abs
+		   tag int_ (i: int):
+			disp := i
+		   others:
+			g_env$err(e, "non-integer used as displacement")
+			disp := 0
+		   end
+		tagcase pair.reg.kind
+		   tag pc:
+			return(operand$make_pcdsp(disp))
+		   others:
+			reg: int := e_areg(e, pair.reg)
+			return(operand$make_idisp(operpair${reg:  reg,
+							    disp: disp}))
+		   end
+	   tag index (quad: instquad):
+		x: expr := e_expr(e, quad.disp)
+		disp: int
+		tagcase x.abs
+		   tag int_ (i: int):
+			if i < -0200  cor  i > 0177
+			   then g_env$err(e, "displacement out of range")
+				i := 0
+			   end
+			disp := i
+		   tag char_ (c: char):
+			disp := char$c2i(c)
+		   others:
+			g_env$err(e, "non-integer used as displacement")
+			disp := 0
+		   end
+		tagcase quad.reg.kind
+		   tag pc:
+			idx: int := e_ireg(e, quad.idx)
+			disp := idx * 010000 + disp // 0400
+			if quad.long
+			   then disp := disp + 04000 end
+			return(operand$make_pcidx(disp))
+		   others:
+			reg: int := e_areg(e, quad.reg)
+			idx: int := e_ireg(e, quad.idx)
+			disp := idx * 010000 + disp // 0400
+			if quad.long
+			   then disp := disp + 04000 end
+			return(operand$make_index(operpair${reg:  reg,
+							    disp: disp}))
+		   end
+	   tag rlist (rlist: rspeclist):
+		ilist: rangelist := rangelist$new()
+		for pair: rspecpair in rspeclist$elements(rlist) do
+			from: int := e_ireg(e, pair.from)
+			to: int := e_ireg(e, pair.to)
+			if from > to
+			   then g_env$err(e, "illegal register range")
+				from, to := to, from
+			   end
+			ilist := rangelist$addh(ilist, rangepair${from: from,
+								  to:   to})
+			end
+		return(operand$make_rlist(ilist))
+	   tag expr (x: expr):
+		tagcase x.abs
+		   tag idn (id: idn):
+			tagcase id.kind
+			   tag dreg (reg: int):
+				return(operand$make_datad(reg))
+			   tag areg (reg: int):
+				return(operand$make_addrd(reg))
+			   tag flabel, label:
+				return(operand$make_label(id))
+			   tag text (addr: int):
+				return(operand$make_text(addr))
+			   tag data (addr: int):
+				return(operand$make_data(addr))
+			   tag epvar, spvar, rown, cown, prown, pcown, wvec:
+				return(operand$make_var(id))
+			   tag usp:
+				return(operand$make_usp(NIL))
+			   tag ccr:
+				return(operand$make_ccr(NIL))
+			   tag sr:
+				return(operand$make_sr(NIL))
+			   tag tos:
+				g_env$err(e, "use of last argument of QPROC")
+				return(operand$make_addrd(_RR))
+			   others:
+			   end
+		   others:
+		   end
+		x := e_const(e, x, false)
+		tagcase x.abs
+		   tag int_ (i: int):
+			return(operand$make_int_(i))
+		   tag null_:
+			return(operand$make_int_(0))
+		   tag bool_ (b: bool):
+			if b
+			   then return(operand$make_int_(0377))
+			   else return(operand$make_int_(0))
+			   end
+		   tag char_ (c: char):
+			return(operand$make_int_(char$c2i(c)))
+		   tag pair (pair: exprpair):
+			tagcase pair.left.abs
+			   tag int_ (l: int):
+				tagcase pair.right.abs
+				   tag int_ (r: int):
+					return(operand$make_pair(
+							intpair${left:  l,
+								 right: r}))
+				   others:
+				   end
+			   others:
+			   end
+		   others:
+		   end
+		return(operand$make_expr(x))
+	   tag this:
+		return(operand$make_this(nil))
+	   tag next:
+		return(operand$make_next(nil))
+	   tag none:
+		return(operand$make_none(nil))
+	   end
+	end e_instval
+
+e_areg = proc (e: g_env, reg: idn) returns (int)
+	tagcase reg.kind
+	   tag areg (i: int):
+		return(i)
+	   tag dreg:
+		g_env$err(e, "use of data register as address register")
+	   others:
+		g_env$err(e, "use of non-register as register")
+	   end
+	return(0)
+	end e_areg
+
+e_ireg = proc (e: g_env, reg: idn) returns (int)
+	tagcase reg.kind
+	   tag areg (i: int):
+		return(i + 8)
+	   tag dreg (i: int):
+		return(i)
+	   others:
+		g_env$err(e, "use of non-register as register")
+		return(0)
+	   end
+	end e_ireg

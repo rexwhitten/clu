@@ -1,0 +1,130 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+%% For native VAX Linker
+
+as	= array[string]
+Null_C	= '\000'
+vSeps   = ", \t"
+vOutC   = "^"
+vOptC   = "#"
+
+%%%% Parse_Line takes a string an breaks it into three arrays of strings.
+%%%% The three pieces are the input strings, output strings, and option
+%%%% strings.
+%%%% Syntax is:
+%%%%    Line	= [In[Opt]{,In[Opt]}[ "^" [Out[Opt]{,Out[Opt]]}
+%%%%    In	= <string>
+%%%%    Out	= <string>
+%%%%    Opt	= {"#" <string>}
+%%%% [] => optional
+%%%% {} => 0 or more
+%%%% Seperators can be either ',', or space, or tab.
+
+Parse_Line = proc (L: string) returns (as, as, as)
+	       signals (bad_syntax);
+    In_Piece:  string;
+    Out_Piece: string;
+    In_Part:  as;
+    Out_Part: as;
+    Parts: as := Split_Line(L, vOutC, Null_C);
+    Nm_Parts: int := as$Size(Parts);
+    if (Nm_Parts = 1)
+       then In_Piece  := Strip_Spaces(as$Bottom(Parts));
+	    Out_Piece := "";
+     elseif (Nm_Parts = 2)
+       then In_Piece  := Strip_Spaces(as$Bottom(Parts));
+	    Out_Piece := Strip_Spaces(as$Top(Parts));
+     elseif (Nm_Parts = 0)
+       then return (as$New(), as$New(), as$New());
+     else signal Bad_Syntax;
+     end;
+
+    if (string$Empty(In_Piece))
+       then In_Part := as$New();
+       else In_Part := Split_Line(In_Piece, vSeps, Null_C);
+       end;
+
+    if (string$Empty(Out_Piece))
+       then Out_Part := as$New();
+       else Out_Part := Split_Line(Out_Piece, vSeps, Null_C);
+       end;
+
+    Opt_Part: as := as$New();
+    for I: int in as$Indexes(In_Part) do
+	In_Part[I] := Extract_Options(Opt_Part, In_Part[I]);
+	end;
+    for I: int in as$Indexes(Out_Part) do
+	Out_Part[I] := Extract_Options(Opt_Part, Out_Part[I]);
+	end;
+
+    Strip_Bracketing_Spaces(In_Part);
+    Strip_Bracketing_Spaces(Out_Part);
+    Strip_Bracketing_Spaces(Opt_Part);
+    return (In_Part, Out_Part, Opt_Part);
+    end Parse_Line;
+
+
+Extract_Options = proc (Opts: as, S: string) returns(string);
+    Parts: as := Split_Line(S, vOptC , Null_C);
+    Nm_Parts: int := as$Size(Parts);
+    if (Nm_Parts > 0)
+       then S := as$RemL(Parts);
+	    for Opt: string in as$Elements(Parts) do
+		as$AddH(Opts, Opt);
+		end;
+       end;
+    return (S);
+    end Extract_Options;
+
+Strip_Bracketing_Spaces = proc (Strings: as);
+    for I: int in as$Indexes(Strings) do
+	Strings[I] := Strip_Spaces(Strings[I]);
+	end;
+    end Strip_Bracketing_Spaces;
+
+Strip_Spaces = proc (S: string) returns (string);
+    Size: int := string$Size(S);
+    while  ((Size ~= 0)cand
+	    (S[1] = ' ')) do
+	S := string$Rest(S, 2);
+	Size := Size - 1;
+	end;
+    while ((Size ~= 0) cand
+	   (S[Size] = ' ')) do
+	S := string$Substr(S, 1, Size-1);
+	Size := Size - 1;
+	end;
+    return (S);
+    end Strip_Spaces;
+
+
+%%%% Split_Line is called with 2 strings and a char.
+%%%% The first string is the line to be split.
+%%%% The second string is the set of separator chars.
+%%%% The char is the quote char.
+%%%% It breaks the input string at un-quoted separator
+%%%% chars and returns the pieces (without separators) in an array of strings.
+
+Split_Line = proc (Line: string, Seps: string, Quote: char) returns (as);
+    Parts: as := as$New();
+    Start: int := 1;
+    Len: int := string$Size(Line);
+    Quote_Flag: bool := false;
+    for Idx: int in int$From_To(1, Len) do
+	if Quote_Flag
+	   then Quote_Flag := false;
+	   else	CC: char := Line[Idx];
+		if (CC = Quote)
+		   then Quote_Flag := true;
+		 elseif (string$IndexC(CC, Seps) ~= 0)
+		   then as$AddH(Parts,
+				string$SubStr(Line, Start, (Idx - Start)));
+			Start := Idx + 1;
+		 end;
+	   end;
+	end;
+    if (Start <= Len)
+       then as$AddH(Parts, string$Rest(Line, Start));
+       end;
+    return (Parts);
+    end Split_Line;

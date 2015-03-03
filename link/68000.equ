@@ -1,0 +1,156 @@
+%% Copyright Massachusetts Institute of Technology 1984,, 1989
+
+#extend
+%% Destination Machine dependent declarations.
+
+%% Native VAX Linker
+
+%% For VAX 780/750
+
+default_dir	   = ""		%% For output file.
+default_out_name   = "a"
+default_out_suffix = "out"
+default_out_others = ""
+
+vRel_Ext	= "bin"			%% File extension for rel files.
+vLib_Dir	= "/bin/"		%% Library directory (for CLU system rtns).
+vDefault_Lib	= vLib_Dir		%% Default library (for user lib rtns).
+vDbg_Xload_File	= "/sys/debug.xload"	%% Link command line for debugging.
+vSyms_File	= "/link/spcl_syms.txt"
+%					%% File of special symbols.
+vLib_File	= "/sys/library.index"	%% Where to find library routines.
+vDump_File_name  = "/sys/basesys.dump"	%% lnk_env dump file for debugging.
+vImage_file_name = "/sys/basesys"	%% Preloaded image file for debugging.
+
+vBits_per_Long		= 32		%% 32 bits per long word.
+vBits_per_Word		= 16		%% 16 bits per normal word.
+vBits_per_Byte		=  8		%% 8 bits per byte.
+
+vBits_per_Int		= vBits_per_Long - 1
+
+%% Note that addressing is per Byte.
+
+vWord_Size		= 2		%% 2 bytes per word.
+vLong_Size		= 4		%% 4 bytes per long word.
+vRef_Size		= vLong_Size	%% 1 long per reference.
+vClob_Size		= vLong_Size	%% 1 long to a CLOB.
+vAddress_Size		= vClob_Size	%% Addresses are CLOBs.
+vTagCell_Size		= 2 * vLong_Size%% 2 longs to a TagCell header and Tag.
+vByteVec_Head_Size	= vLong_Size	%% 1 long to a ByteVec header.
+vVec_Head_Size		= vLong_Size	%% 1 long to a Vec header.
+
+vOwn_Unit		= vClob_Size	%% Owns are CLOBs.
+vCode_Unit		= 1		%% Code in byte units
+vConst_Unit		= 1		%% Consts size already in bytes
+vExcept_Unit		= 1		%% Excepts size already in bytes
+vGlobal_Unit		= vRef_Size	%% Globals are refs.
+vPoints_Unit		= vRef_Size	%% Pointers are refs.
+vSym_Table_Unit		= 1		%% Symbol tables already in bytes
+vRef_Unit		= vRef_Size	%% References are references
+vSeg_Map_Unit		= (2 * vClob_Size) %% 2 CLOBs per seg map entry
+vSignal_Unit		= (vSig_Head_Size +
+			   (3 * vRef_Size)) %% Call and 3 args.
+vUse_Unit		= vClob_Size	%% Uses are CLOBs
+vWVec_Unit		= vClob_Size	%% WVecs contain CLOBs
+vStack_Unit		= 1		%% Stack size in bytes.
+vSpace_Block_Unit	= 1		%% Space blocks in bytes.
+vDebug_Block_Unit	= 1		%% Debug blocks in bytes.
+
+vMax_ByteVec_Size	= 00003777777	%% Max 20 bits.
+vMax_Vec_Size		= 00003777777	%% Max 20 bits.
+vMax_Tag_Size		= 00000037777	%% Max 14 bits.
+
+vObj_Code_Mask		= 0160000	%% Top 3 bits determine object type.
+vByteVec_Head		= 0000000	%% Top 3 bits 000
+vTagCell_Head		= 0060000	%% Top 3 bits 011
+vVec_Head		= 0000000	%% Top 3 bits 000.
+vByteVec_Byte		= 0000		%% Corresponding high byte.
+vTagCell_Byte		= 0140		%% Corresponding high byte.
+vVec_Byte		= 0000		%% Corresponding high byte.
+
+vType_ID_Base		= 020000	%% High order bit of tag in tagcell on.
+
+vRef_Oneof_Tag_Start	= 31		%% High byte is tag in ref oneof.
+vRef_Oneof_Tag_Length	= 8
+vMax_Ref_Oneof_Tag	= 0377		%% Max of 8 bits
+
+vEnt_Head_Instrs = sequence[int]$[	%% Parameterized routine entry code:
+		       0045772,		%% LEA 10(PC),PP
+		       10,		%% 
+		       0047371		%% JMP Address
+				  ]     %% These are words (not longs).
+vEnt_Head_Size	= 6 * vWord_Size	%% 3 words of code, 2 words of addr, 1 word fill.
+
+vJMP_Instr	= sequence[int]$[
+		      0047161,		%% NOP
+		      0047371		%% JMP Address
+				 ]	%% These are words (not longs).
+
+vLongs_per_Start_Jump = 2		%% 2 longs for initial jump to start.
+
+vSig_Call_Instrs = vEnt_Head_Instrs	%% Call of siggy (same as parameterized entry).
+vSig_Head_Size   = vEnt_Head_Size
+
+
+vPage_Size	= 2048		%% Page size on 68000 unix. (SUN)
+
+vSegment_Size	= 16 * vPage_Size	%% Segment size on SUN.
+
+vData_Align	= vSegment_Size %% Aliginment of area following text. (SUN)
+
+vLow_Address    = vSegment_Size	%% First segment can not be used on SUN.
+vEntry_Address  = vLow_Address	%% Execution starts there also.
+
+vNum_Globals	= 25		%% Leave room in global section for 25 of them.
+
+vStack_Alloc		= 1024			%% Stack allocated in 1k byte chunks.
+vDefault_Stack_Size	= 12 * vStack_Alloc	%% Default size of stack.
+
+vHeap_Alloc		= 32 * 1024		%% Heap allocated in 32k byte chunks.
+vDefault_Heap_Size	= 32 * vHeap_Alloc	%% Comes to 1 mega-bytes.
+
+vDbg_Stack_Size		= 32 * vStack_Alloc	%% Basesys stack size (32Kb).
+vDbg_Heap_Size		= 192 * vHeap_Alloc	%% Basesys heap size (6Mb).
+vDbg_JCL_Size		= 4 * 1024		%% Basesys JCL size (4Kb).
+
+vDebug_Routine_Name	= "_dbg_maybe"	%% Name of debug routine.
+
+
+%% Short hand declarations
+
+rewrites = array[rewrite]
+
+a_symbols = array[a_symbol]
+
+%% Routine chain structure for overloading routines.
+
+rtn_chain = record[ Old_RIs:  rtn_insts,
+		    New_Rtn:  r_template ];
+rtn_chains = array[rtn_chain];
+
+stb_rtn_chain = struct[ Old_RIs:  rtn_insts,
+			Stb_RI:  rtn_inst ];
+stb_rtn_chains = array[stb_rtn_chain];
+
+
+%% Unknown routine table.
+
+unknown_rtns = table[string, call_info];
+call_info    = record[ Callers:	routine_list,
+		       Call:	rtn_desc,
+		       Inst:	pos_ri ];
+pos_ri = variant[ None:	null,
+		  RI:   rtn_inst ];
+
+%% Found routine table.
+
+found_rtn = struct[ Inst:  rtn_inst,
+		    Stub:  rtn_inst];
+found_rtns = array[found_rtn];
+
+
+%% Integer reps of things.
+
+vNull_as_Int	= 0
+vTrue_as_Int	= 0377	%% Byte all ones.
+vFalse_as_Int   = 0

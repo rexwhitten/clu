@@ -1,0 +1,183 @@
+
+%% Copyright Massachusetts Institute of Technology 1983, 1989
+
+%% Get and handle command on a Call break.
+_Call_Break_Command = proc (BI: _break_info) returns (bool);
+    return (_Break_Command(BI, " fkpqstuxy\p\n?", true, false));
+    end _Call_Break_Command;
+
+%% Get and handle command on a Signal break.
+_Signal_Break_Command = proc (BI: _break_info) returns (bool);
+    return (_Break_Command(BI, " fkpqx\p\n?", false, false));
+    end _Signal_Break_Command;
+
+%% Get and handle command on a Yield break.
+_Yield_Break_Command = proc (BI: _break_info) returns (bool);
+    return (_Break_Command(BI, " fkpqstuxy\p\n?", false, false));
+    end _Yield_Break_Command;
+
+%% Get and handle command on a Resume break.
+_Resume_Break_Command = proc (BI: _break_info) returns (bool);
+    return (_Break_Command(BI, " afkpqstuxy\p\n?", true, true));
+    end _Resume_Break_Command;
+
+%% Get and handle command on a Return break.
+_Return_Break_Command = proc (BI: _break_info) returns (bool);
+    return (_Break_Command(BI, " fkpqstuxy\p\n?", false, false));
+    end _Return_Break_Command;
+
+%% Get and handle command on an iter Return break.
+_Iter_Return_Break_Command = proc (BI: _break_info) returns (bool);
+    return (_Break_Command(BI, " fkpqstuxy\p\n?", false, false));
+    end _Iter_Return_Break_Command;
+
+
+%% General Break Command routine.  String arg is set of legal char commands.
+%% Returns false if break should be redone, true if caller should proceed from
+%% the break.
+
+_Break_Command = proc (BI: _break_info, Valid: string,
+		       Entering: bool, Resuming: bool)
+		   returns (bool);
+    Flag: bool := _Enter_System();		%% Force tracing off.
+    PI: stream := stream$Primary_Input();
+    PO: stream := stream$Primary_Output();
+    while (true) do
+	_event$Defer();
+	stream$PutS(PO, "-- next --");
+	C: char;
+	if (stream$Is_Terminal(PI))
+	   then EOF_Flag: bool := PI.EOF_Flag;
+		PI.EOF_Flag := false;
+		C := stream$GetC(PI);
+		_Ignore_Quit();
+		PI.EOF_Flag := EOF_Flag;
+	   else C := stream$GetC(PI);
+	   end; except when End_of_File: C := ' ';
+		       end;
+	_event$UnDefer();
+	if ((C >= 'A') cand (C <= 'Z'))
+	   then C := char$I2C(char$C2I(C) + 32);	%% Lower the char.
+	   end;
+	if (string$IndexC(C, Valid) = 0)
+	   then stream$PutL(PO, "  Bad command");
+		continue;
+	   end;
+	if      (C = ' ')
+	   then stream$PutC(PO, '\n');		%% To clear output.
+		_Exit_System(Flag);		%% Restore tracing state.
+		return (true);			%% Proceed from break.
+	 elseif (C = '\n')
+	   then _Listen(PI);			%% Go to listen loop.
+		_Exit_System(Flag);		%% Restore tracing state.
+		return (false);			%% Redo the break.
+	 elseif (C = 'a')
+	   then _Allow_Tracing(BI);		%% Allow tracing from resumed frame.
+	 elseif (C = 'f')
+	   then _frame_flags$Comp_One_Two();	%% Flip the one/two flag.
+		_Exit_System(Flag);		%% Restore tracing state.
+		return (false)			%% Redo the break.
+	 elseif (C = 'k')
+	   then _Kill_Trace_From(BI);		%% Untrace this slot.
+		_Adjust_Break_Info(BI);		%% Adjust for possible changes.
+		stream$PutC(PO, '\n');		%% Get another commmand.
+		continue;
+	 elseif (C = 'p')
+	   then	_Keep_Trace_From(BI);		%% Trace this slot.
+		_Adjust_Break_Info(BI);		%% Adjust for possible changes.
+		stream$PutC(PO, '\n');		%% Get another command.
+		continue;
+	 elseif (C = 'q')
+	   then _Quit_Tracing(BI);		%% Stop tracing.
+	 elseif (C = 's')
+	   then _Set_Single_Stepping(BI,	%% Start single stepping.
+				     Entering,
+				     Resuming,
+                                     true);
+	 elseif (C = 't')
+	   then _Terminate_Frame_Tracing(BI,	%% Terminate tracing at and below
+					 false,	%% this frame until return.
+					 Entering,
+                                         Resuming);
+	 elseif (C = 'u')
+	   then _set_Single_Stepping(BI,	%% Stop single stepping.
+				     Entering, 
+                                     Resuming,
+                                     false);
+	 elseif (C = 'x')
+	   then _frame_flags$Comp_Short_Long();	%% Flip the short/long flag.
+		_Exit_System(Flag);		%% Restore tracing state.
+		return (false);			%% Redo the break.
+	 elseif (C = 'y')
+	   then _Terminate_Frame_Tracing(BI,	%% Terminate tracing at and below
+					 true,	%% this frame until yield or return.
+					 Entering,
+                                         Resuming);
+	 elseif (C = '\p')
+	   then stream$Display(PO, "\020C");	%% Clear the screen.
+		_Exit_System(Flag);		%% Restore tracing state.
+		return (false);			%% Redo the break.
+	 elseif (C = '?')
+	   then _Print_Help(Valid);		%% Print help lines and try again.
+		continue;
+	 end;
+	_Adjust_Break_Info(BI);		%% Adjust for possible changes.
+	stream$PutC(PO, '\n');		%% To clear output.
+	_Exit_System(Flag);		%% Restore tracing state.
+	return (true);			%% Proceed from break.
+	end;
+    end _Break_Command;
+
+
+_Print_Help = proc (Valid: string);
+    PO: stream := stream$Primary_Output();
+    stream$PutC(PO, '\n');
+    Help_File: stream := Open_Read(_System_Root() || "/trace.cmd_hlp");
+       except Others:
+		   stream$PutL(PO, " Can't open help file.");
+		   return;
+	      end;
+    while (true) do
+	C: char := stream$GetC(Help_File)
+	Line: string := stream$GetL(Help_File)
+	if (string$IndexC(C, Valid) ~= 0)
+	   then stream$PutL(PO, Line);
+	   end;
+	end;
+       except when End_Of_File:
+	      end;
+    stream$Close(Help_File);
+    end _Print_Help;
+
+
+%%% Fix up the flags in fake frame BI based on the state of other
+%%% flags and the _rtn_info for the caller of the frame.
+%%% (SEP/Nov  7 1984)
+
+_Adjust_Break_Info = proc (BI: _break_info);
+    RTI: _rtn_trace_info := _Get_Trace_Info(BI.Callee);
+	except when Not_Found:
+		bug_note("_Adjust_Break_Info got signal Not_Found from" ||
+			" _Get_Trace_Info");
+		end;
+    BI.Should_Check := (BI.Enter_Trace cand
+			(BI.Single_Stepping cor
+			 (~ _trace_rng$Empty(RTI.Trace_Range)))
+			);
+    BI.Should_Break := (BI.Leave_Trace cand
+			(RTI.Traced_To cor _Caller_Traces(BI))
+			);
+%    BI.Yield_Break := BI.Should_Break;
+    end _Adjust_Break_Info;
+
+%%% Return true if the callee of frame BI is traced by its caller.
+%%% (SEP/Nov  7 1984)
+
+_Caller_Traces = proc (BI: _break_info) returns (bool);
+    Trace_Table: _trace_table := _Get_Trace_Table();
+    RTI: _rtn_trace_info := _trace_table$Lookup(Trace_Table, BI.Caller);
+       except when Not_Found:
+		   return (false);
+	      end;
+    return (_trace_rng$Is_Traced(RTI.Trace_Range, BI.Call_Addr));
+    end _Caller_Traces;

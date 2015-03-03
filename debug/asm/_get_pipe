@@ -1,0 +1,52 @@
+;; Copyright Massachusetts Institute of Technology 1985, 1989
+
+ch%fn	= 4				;; File name
+ch%rd	= 8				;; Read file desc (or -1)
+ch%wr	= 12				;; Write file desc (or -1)
+ch%typ	= 16				;; File type (byte)
+ch%prm	= 19				;; _chan is permanent (byte)
+
+ch%head = 18				;; (size * 4) + 2
+ch%len	= 20
+
+%oth	= 3
+
+_get_pipe = proc (rd: bool) returns (_chan) signals (not_possible(string))
+	own	read
+	own	write
+
+	move	rr, n5			;; Save rd flag.
+	move	write, n1
+	ift
+	then	move	read, n1
+		end
+	ifeq				;; Read or write not already init'ed?
+	then	file_name$parse("/dev/p") 	;; No.
+		movea	rr, r1			;; Save file_name.
+		move	ch%len, n2
+		movea	heaphi, rr
+		iflt	sub	n2, freecnt	;; Alloc a new _chan structure.
+		then	jsr	memout
+			end
+		add	n2, heaphi
+		moveb	ch%head, 3(rr)		;; Store header.
+		move	r1, ch%fn(rr)
+		moveb	%oth, ch%typ(rr)
+		moveb	n0, ch%prm(r1)
+		ifne	tst	n5
+		then	move	rr, read	;; Save file descriptors.
+			move	-1, ch%wr(rr)
+			move	rdpipe, ch%rd(rr)
+		else	move	rr, write
+			move	-1, ch%rd(rr)
+			move	wrpipe, ch%wr(rr)
+			end
+		ifle
+		then	clr	read
+			clr	write
+			signal	not_possible("no superior linker")
+			end
+		move	rr, n1
+		end
+	return (n1)
+	end _get_pipe

@@ -1,0 +1,117 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+# extend
+
+run_interactive = proc (e: env, c: char)
+		    signals (errmsg(string), stop(env, string))
+    own infs: string := " "
+    name: string := ""
+    name := string$rest(infs, 2)
+    i: int := string$indexc(' ', name)
+    if i > 0
+       then name := string$substr(name, 1, i - 1)
+	    top_display(e, "Current forks:" || infs)
+     elseif e.this_arg = 1
+       then name := env$fetch_str(e, "default_fork", "debug") end
+    if e.this_arg > 1
+       then name := get_string_arg(e, "Kill inferior", name)
+	       resignal errmsg
+	    if ~string$empty(name)
+	       then i := string$indexs(" " || name || " ", infs)
+		    if i = 0
+		       then signal errmsg("No such inferior") end
+		    infs := string$substr(infs, 1, i) ||
+			    string$rest(infs, i + string$size(name) + 2)
+		    jobtab$flush_job(name, true)
+		    name := "Killed " || name
+	       end
+	    top_display(e, name)
+	    return
+       end
+    name := logical_name(e, get_string_arg(e, "Run/Continue inferior", name))
+       resignal errmsg
+    fn: fname := fname$parse(name)
+       except when bad_format: signal errmsg("Bad program name!") end
+    name := string$rest(name, _last_indexc('/', name) + 1)
+    if string$empty(name)  cor  string$indexc(' ', name) > 0
+       then signal errmsg("Bad program name!") end
+    i := string$indexs(" " || name || " ", infs)
+    len: int := string$size(name) + 2
+    if i > 0
+       then infs := string$substr(infs, 1, i) || string$rest(infs, i + len) end
+    keypad: int := env$fetch_num(e, "keypad", 0)
+    j: _job
+    begin
+	j := jobtab$fetch_job(name)
+	infs := " " || name || infs
+	env$clear(e)
+	top_display(e, "Continuing " || name)
+	_set_cursor_pos(1, 0, true)
+	if keypad ~= 0
+	   then _set_keypad_mode(false) end
+	_normal_chars()
+	_job$control_tty(j)
+	_job$sig_group(j, 19)
+	end
+       except when not_found:
+		   jcl: string := command_line(e, "Command line",
+					       get_frame_name(e))
+		      resignal errmsg
+		   env$clear(e)
+		   top_display(e, "Starting " || name)
+		   _set_cursor_pos(1, 0, true)
+		   if keypad ~= 0
+		      then _set_keypad_mode(false) end
+		   _normal_chars()
+		   j := jobtab$create_job(name, fn, jcl,
+					  env$fetch_num(e, "umask", 0))
+		   infs := " " || name || infs
+	      end
+       except when errmsg, not_possible (why: string):
+		   _ted_chars()
+		   if keypad ~= 0
+		      then _set_keypad_mode(true) end
+		   env$clear(e)
+		   signal errmsg(why)
+	      end
+    sigttou: int := _change_signal(22, 1)
+    status: int := _job$wait(j)
+       except when not_possible (why: string):
+		   _job$control_tty(_job$self())
+		   _change_signal(22, sigttou)
+		   _ted_chars()
+		   if keypad ~= 0
+		      then _set_keypad_mode(true) end
+		   env$clear(e)
+		   signal errmsg(why)
+	      end
+    _job$control_tty(_job$self())
+    _change_signal(22, sigttou)
+    _ted_chars()
+    if keypad ~= 0
+       then _set_keypad_mode(true) end
+    if env$fetch_num(e, "pause", 0) ~= 0  cand  ~_pending_chars()
+       then _psout("\r\n(type next command)")
+	    _flush()
+	    if string$indexc(_peek(), " \r\p") > 0
+	       then _getc() end
+       end
+    env$clear(e)
+    if status // 0400 = 0177
+       then top_display(e, "Stopped: " || _signal_type(status / 0400))
+       else if status ~= 0
+	       then s: string
+		    if status // 0200 ~= 0
+		       then s := "Killed: " || _signal_type(status // 0200)
+			    if status >= 0400
+			       then s := s || ", " end
+		       else s := ""
+		       end
+		    if status >= 0400
+		       then s := s || "Status: " || int$unparse(status / 0400)
+		       end
+		    top_display(e, s)
+	       end
+	    jobtab$flush_job(name, false)
+	    infs := string$rest(infs, len)
+       end
+    end run_interactive

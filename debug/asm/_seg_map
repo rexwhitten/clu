@@ -1,0 +1,21 @@
+;; Copyright Massachusetts Institute of Technology 1984, 1989
+
+_seg_map = cluster is
+	get_owns,
+	get_wvecs
+
+	rep = _vec[_obj]
+
+	get_owns = qproc (sm: cvt) returns (_obj, int)
+		move	ownseg(rr), -(sp)
+		movea	owncnt(rr), rr	;; Already a CLU int.
+		return (*, rr)
+		end get_owns
+
+	get_wvecs = qproc (sm: cvt) returns (_obj, int)
+		move	wvcseg(rr), -(sp)
+		movea	wvccnt(rr), rr	;; Already a CLU int.
+		return (*, rr)
+		end get_wvecs
+
+	end _seg_map

@@ -1,0 +1,9 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+Update_Word_Vec = proc (Sz: int, Env: lnk_env)
+		    returns (address);
+    if (Sz < 0)               %% Special proportional w_vec (round up).
+       then Sz := ((Env.Options.Heap_Size - Sz - 1) / (- Sz));
+       end;
+    return (locate$Address_Advance(Env.Locates.W_Vecs, Sz));
+    end Update_Word_Vec;

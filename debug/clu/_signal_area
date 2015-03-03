@@ -1,0 +1,31 @@
+%% Copyright Massachusetts Institute of Technology 1981, 1989
+
+%%% A signal area is a collection of _signal_blocks. Multiple signal areas will
+%%% exist if code is overloaded; initially there is only one signal area,
+%%% created by the linker, containing all the signal blocks for the program.
+%%% (SEP/Nov  7 1984)
+
+_signal_area = cluster is
+	create,
+	elements;
+
+    rep = struct[
+	      Addr:   _obj,
+	      Size:   int
+		 ];
+
+    Create = proc (Addr: _obj, Size: int) returns (cvt);
+	return (rep${ Addr:	Addr,
+		      Size:	Size });
+	end Create;
+
+    Elements = iter (SA: cvt) yields (_signal_block);
+	Addr_Int: int := SA.Addr.Addr;
+	Offset: int := _signal_block$Offset();
+	for I: int in int$From_to_By(0, (SA.Size-1), _signal_block$Size()) do
+                sb: _obj := _cvt[int, _obj](Addr_Int + I + Offset)
+		yield (_cvt[_obj, _signal_block](sb.obj))
+		end;
+	end Elements;
+
+    end _signal_area;

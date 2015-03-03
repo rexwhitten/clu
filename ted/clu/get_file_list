@@ -1,0 +1,213 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+get_file_list = proc (e: env, prompt: string, single: bool)
+		  returns (string, afnt) signals (errmsg(string))
+    oname: string
+    if single
+       then oname := get_frame_name(e)
+       else oname := e.fname
+	    if ~string$empty(oname)  cand  oname[1] ~= '@'
+	       then fnm: fname := fname$parse(oname)
+		    oname := fspec$unparse
+				 (fspec$create
+				      (fnm.dir, "*", fnm.suffix, fnm.other))
+	       end except when bad_format: end
+       end
+    fns: string, afn: afnt := get_file_list1(e, prompt, oname)
+       resignal errmsg
+    return(fns, afn)
+    end get_file_list
+
+get_file_list1 = proc (e: env, prompt, oname: string) returns (string, afnt)
+		   signals (errmsg(string))
+    s: string := get_string_arg(e, prompt, oname)
+       resignal errmsg
+    oname := logical_name(e, env$fetch_str(e, "default", ""))
+    if string$empty(s)
+       then s := oname end
+    if ~string$empty(oname)  cand  oname[1] = '@'
+       then oname := string$rest(oname, 2) end
+    ofn: fspec := fspec$parse(oname)
+       except when bad_format: ofn := fspec$create("", "", "", "") end
+    list: ast := extract_parts(s)
+    lsize: int := ast$size(list)
+    if lsize = 0 then signal errmsg("No file spec given") end
+    afn: afnt := afnt$new()
+    s := add_files_to_list(e, afn, list, ofn, lsize = 1)
+       resignal errmsg
+    if afnt$empty(afn)
+       then signal errmsg("No matching files!")
+     elseif afnt$size(afn) = 1
+       then s := fname$unparse(afnt$bottom(afn))
+     elseif lsize > 1
+       then s := "" end
+    return(s, afn)
+    end get_file_list1
+
+extract_parts = proc (s: string) returns (ast)
+    list: ast := ast$new()
+    while ~string$empty(s) do
+	c: char := s[1]
+	if c = ' '  cor  c = '\t'  cor  c = ','  cor  c = ctrlj
+	   then s := string$rest(s, 2)
+		continue
+	   end
+	i: int := _qindexc(',', s)
+	j: int := _qindexc(' ', s)
+	if j > 0  cand  (i = 0  cor  j < i)
+	   then i := j end
+	j := _qindexc('\t', s)
+	if j > 0  cand  (i = 0  cor  j < i)
+	   then i := j end
+	j := _qindexc(ctrlj, s)
+	if j > 0  cand  (i = 0  cor  j < i)
+	   then i := j end
+	if i = 0
+	   then ast$addh(list, _unquote(s))
+		break
+	   else ast$addh(list, _unquote(string$substr(s, 1, i - 1)))
+		s := string$rest(s, i + 1)
+	   end
+	end
+    return(list)
+    end extract_parts
+
+add_files_to_list = proc (e: env, afn: afnt, list: ast, ofn: fspec, req: bool)
+		      returns (string) signals (errmsg(string))
+    s: string := ""
+    for s in ast$elements(list) do
+	atsign: bool := ~string$empty(s)  cand  s[1] = '@'
+	if atsign
+	   then s := string$rest(s, 2) end
+	s := logical_name(e, s)
+	why: string
+	begin
+	    fn: fspec := fspec$parse(s)
+	    diff: bool := false
+	    xname: string := fn.name
+	    dname: string := xname
+	    if string$empty(dname)
+	       then dname := ofn.name
+		    if ~string$empty(dname)
+		       then diff := true end
+	       end
+	    xsuffix: string := fn.suffix
+	    dsuffix: string := xsuffix
+	    if string$empty(dsuffix)
+	       then dsuffix := ofn.suffix
+		    if ~string$empty(dsuffix)
+		       then diff := true end
+	       end
+	    xother: string := fn.other
+	    dother: string := xother
+	    if string$empty(dother)
+	       then dother := ofn.other
+		    if ~string$empty(dother)
+		       then diff := true end
+	       end
+	    xdir: string := ""
+	    ddir: string := fn.dir
+	    if (string$empty(ddir) cor (ddir[1] ~= '/'  cand  ddir[1] ~= '~'))
+		 cand
+	       ~string$empty(ofn.dir)
+	       then xdir := string$append(ofn.dir, '/') || ddir end
+	    if atsign
+	       then have: bool := false
+		    f: fname
+		    if ~string$empty(xdir)
+		       then f := fname$create(xdir, dname, dsuffix, dother)
+			    have := file_exists(f)
+			    if ~have  cand  diff
+			       then f := fname$create(xdir, xname,
+						      xsuffix, xother)
+				    have := file_exists(f)
+			       end
+		       end
+		    if ~have
+		       then f := fname$create(ddir, dname, dsuffix, dother)
+			    if diff  cand  ~file_exists(f)
+			       then f := fname$create(ddir, xname,
+						      xsuffix, xother)
+			       end
+		       end
+		    b: buf
+		    f, b := read_from_file(e, f, false, false)
+		    s := "@" || fname$unparse(f)
+		    for i: int in int$from_to(1, buf$size(b)) do
+			add_files_to_list(e, afn, extract_parts(b[i]), ofn, false)
+			end resignal errmsg
+		    continue
+	       end
+	    none: bool := true
+	    if ~string$empty(xdir)
+	       then s := fspec$unparse(fspec$create(xdir, dname,
+						    dsuffix, dother))
+		    for f: fname in _all_file_names_(s) do
+			none := false
+			afnt$addh(afn, f)
+			end
+		    if ~none
+		       then continue end
+		    if diff
+		       then s := fspec$unparse(fspec$create(xdir, xname,
+							    xsuffix, xother))
+			    for f: fname in _all_file_names_(s) do
+				none := false
+				afnt$addh(afn, f)
+				end
+			    if ~none
+			       then continue end
+		       end
+	       end
+	    s := fspec$unparse(fspec$create(ddir, dname, dsuffix, dother))
+	    for f: fname in _all_file_names_(s) do
+		none := false
+		afnt$addh(afn, f)
+		end
+	    if ~none
+	       then continue end
+	    if diff
+	       then s := fspec$unparse(fspec$create(ddir, xname,
+						    xsuffix, xother))
+		    for f: fname in _all_file_names_(s) do
+			none := false
+			afnt$addh(afn, f)
+			end
+		    if ~none
+		       then continue end
+	       end
+	    why := "no matching files"
+	    end except when bad_format:
+			    if atsign
+			       then why := "bad file name"
+			       else why := "bad file spec"
+			       end
+		       when not_possible (xx: string):
+			    why := xx
+		       end
+	why := "'" || s || "' - " || why
+	if req
+	   then signal errmsg(why)
+	   else top_display(e, why)
+		sleep(1)
+		chars: string := _flush_macro_chars()
+		if ~check_for_interrupt()  cor
+		   ~mconfirm(e, "Stop reading files", true)
+		   then _push_macro_chars(chars)
+			continue
+		   end except when errmsg (*): end
+		_push_macro_chars(chars)
+		signal errmsg(quit_msg)
+	   end
+	end
+    return(s)
+    end add_files_to_list
+
+check_dir = proc (fn: fname, fns: string) returns (string, bool)
+    if _file_exists(fns, 4)
+       then if fns[string$size(fns)] ~= '/'
+	       then return(fns || "/*", true)
+	       else return(string$append(fns, '*'), true)
+	       end
+       end except when not_possible (*): end
+    return(fns, false)
+    end check_dir

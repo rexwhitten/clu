@@ -1,0 +1,9 @@
+#
+set flist = `cat cluadds`
+chdir ..
+foreach f ($flist)
+	cp $f $f-save
+	cat maint/cluhead $f >/tmp/add
+	/bin/mv -f /tmp/add $f
+end
+chdir maint

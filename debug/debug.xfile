@@ -1,0 +1,4 @@
+dir ~CLU/debug/clu
+merge ~CLU/lib/lowlev,~CLU/lib/useful,../debug
+bindir ~CLU/debug/bin
+binsuf *

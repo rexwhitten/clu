@@ -1,0 +1,6 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+System_Root = proc () returns (string);
+    own SR: string := _System_Root();		%% Only call _System_Root once.
+    return (SR);
+    end System_Root;

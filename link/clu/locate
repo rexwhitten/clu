@@ -1,0 +1,108 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+locate = cluster is
+	create, copy, reset, advance, address_advance, absolute_advance,
+	get_size, get_cur_address, get_start_address,
+	get_low_address, get_high_address,
+	fix_base, similar, print, _gcd;
+
+    rep = record [
+	      Start_Addr: address,
+	      Cur_Addr:   address,
+	      Unit:	  int
+		  ];
+
+    vFixed_Area = 0;
+
+    Create = proc (Start_Addr: address, Unit: int)
+	       returns (cvt);
+	return ( rep${ Start_Addr: Start_Addr,
+		       Cur_Addr:   Start_Addr,
+		       Unit:	   Unit
+		      } );
+	end Create;
+
+    Copy = proc (L: cvt) returns (cvt);
+	return (rep$Copy1(L));
+	end Copy;
+
+    Reset = proc (L: cvt, Area: int);
+	SA: address;
+	if (address$In_P0(L.Start_Addr))
+	   then SA := address$Make_Relative(Area, 0);
+	   else SA := address$Make_P1_Relative(Area, 0);
+	   end;
+	L.Start_Addr := SA;
+	L.Cur_Addr   := SA;
+	end Reset;
+
+    Similar = proc (L1, L2: cvt) returns (bool);
+	return (L1 = L2);
+	end Similar;
+
+    Print = proc (L: cvt, S: pstream);
+	rep$Print(L, S);
+	end Print;
+
+    Advance = proc (L: cvt, Num: int);
+	L.Cur_Addr := address$Advance(L.Cur_Addr, (Num * L.Unit));
+	end Advance;
+
+    Address_Advance = proc (L: cvt, Num: int) returns (address);
+	Delta: int := Num * L.Unit;
+	if (Delta >= 0)
+	   then Addr: address := L.Cur_Addr;
+		L.Cur_Addr := address$Advance(L.Cur_Addr, Delta);
+		return (Addr);
+	   else	L.Cur_Addr := address$Advance(L.Cur_Addr, (Num * L.Unit));
+		return (L.Cur_Addr);	%% Return low address for neg units.
+	   end;
+	end Address_Advance;
+
+    Absolute_Advance = proc (L: cvt, Size: int);
+	if (L.Unit < 0)
+	   then Size := - Size;
+	   end;
+	L.Cur_Addr := address$Advance(L.Cur_Addr, Size);
+	end Absolute_Advance;
+
+    Get_Cur_Address = proc (L: cvt) returns (address);
+	return (L.Cur_Addr);
+	end Get_Cur_Address;
+
+    Get_Start_Address = proc (L: cvt) returns (address);
+	return (L.Start_Addr);
+	end Get_Start_Address;
+
+    Get_Low_Address = proc (L: cvt) returns (address);
+	SA: address := L.Start_Addr;
+	CA: address := L.Cur_Addr;
+	if (SA <= CA)
+	   then return (SA);
+	   else return (CA);
+	   end;
+	end Get_Low_Address;
+
+    Get_High_Address = proc (L: cvt) returns (address);
+	SA: address := L.Start_Addr;
+	CA: address := L.Cur_Addr;
+	if (SA < CA)
+	   then return (CA);
+	   else return (SA);
+	   end;
+	end Get_High_Address;
+
+    Get_Size = proc (L: cvt) returns (int);
+	return (int$Abs(L.Cur_Addr - L.Start_Addr));
+	end Get_Size;
+
+    Fix_Base = proc (L: cvt, Base: address);
+	L.Start_Addr := Base;
+	L.Cur_Addr   := address$Re_Locate(L.Cur_Addr, Base);
+	end Fix_Base;
+
+    _gcd = proc (L: cvt, Tab: gcd_tab) returns (int);
+	return (rep$_gcd(L, Tab));
+	end _gcd;
+
+    end locate;

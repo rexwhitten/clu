@@ -1,0 +1,69 @@
+% Copyright Massachusetts Institute of Technology 1981, 1989
+
+%%% For each "for" loop in routine rtn which encompasses offset off, yield the
+%%% displacement in rtn's frame where the <ep, sp> pair for the
+%%% corresponding iterator are stored.
+%%% (SEP/Nov  7 1984)
+
+_for_loops = iter (rtn: _rtn_info, off: int) yields (int)
+        % In rec, loops is an array of ints where ever 3-tuple (3 successive
+	% entries) is <min, max, disp>. This represents the minimum and maximum
+	% offsets encompassed by the loop and the displacement in the frame
+	% where the <ep, sp> pair for the loop's iterator are stored.
+	rec = record[rinfo: _rtn_info,
+		     loops: ai]
+	ai = array[int]
+	itab = table[_obj, rec]
+	own tab: itab := itab$create(101, hash_obj, _obj$equal)
+	lst: ai
+	begin
+	r: rec := itab$lookup(tab, rtn.raw_routine)
+	if r.rinfo ~= rtn
+	   then exit not_found end
+	lst := r.loops
+	end except when not_found:
+			lst := ai$new()
+			for min, max, dsp: int in _for_loops_(rtn) do
+			    ai$addh(lst, min)
+			    ai$addh(lst, max)
+			    ai$addh(lst, dsp)
+			    end
+			itab$alter(tab, rtn.raw_routine, rec${rinfo: rtn,
+							      loops: lst})
+		   end
+	for i: int in int$from_to_by(ai$size(lst) - 2, 1, -3) do
+		if off >= lst[i]  cand  off <= lst[i + 1]
+		   then yield(lst[i + 2]) end
+		end
+	end _for_loops
+
+%%% Yields info. about the call slots in rtn x with _rtn_info rinf. For each
+%%% call slot the routine being called and its call address (addr. immediately
+%%% after call) are yielded.
+%%% (SEP/Nov  7 1984)
+
+_call_slots = iter (x: _obj, rinf: _rtn_info) yields (_obj, _obj)
+	rec = record[rinfo: _rtn_info,
+		     slots: ao]
+	ao = array[_obj]
+	stab = table[_obj, rec]
+	own tab: stab := stab$create(101, hash_obj, _obj$equal)
+	lst: ao
+	begin
+	r: rec := stab$lookup(tab, x)
+	if r.rinfo ~= rinf
+	   then exit not_found end
+	lst := r.slots
+	end except when not_found:
+			lst := ao$new()
+			for y, loc: _obj in _call_slots_(x, rinf) do
+				ao$addh(lst, y)
+				ao$addh(lst, loc)
+				end
+			stab$alter(tab, x, rec${rinfo: rinf,
+						slots: lst})
+		   end
+	for i: int in int$from_to_by(1, ao$size(lst), 2) do
+		yield(lst[i], lst[i + 1])
+		end
+	end _call_slots

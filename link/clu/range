@@ -1,0 +1,77 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+range = cluster is
+	create, cons, copy, empty, equal, gt,
+	get_start_addr, set_start_addr, get_end_addr, set_end_addr,
+	get_length, includes, print, _gcd;
+
+    rep = record [
+	      Start_Addr: address,
+	      End_Addr:   address
+		  ];
+
+    Create = proc (Start_Addr: address, Length: int) returns (cvt);
+	return (rep${ Start_Addr: Start_Addr,
+		      End_Addr:   address$Advance(Start_Addr,
+						  (Length - 1))
+		     });
+	end Create;
+
+    Cons = proc (SA: address, EA: address) returns (cvt);
+	return (rep${ Start_Addr: SA,
+		      End_Addr:   EA
+		     });
+	end Cons;
+
+    Copy = proc (R: cvt) returns (cvt);
+	return (rep${ Start_Addr: R.Start_Addr,
+		      End_Addr:   R.End_Addr
+		     });
+	end Copy;
+
+    Empty = proc (R: cvt) returns (bool);
+	return (R.End_Addr < R.Start_Addr);
+	end Empty;
+
+    GT = proc (R1, R2: cvt) returns (bool);
+	return (R1.Start_Addr > R2.End_Addr);
+	end GT;
+
+    Equal = proc (R1, R2: cvt) returns (bool);
+	return (rep$Similar1(R1, R2));
+	end Equal;
+
+    Get_Start_Addr = proc (R: cvt) returns (address);
+	return (R.Start_Addr);
+	end Get_Start_Addr;
+
+    Set_Start_Addr = proc (R: cvt, SA: address);
+	R.Start_Addr := SA;
+	end Set_Start_Addr;
+
+    Get_End_Addr = proc (R: cvt) returns (address);
+	return (R.End_Addr);
+	end Get_End_Addr;
+
+    Set_End_Addr = proc (R: cvt, EA: address);
+	R.End_Addr := EA;
+	end Set_End_Addr;
+
+    Get_Length = proc (R: cvt) returns (int);
+	return (R.End_Addr - R.Start_Addr + 1);
+	end Get_Length;
+
+    %% Equal ranges include each other.
+    Includes = proc (R1, R2: cvt) returns (bool);
+	return ((R1.Start_Addr <= R2.Start_Addr) cand
+		(R1.End_Addr   >= R2.End_Addr));
+	end Includes;
+
+    Print = proc (R: cvt, S: pstream);
+	rep$Print(R, S);
+	end Print;
+
+    _gcd = proc (R: cvt, Tab: gcd_tab) returns (int);
+	return (rep$_gcd(R, Tab));
+	end _gcd;
+    end range;

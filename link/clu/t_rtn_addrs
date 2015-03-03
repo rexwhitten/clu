@@ -1,0 +1,19 @@
+%% Copyright Massachusetts Institute of Technology 1980, 1989
+
+Type_Routine_Addresses = proc (Env: lnk_env);
+    LS: stream := Env.Options.List_Stream;
+    for F: file in file_list$Elements(Env.Files) do
+	for C_or_R: clust_or_rtn in c_r_list$Elements(F.C_Rs) do
+	    tagcase C_or_R
+	       tag Rtn   (R: r_template):
+		   if (r_template$Used(R))
+		      then Type_Routine_Address(R, "", LS);
+		      end;
+	       tag Clust (C: c_template):
+		   if (c_template$Used(C))
+		      then Type_Cluster_Addresses(C, LS);
+		      end;
+	       end;
+	    end;
+	end;
+    end Type_Routine_Addresses;

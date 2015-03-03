@@ -1,0 +1,48 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+%% Start_...  routines.
+
+Start_Code = proc (Env: lnk_env) returns (locate);
+    Loc: locate := Env.Locates.Code;
+    out_link_chan$Position(Env.Output, Loc.Start_Address);
+    return (Loc);
+    end Start_Code;
+
+Start_Constants = proc (Env: lnk_env) returns (locate);
+    Out: out_link_chan := Env.Output;
+    Locs: locates := Env.Locates;
+    Loc:  locate  := Locs.Consts;
+    %out_link_chan$Position(Out,
+    %			   address$A_to_Int(Loc.Start_Address, Locs));
+    return (Loc);
+    end Start_Constants;
+
+Start_Exceptions = proc (Env: lnk_env) returns (locate);
+    Loc: locate := Env.Locates.Excepts;
+    out_link_chan$Position(Env.Output, Loc.Start_Address);
+    return (Loc);
+    end Start_Exceptions;
+
+Start_Owns = proc (Env: lnk_env) returns (locate);
+    Loc: locate := Env.Locates.Owns;
+    out_link_chan$Position(Env.Output, Loc.Start_Address);
+    return (Loc);
+    end Start_Owns;
+
+Start_Signals = proc (Env: lnk_env) returns (locate);
+    Loc: locate := Env.Locates.Sigs;
+    out_link_chan$Position(Env.Output, Loc.Start_Address);
+    return (Loc);
+    end Start_Signals;
+
+Start_Symbol_Tables = proc (Env: lnk_env) returns (locate);
+    Loc: locate := Env.Locates.Sym_Tables;
+    out_link_chan$Position(Env.Output, Loc.Start_Address);
+    return (Loc);
+    end Start_Symbol_Tables;
+
+Start_W_Vecs = proc (Env: lnk_env) returns (locate);
+    Loc: locate := Env.Locates.W_Vecs;
+    out_link_chan$Position(Env.Output, Loc.Start_Address);
+    return (Loc);
+    end Start_W_Vecs;

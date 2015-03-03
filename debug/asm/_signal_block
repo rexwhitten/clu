@@ -1,0 +1,55 @@
+;; Copyright Massachusetts Institute of Technology 1984, 1989
+
+_signal_block = cluster is
+	size,
+	offset,
+	equal,
+	get_except_chain,
+	get_name,
+	get_num_args
+
+	rep = _obj
+
+;; Offsets from start of signal block
+base_offset = 12			;; Offset to start of signal block data
+nmargs = 0
+strnam = 4
+rngchn = 8
+sbsize = base_offset + rngchn + 4
+
+	size = qproc () returns (int)
+		movea	sbsize, rr
+		lea	1(rr, rr), rr	;; CLU-integerize
+		return	(rr)
+		end size
+
+	offset = qproc () returns (int)
+		movea	base_offset, rr
+		lea	1(rr, rr), rr	;; CLU-integerize
+		return 	(rr)
+		end offset
+
+	equal = qproc (sb1: cvt, sb2: cvt) returns (bool)
+		move	sb1, n1
+		ifeq	cmp	rr, n1
+		then	return (true)
+			end
+		return (false)
+		end equal
+
+	get_except_chain = qproc (sb: cvt) returns (_obj)
+		movea	rngchn(rr), rr
+		return (rr)
+		end get_except_chain
+
+	get_name = qproc (sb: cvt) returns (string)
+		movea	strnam(rr), rr
+		return (rr)
+		end get_name
+
+	get_num_args = qproc (sb: cvt) returns (int)
+		movea	nmargs(rr), rr	;; Already is a CLU integer.
+		return (rr)
+		end get_num_args
+
+	end _signal_block

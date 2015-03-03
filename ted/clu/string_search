@@ -1,0 +1,153 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+% Search a buffer for a string obj arg times, return true if found.
+% If CASE is true then upper/lower case matters in the search.
+
+string_search = proc (b: buf, obj: string, arg: int, case: bool)
+		  returns (bool)
+    cv = _cvt[string, _bytevec]
+    pt = proctype (_bytevec, _bytevec, int) returns (int) signals (bounds)
+    obj_size: int := string$size(obj)
+    line, pos: int := buf$get_cursor(b)
+    if string$indexc('\n', obj) = 0
+       then % quick search
+	    if arg > 0
+	       then index: pt
+		    if case
+		       then index := _bytevec$indexv
+		       else index := _bytevec$nc_indexv
+		       end
+		    z: int := buf$size(b)
+		    s: string := b[line]
+		    while true do
+			pos := index(cv(obj), cv(s), pos)
+			if pos > 0
+			   then pos := pos + obj_size
+				arg := arg - 1
+				if arg <= 0
+				   then buf$set_cursor(b, line, pos)
+					return(true)
+				   end
+			 elseif line = z
+			   then return(false)
+			 else line := line + 1
+			      pos := 1
+			      s := b[line]
+			 end
+			end
+	       else index, index1: pt
+		    if case
+		       then index := _bytevec_lindexv
+			    index1 := _bytevec$indexv
+		       else index := _bytevec_nc_lindexv
+			    index1 := _bytevec$nc_indexv
+		       end
+		    s: string := b[line]
+		    while true do
+			pos := index(cv(obj), cv(s), pos)
+			if pos > 0
+			   then pos := pos - obj_size
+				arg := arg + 1
+				if arg >= 0
+				   then buf$set_cursor(b, line, pos)
+					return(true)
+				   end
+			   else while true do
+				    if line = 1
+				       then return(false) end
+				    line := line - 1
+				    s := b[line]
+				    if index1(cv(obj), cv(s), 1) > 0
+				       then break end
+				    end
+				pos := string$size(s) + 1
+			   end
+			end
+	       end
+       else % has \n in it
+	    % split into parts (first and last treated specially)
+	    parts: ast := ast$new()
+	    while true do
+		nlpos: int := string$indexc('\n', obj)
+		if nlpos = 0 then
+		   ast$addh(parts, obj)
+		   break
+		   end
+		ast$addh(parts, string$substr(obj, 1, nlpos-1))
+		obj := string$rest(obj, nlpos+1)
+		end
+	    first: string := ast$reml(parts)
+	    fsize: int := string$size(first)
+	    last: string := ast$remh(parts)
+	    lsize: int := string$size(last)
+	    % set up state variables
+	    left: int   % # lines left to go
+	    fline: int  % # of line to match vs. "first"
+	    lline: int  % # of line to match vs. "last"
+	    sign: int := 1
+	    if arg > 0
+	       then fline := line
+		    lline := fline + ast$size(parts) + 1
+		    left := buf$size(b) - lline
+		    % adjust if can't match first time
+		    if fsize > string$size(b[fline]) - pos + 1 then
+		       fline := fline + 1
+		       lline := lline + 1
+		       left := left - 1
+		       end
+	       else sign := -1
+		    arg := -arg
+		    lline := line
+		    fline := lline - (ast$size(parts) + 1)
+		    left := fline - 1
+		    % adjust if can't match first time
+		    if lsize >= pos then
+		       fline := fline - 1
+		       lline := lline - 1
+		       left := left - 1
+		       end
+	       end
+	    % do the search
+	    while left >= 0 do
+		begin
+		    % try to match "first"
+		    if fsize > 0 then
+		       bfirst: string := b[fline]
+		       bfpos: int := string$size(bfirst) - fsize + 1
+		       if ~(bfpos > 0 cand
+			    string_match_at_pos(first, bfirst, bfpos, case))
+			  then exit not_found end
+		       end
+		    % try to match "last"
+		    if ~string_match_at_pos(last, b[lline], 1, case)
+		       then exit not_found end
+		    % try to match rest
+		    tline: int := fline
+		    for try: string in ast$elements(parts) do
+			tline := tline + 1
+			bline: string := b[tline]
+			if (case cand bline ~= try) cor
+			   (~case cand
+			    ~(string$size(bline) = string$size(try) cand
+			      string_match_at_pos(try, bline, 1, case)))
+			   then exit not_found end
+			end
+		    arg := arg - 1
+		    if arg <= 0 then
+		       if sign > 0
+			  then pos := lsize + 1
+			       line := lline
+			  else pos := string$size(b[fline]) - fsize + 1
+			       line := fline
+			  end
+		       buf$set_cursor(b, line, pos)
+		       return(true)
+		       end
+		    end
+		   except when not_found: end
+		left := left - 1
+		fline := fline + sign
+		lline := lline + sign
+		end
+	    return(false)
+       end
+    end string_search

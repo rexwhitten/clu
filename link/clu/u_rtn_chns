@@ -1,0 +1,38 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+Update_Rtn_Chains = proc (Env: lnk_env);
+    for RC: rtn_chain in rtn_chains$Elements(
+			     Env.Mach_Dependent.Rtn_Chains) do
+	New_Rtn: r_template := RC.New_Rtn;
+	Nm: string := New_Rtn.Name;
+	Is_Sel: bool := r_template$Is_Selector_Rtn(New_Rtn);
+	if (Nm ~= Stub_Rtn_Name_String)
+	   then for Old_RI: rtn_inst in rtn_insts$Elements(RC.Old_RIs) do
+		    %% Always chain the rtn_insts!
+		    %if (Old_RI.Is_Dummy)
+		    %   then continue;
+		    %   end;
+		    if (Is_Sel)
+		       then Nm := Make_Selector_Name(New_Rtn.Name,
+						     Old_RI);
+		       end;
+		    RD: rtn_desc := rtn_desc$Create(
+					Old_RI.Type_Desc,
+					Nm,
+					Old_RI.Params,
+					New_Rtn.Arg_Count,
+					New_Rtn.Result_Count);
+		    New_RI: rtn_inst := rtn_desc$Closure(RD, Env);
+		    rtn_inst$Overloaded(Old_RI, New_RI);
+		    rtn_inst$Add_Dbg_Blocks(New_RI, Old_RI.Dbg_Blocks);
+		    end;
+		New_RIs: rtn_insts := New_Rtn.Instantiations;
+		if ((rtn_insts$Size(New_RIs) > 1) cand
+		    (rtn_insts$Bottom(New_RIs).Is_Dummy))
+		   then New_Rtn.Instantiations := rtn_insts$SubSeq(
+						      New_RIs, 2,
+						      (rtn_insts$Size(New_RIs) - 1));
+		   end;                 %% Get rid of dummy instantiation.
+	   end;
+	end;
+    end Update_Rtn_Chains;

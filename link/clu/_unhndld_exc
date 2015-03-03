@@ -1,0 +1,5 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+_Unhandled_Exception = proc (Err_S: string);
+    Bug_Note(Err_S);
+    end _Unhandled_Exception;

@@ -1,0 +1,198 @@
+FILE 1 = /usr/clu/asm/assem.bin
+FILE 2 = /usr/clu/asm/assem.nbin
+
+OFFSET   FILE1   FILE2   DIFF
+------   -----   -----   ----
+    18:     3B      3C      1
+    19:      4      57     53
+    1A:     76      9B     25
+    1B:     2D      71     44
+FILE 1 = /usr/clu/asm/gconst.bin
+FILE 2 = /usr/clu/asm/gconst.nbin
+
+OFFSET   FILE1   FILE2   DIFF
+------   -----   -----   ----
+    18:     3B      3C      1
+    19:      4      57     53
+    1A:     76      9B     25
+    1B:     47      8D     46
+FILE 1 = /usr/clu/asm/gdefn.bin
+FILE 2 = /usr/clu/asm/gdefn.nbin
+
+OFFSET   FILE1   FILE2   DIFF
+------   -----   -----   ----
+    18:     3B      3C      1
+    19:      4      57     53
+    1A:     76      9B     25
+    1B:     5B      B5     5A
+FILE 1 = /usr/clu/asm/genv.bin
+FILE 2 = /usr/clu/asm/genv.nbin
+
+OFFSET   FILE1   FILE2   DIFF
+------   -----   -----   ----
+    18:     3B      3C      1
+    19:      4      57     53
+    1A:     76      9C     26
+    1B:     85       3     82
+FILE 1 = /usr/clu/asm/gexpr.bin
+FILE 2 = /usr/clu/asm/gexpr.nbin
+
+OFFSET   FILE1   FILE2   DIFF
+------   -----   -----   ----
+    18:     3B      3C      1
+    19:      4      57     53
+    1A:     76      9C     26
+    1B:     AD      5B     52
+FILE 1 = /usr/clu/asm/ginst.bin
+FILE 2 = /usr/clu/asm/ginst.nbin
+
+OFFSET   FILE1   FILE2   DIFF
+------   -----   -----   ----
+    18:     3B      3C      1
+    19:      4      57     53
+    1A:     77      9D     26
+    1B:     6D      AF     42
+FILE 1 = /usr/clu/asm/gstmt1.bin
+FILE 2 = /usr/clu/asm/gstmt1.nbin
+
+OFFSET   FILE1   FILE2   DIFF
+------   -----   -----   ----
+    18:     3B      3C      1
+    19:      4      57     53
+    1A:     77      9E     27
+    1B:     9F      15     8A
+FILE 1 = /usr/clu/asm/gstmt2.bin
+FILE 2 = /usr/clu/asm/gstmt2.nbin
+
+OFFSET   FILE1   FILE2   DIFF
+------   -----   -----   ----
+    18:     3B      3C      1
+    19:      4      57     53
+    1A:     77      9E     27
+    1B:     C9      5B     6E
+FILE 1 = /usr/clu/asm/gtenv.bin
+FILE 2 = /usr/clu/asm/gtenv.nbin
+
+OFFSET   FILE1   FILE2   DIFF
+------   -----   -----   ----
+    18:     3B      3C      1
+    19:      4      57     53
+    1A:     78      9E     26
+    1B:      B      B7     AC
+FILE 1 = /usr/clu/asm/masm.bin
+FILE 2 = /usr/clu/asm/masm.nbin
+
+OFFSET   FILE1   FILE2   DIFF
+------   -----   -----   ----
+    18:     3B      3C      1
+    19:      4      57     53
+    1A:     78      9E     26
+    1B:      F      C1     B2
+FILE 1 = /usr/clu/asm/pcode.bin
+FILE 2 = /usr/clu/asm/pcode.nbin
+
+OFFSET   FILE1   FILE2   DIFF
+------   -----   -----   ----
+    18:     3B      3C      1
+    19:      4      57     53
+    1A:     78      9E     26
+    1B:     21      E3     C2
+FILE 1 = /usr/clu/asm/pconst.bin
+FILE 2 = /usr/clu/asm/pconst.nbin
+
+OFFSET   FILE1   FILE2   DIFF
+------   -----   -----   ----
+    18:     3B      3C      1
+    19:      4      57     53
+    1A:     78      9F     27
+    1B:     3D      21     1C
+FILE 1 = /usr/clu/asm/pdefn1.bin
+FILE 2 = /usr/clu/asm/pdefn1.nbin
+
+OFFSET   FILE1   FILE2   DIFF
+------   -----   -----   ----
+    18:     3B      3C      1
+    19:      4      57     53
+    1A:     78      9F     27
+    1B:     61      4F     12
+FILE 1 = /usr/clu/asm/pdefn2.bin
+FILE 2 = /usr/clu/asm/pdefn2.nbin
+
+OFFSET   FILE1   FILE2   DIFF
+------   -----   -----   ----
+    18:     3B      3C      1
+    19:      4      57     53
+    1A:     78      9F     27
+    1B:     77      65     12
+FILE 1 = /usr/clu/asm/penv.bin
+FILE 2 = /usr/clu/asm/penv.nbin
+
+OFFSET   FILE1   FILE2   DIFF
+------   -----   -----   ----
+    18:     3B      3C      1
+    19:      4      57     53
+    1A:     79      A0     27
+    1B:     33      AB     78
+FILE 1 = /usr/clu/asm/pexpr.bin
+FILE 2 = /usr/clu/asm/pexpr.nbin
+
+OFFSET   FILE1   FILE2   DIFF
+------   -----   -----   ----
+    18:     3B      3C      1
+    19:      4      57     53
+    1A:     79      A0     27
+    1B:     49      D7     8E
+FILE 1 = /usr/clu/asm/plist.bin
+FILE 2 = /usr/clu/asm/plist.nbin
+
+OFFSET   FILE1   FILE2   DIFF
+------   -----   -----   ----
+    18:     3B      3C      1
+    19:      4      57     53
+    1A:     79      A0     27
+    1B:     51      EB     9A
+FILE 1 = /usr/clu/asm/pstmt1.bin
+FILE 2 = /usr/clu/asm/pstmt1.nbin
+
+OFFSET   FILE1   FILE2   DIFF
+------   -----   -----   ----
+    18:     3B      3C      1
+    19:      4      57     53
+    1A:     79      A1     28
+    1B:     69       B     5E
+FILE 1 = /usr/clu/asm/pstmt2.bin
+FILE 2 = /usr/clu/asm/pstmt2.nbin
+
+OFFSET   FILE1   FILE2   DIFF
+------   -----   -----   ----
+    18:     3B      3C      1
+    19:      4      57     53
+    1A:     79      A1     28
+    1B:     97      4B     4C
+FILE 1 = /usr/clu/asm/pttkn.bin
+FILE 2 = /usr/clu/asm/pttkn.nbin
+
+OFFSET   FILE1   FILE2   DIFF
+------   -----   -----   ----
+    18:     3B      3C      1
+    19:      4      57     53
+    1A:     79      A1     28
+    1B:     B3      75     3E
+FILE 1 = /usr/clu/asm/syntax.bin
+FILE 2 = /usr/clu/asm/syntax.nbin
+
+OFFSET   FILE1   FILE2   DIFF
+------   -----   -----   ----
+    18:     3B      3C      1
+    19:      4      57     53
+    1A:     79      A1     28
+    1B:     D9      A9     30
+FILE 1 = /usr/clu/asm/tkntab.bin
+FILE 2 = /usr/clu/asm/tkntab.nbin
+
+OFFSET   FILE1   FILE2   DIFF
+------   -----   -----   ----
+    18:     3B      3C      1
+    19:      4      57     53
+    1A:     7A      A2     28
+    1B:     7B      BD     42

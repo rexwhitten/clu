@@ -1,0 +1,6 @@
+%% Copyright Massachusetts Institute of Technology 1980, 1989
+
+Hash_Real = proc (R: real, Size: int) returns (int);
+    X: _obj := _Cvt[real, _obj](R);
+    return ((X.Left + X.Right) // Size);
+    end Hash_Real;

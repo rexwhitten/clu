@@ -1,0 +1,50 @@
+%% Copyright Massachusetts Institute of Technology 1985, 1989
+
+#extend
+
+Read_Dumped_Env = proc (Env: lnk_env, Optns: options, Out_File: file_name);
+    if (Optns.Output_to_File)
+       then lnk_env$Init(Env, Optns);
+	    Env.Out_File_Name := Out_File;
+       else Dmp_Fl_Nm: file_name := Optns.Dump_File_Name;
+	    lnk_env$Read(Env, Dmp_Fl_Nm);
+	       except when Not_Possible(S: string):
+			   Should_Never_Happen[file_name](
+			       "Can't GC_Read debug dump file: " || S, Dmp_Fl_Nm);
+		      end;
+	    ToR, ToW:     _chan := _chan$Pipe();
+	       except when Not_Possible(S: string):
+			   Should_Never_Happen[null](
+			       "Can't get TO pipe: " || S, nil);
+		      end;
+	    FromR, FromW: _chan := _chan$Pipe();
+	       except when Not_Possible(S: string):
+			   Should_Never_Happen[null](
+			       "Can't get FROM pipe: " || S, nil);
+		      end;
+	    ToJFN:   int := _chan$Get_Read_Channel(ToR, false);
+	    FromJFN: int := _chan$Get_Write_Channel(FromW, false);
+	    JCL_String: string := "#SUBPROC " || int$Unparse(ToJFN) ||
+				  " " || int$Unparse(FromJFN);
+	    Frk: _job := _job$Cons1(
+			     Optns.Image_File_Name,
+			     JCL_String,
+			     sequence[_chan]$[ToR, FromW]    %% Pipe ends.
+				    );
+	       except when Not_Possible(S: string):
+			   Should_Never_Happen[null](
+			       "Can't create inferior: " || S, nil);
+		      end;
+	    _chan$Close(ToR);
+	    _chan$Close(FromW);
+	    Env.Mach_Dependent.Sub_Fork  := Frk;
+	    Env.Mach_Dependent.To_Pipe   := ToW;
+	    Env.Mach_Dependent.From_Pipe := FromR;
+	    Env.Out_File_Name := Out_File;
+	    Env.Output := out_link_chan$Re_Open(ToW, Env.Locates,
+						Optns.Pipe_File_Name);
+	    Optns.Init_Debug := false;
+	    Optns.Debug_Ready := true;
+       end;
+    Env.Options := Optns;
+    end Read_Dumped_Env;

@@ -1,0 +1,83 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+array_zap = proc [t: type] (a: at, i, len: int, val: t)
+	      signals (bounds, negative_size)
+    at = array[t]
+    dt = _adv[t]
+    vt = _vec[t]
+    i := i - at$low(a)
+    z: int := at$size(a)
+    if i < 0  cor  i > z
+       then signal bounds
+     elseif i = z  cor  len = 0
+       then return
+     elseif len < 0
+       then signal negative_size end
+    _event$defer()
+    i := _cvt[at, dt](a).start + i
+    v: vt := _cvt[at, dt](a).vector
+    v[i] := val
+    vt$move_lr(v, i, v, i + 1, len - 1)
+    _event$undefer()
+    end array_zap
+
+array_shift = proc [t: type] (a: at, i, len, off: int)
+		signals (bounds, negative_size)
+    at = array[t]
+    dt = _adv[t]
+    vt = _vec[t]
+    if len < 0
+       then signal negative_size end
+    z: int := at$size(a)
+    i := i - at$low(a)
+    ni: int := i + off
+    if i < 0  cor  i + len > z  cor  ni < 0  cor  ni + len > z
+       then signal bounds end
+    _event$defer()
+    v: vt := _cvt[at, dt](a).vector
+    z := _cvt[at, dt](a).start
+    if off > 0  cand  off < len
+       then vt$move_rl(v, z + i, v, z + ni, len)
+       else vt$move_lr(v, z + i, v, z + ni, len)
+       end
+    _event$undefer()
+    end array_shift
+
+_diff_scan = proc (a1, a2: act, i, lim: int) returns (int) signals (bounds)
+    for i in int$from_to(i, lim) do
+	if a1[i] ~= a2[i]
+	   then return(i) end
+	end resignal bounds
+    return(lim + 1)
+    end _diff_scan
+
+_find_matching_suffix = proc (a1, a2: act, i1, i2: int) returns (int)
+    while true do
+	if a1[i1] ~= a2[i2]
+	   then break end
+	i1 := i1 - 1
+	i2 := i2 - 1
+	end except when bounds: end
+    return(i1)
+    end _find_matching_suffix
+
+_match_scan_skip = proc (a1, a2: act, i, lim, skip: int) returns (int)
+		     signals (bounds)
+    cnt: int := 0
+    for i in int$from_to(i, lim) do
+	if a1[i] = a2[i]
+	   then cnt := cnt + 1
+		if cnt >= skip
+		   then return(i - cnt + 1) end
+	   else cnt := 0
+	   end
+	end resignal bounds
+    return(lim - cnt + 1)
+    end _match_scan_skip
+
+in_range_ = proc (c: char, s: string) returns (bool)
+    for i: int in int$from_to_by(1, string$size(s) - 1, 2) do
+	if c >= s[i]  cand  c <= s[i + 1]
+	   then return(true) end
+	end except when bounds: end
+    return(false)
+    end in_range_

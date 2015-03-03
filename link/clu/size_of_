@@ -1,0 +1,75 @@
+%% Copyright Massachusetts Institute of Technology 1984, 1989
+
+%% Size_of_...   routines.
+
+Size_of_Bool = proc () returns (int);
+    return (vClob_Size);
+    end Size_of_Bool;
+
+Size_of_Char = proc () returns (int);
+    return (vClob_Size);
+    end Size_of_Char;
+
+Size_of_Int = proc (I: int) returns (int);
+    return (vClob_Size);
+    end Size_of_Int;
+
+Size_of_Null = proc () returns (int);
+    return (vClob_Size);
+    end Size_of_Null;
+
+Size_of_Oneof = proc () returns (int);
+    return (vTagCell_Size);
+    end Size_of_Oneof;
+
+Size_of_Real = proc (R: real) returns (int);
+    return (vClob_Size);
+    end Size_of_Real;
+
+Size_of_Rtn_List = proc (RL: r_list) returns (int);
+    return (vVec_Head_Size +		%% Room for header,
+	    (RL.Size * vRef_Size));	%% plus room for each rtn reference.
+    end Size_of_Rtn_List;
+
+Size_of_Selector = proc (SV: sel_value) returns (int);
+    return (vClob_Size);
+    end Size_of_Selector;
+
+Size_of_Seq = proc [t: type] (S: ts) returns (int);
+    ts = sequence[t];
+    return (vVec_Head_Size +		%% Room for header,
+	    (ts$Size(S) * vRef_Size));	%% plus room for each reference.
+    end Size_of_Seq;
+
+Size_of_Space = proc (Sz: int) returns (int);
+    %% Same as Sequence of Sz elements.
+    return (vVec_Head_Size +		%% Room for header,
+	    (Sz * vRef_Size));	%% plus room for each reference.
+    end Size_of_Space;
+
+Size_of_String = proc (S: string) returns (int);
+    return (vByteVec_Head_Size +		%% Room for header,
+	    (( (string$Size(S) + 3)
+		 / 4) * 4)              %% plus chars to long word boundary.
+	    );
+    end Size_of_String;
+
+Size_of_Struct = proc (S: consts) returns (int);
+    return (vVec_Head_Size +			%% Room for header,
+	    (consts$Size(S) * vRef_Size));	%% plus room for each reference.
+    end Size_of_Struct;
+
+Size_of_Type = proc (T: type_desc) returns (int);
+    return (vClob_Size);
+    end Size_of_Type;
+
+Size_of_Word = proc () returns (int);
+    return (vLong_Size);
+    end Size_of_Word;
+
+Size_of_X_String = proc (XStr: ints) returns (int);
+    return (vByteVec_Head_Size +		%% Room for header,
+	    (( (ints$Size(XStr) + 3)
+		 / 4) * 4)              %% plus chars to long word boundary.
+	    );
+    end Size_of_X_String;

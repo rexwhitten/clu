@@ -1,0 +1,4 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+Update_Constants = proc (Env: lnk_env);
+    end Update_Constants;

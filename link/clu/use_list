@@ -1,0 +1,71 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+use_list = cluster is
+	new, bind, instantiate, size, empty, elements, fetch,
+	addh, top, print, output, _gcd;
+
+    rep = sequence[use];
+
+    New = proc () returns (cvt);
+	return ( rep$New() );
+	end New;
+
+    Bind = proc (Uses: cvt, R_D: rtn_desc, Env: lnk_env) returns (cvt)
+	     signals (error(string));
+	return (Bind_List[use](Uses, R_D, Env));
+	   resignal Error;
+	end Bind;
+
+    Instantiate = proc (Uses: cvt, R_I: rtn_inst,
+			Is_P_Use: bool, Env: lnk_env)
+		    signals (error(string));
+	for U: use in rep$Elements(Uses) do
+	    use$Instantiate(U, R_I, Is_P_Use, Env);
+	       resignal Error;
+	    end;
+	end Instantiate;
+
+    Size = proc (L: cvt) returns (int);
+	return (rep$Size(L));
+	end Size;
+
+    Empty = proc (L: cvt) returns (bool);
+	return (rep$Empty(L));
+	end Empty;
+
+    Elements = iter (Uses: cvt) yields (use);
+	for U: use in rep$Elements(Uses) do
+	    yield (U);
+	    end;
+	end Elements;
+
+    Fetch = proc (Uses: cvt, Index: int) returns (use)
+	      signals (bounds);
+	return (Uses[Index]);
+	   resignal Bounds;
+	end Fetch;
+
+    AddH = proc (Uses: cvt, U: use) returns (cvt);
+	return (rep$AddH(Uses, U));
+	end AddH;
+
+    Top = proc (Uses: cvt) returns (use) signals (bounds);
+	return (rep$Top(Uses));
+	   resignal Bounds;
+	end Top;
+
+    Print = proc (Uses: cvt, S: pstream);
+	rep$Print(Uses, S);
+	end Print;
+
+    Output = proc (Uses: cvt, Env: lnk_env);
+	for U: use in rep$Elements(Uses) do
+	    use$Output(U, Env);
+	    end;
+	end Output;
+
+    _gcd = proc (UL: cvt, Tab: gcd_tab) returns (int);
+	return (rep$_gcd(UL, Tab));
+	end _gcd;
+
+    end use_list;

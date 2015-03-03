@@ -1,0 +1,42 @@
+; Copyright Massachusetts Institute of Technology 1980, 1989
+
+random = cluster is reset, seed, next
+
+wvec	hi { 1 }
+wvec	lo { 1 }
+own	init
+
+reset = qproc ()
+	move	0055774,,0104555, hi
+	move	0171552,,0134162, lo
+	st	init
+	end reset
+
+seed = proc (x: int)
+	ifeq	tstb	init
+	then	random$reset()
+		end
+	move	rr, n1
+	swap	n1
+	movew	rr, n1
+	eor	n1, hi
+	end seed
+
+next = proc (x: int) returns (int)
+	ifeq	tstb	init
+	then	random$reset()
+		end
+	move	hi, n1
+	move	lo, n2
+	move	n1, lo
+	move	n1, n3
+	lsr	1, n1
+	roxr	1, n2
+	eor	n2, n3
+	move	n3, hi
+	orb	n0, n3
+	int$mod(n3, rr)
+	return(rr)
+	end next
+
+end random

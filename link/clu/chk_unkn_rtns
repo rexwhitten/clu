@@ -1,0 +1,55 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+Check_Unknown_Rtns = proc (CI: call_info, Env: lnk_env) returns (bool);
+    Ans: bool := true;
+    Env.Ignore_Unknown := true;
+    Env.Look_in_Library := false;
+    begin
+	RD: rtn_desc, R: r_template := rtn_desc$Lookup(CI.Call, Env);
+	Rtn_Is_OK: bool,
+	Error_String: string := r_template$Validate_Match(RD, R, Env);
+	if (Rtn_Is_OK)
+	   then RI: rtn_inst := Routine_Closure(RD, R, Env);
+		found_rtns$AddH(Env.Mach_Dependent.Found_Rtns,
+				found_rtn${Inst:  RI,
+					   Stub:  pos_ri$Value_RI(CI.Inst)});
+	           except when Wrong_Tag:
+			       %% OK if noone is calling.
+			       if (~ routine_list$Empty(CI.Callers))
+				  then %% Make bug note, but do nothing else.
+				       %% No need to chain from non-existant stub rtn_inst.
+				       Bug_Note("Uninstantiated unknown routine found: " ||
+						rtn_desc$Unparse(RD)
+						);
+				  end;
+			  end;
+	   else First: bool := true;
+		for RT: r_template in routine_list$Elements(CI.Callers) do
+		    if (~ r_template$Is_Overloaded(RT))
+		       then Ans := false;
+			    if (RT.Was_Output)
+			       then ListS: stream := Env.Options.List_Stream;
+				    if (First)
+				       then stream$PutS(ListS, "Error: ");
+					    stream$PutL(ListS, Error_String);
+					    stream$PutS(ListS, "  Called by ");
+					    First := false;
+				       else stream$PutS(ListS, ", ");
+				       end;
+				    stream$PutS(ListS, r_template$Unparse(RT));
+			       end;
+		       end;
+		    end;
+		if (~ First)
+		   then stream$PutC(Env.Options.List_Stream, '\n');
+		   end;
+	   end;
+	end;
+       except when Error,
+		   Not_Found (*):
+		   Ans := false;
+	      end;
+    Env.Ignore_Unknown := false;
+    Env.Look_in_Library := true;
+    return (Ans);
+    end Check_Unknown_Rtns;

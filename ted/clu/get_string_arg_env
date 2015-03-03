@@ -1,0 +1,46 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+get_string_arg_env = proc (old_env: env) returns (env) signals (errmsg(string))
+    qp = sequence[eproc]
+    tab = qp$[run_ctrlat, run_ctrla, run_ctrlb, run_ctrlat,
+	      run_ctrld, run_ctrle, run_ctrlf, run_quit,
+	      insert_char, insert_char, insert_char, run_ctrlk,
+	      run_ctrll, run_bye, run_ctrlnp, run_ctrlo,
+	      run_ctrlnp, run_ctrlq, change_default, insert_char,
+	      run_ctrlt, run_ctrlu, run_ctrlv, change_default,
+	      insert_char, insert_char, insert_char, run_ctrlsk]
+    own done: bool := false
+    own e: env
+    if ~done
+       then e := env$create(true)
+	    e.size := 2
+	    chtab: vec := vec$fill(0, 128, insert_char)
+	    for i: int in qp$indexes(tab) do
+		chtab[i - 1] := tab[i]
+		end
+	    chtab[c2i(del)] := run_del
+	    e.chtab := chtab
+	    done := true
+       end
+    if env$fetch_num(old_env, "arg_display_mode", 0) ~= 0
+       then for old_env in winset$displayed() do
+		end
+       end
+    z: int := env$fetch_num(old_env, "arg_display_size", 2)
+    if e.size ~= z
+       then height, width: int := _get_screen_size()
+	    if z <= 0  cor  z >= height - 3
+	       then z := 1 end
+	    e.size := z
+       end
+    if old_env.size <= z + 1
+       then for old_env in winset$displayed() do
+		if old_env.size > z + 1
+		   then exit found end
+		end
+	    signal errmsg("No room for argument window!")
+       end except when found: end
+    buf$flush(e.buffer)
+    env$change_all(e)
+    winset$overlay(old_env, e)
+    return(e)
+    end get_string_arg_env

@@ -1,0 +1,46 @@
+%% Copyright Massachusetts Institute of Technology 1981, 1989
+
+%%% Return the _trace_info for a routine by looking it up in the trace table.
+%%% If no trace info is recorded for the routine, create an entry for it in the
+%%% table and return that.
+%%% (SEP/Nov  7 1984)
+
+_Get_Trace_Info = proc (P: _obj) returns (_rtn_trace_info) signals (not_found);
+    return (_trace_table$Lookup(_Get_Trace_Table(), P));
+       except when Not_Found:
+	      end;
+    RTI: _rtn_trace_info := _rtn_trace_info$Create(P, _Get_Rtn_Info(P));
+       resignal Not_Found;
+    _trace_table$Insert(_Get_Trace_Table(), P, RTI);
+    return (RTI);
+    end _Get_Trace_Info;
+
+_Forget_Trace_Info = proc (P: _obj) signals (not_found);
+    _trace_table$Remove(_Get_Trace_Table(), P);
+    end _Forget_Trace_Info;
+
+%%% The trace table stores tracing information for routines. The table is
+%%% created on the first call to Get_Trace_Table and stored in an own
+%%% variable for future access. Routines are added to it on the first request
+%%% to Get_Trace_Info for the routine.
+%%% (SEP/Nov  7 1984)
+
+_Get_Trace_Table = proc () returns (_trace_table);
+    own TT: _trace_table := _trace_table$Create(200);
+    return (TT);
+    end _Get_Trace_Table;
+
+
+%% Get rid of trace info for overloaded routines.
+
+_Update_Tracing = proc ();
+    Trace_Table: _trace_table := _Get_Trace_Table();
+    for Rtn: _obj, RTI: _rtn_trace_info in _trace_table$Elements(Trace_Table) do
+	if (RTI.Routine_Info = _Get_Rtn_Info(Rtn))
+	   then continue;
+	   end; except when Not_Found:
+		       end;
+	_Set_Trace_Normal(Rtn)			%% Undo the break.
+	_trace_table$Remove(Trace_Table, Rtn);	%% Forget about it.
+	end;
+    end _Update_Tracing;

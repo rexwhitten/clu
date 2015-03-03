@@ -1,0 +1,155 @@
+; Copyright Massachusetts Institute of Technology 1985, 1989
+
+units = [0,,31, 0,,28, 0,,31, 0,,30, 0,,31, 0,,30,
+	 0,,31, 0,,31, 0,,30, 0,,31, 0,,30, 0,,31,
+	 0,,31, 0,,29, 0,,31, 0,,30, 0,,31, 0,,30,
+	 0,,31, 0,,31, 0,,30, 0,,31, 0,,30, 0,,31]
+
+_local_time = proc (l, r: int) returns (date)
+	wvec	buf	{4}
+	move	l,n7				; get whole thing
+	asr	1,n7
+	swap	n7
+	move	rr,n6
+	asr	1,n6
+	movew	n6,n7
+	lea	buf,r2
+	move	r2,-(sp)
+	pea	8(r2)
+	clr	-(sp)
+	moveq	%gettimeofday,n0
+	move	n0,-(sp)
+	trap	0
+	lea	12(sp),sp
+retry:	move	(r2),n1				; get local time zone
+	muls	60,n1
+	iflt	sub	n1,n7			; correct it
+	then	add	1,,#5180,n7
+		move	n7,n6
+		moveq	-1,n7
+	else	moveq	0,n5			; split into day, time
+		moveb	n7,n5
+		andib	#7f,n5
+		asr	7,n7
+		divu	#2a3,n7
+		move	n7,n6
+		ext	n7
+		swap	n6
+		ext	n6
+		asl	7,n6
+		addb	n5,n6
+	end
+	divu	60,n6				; get seconds
+	move	n6,n5
+	swap	n5
+	moveaw	n5,rr
+	ext	n6
+	divu	60,n6				; get minutes and hours
+	moveaw	n6,r3
+	swap	n6
+	moveaw	n6,r1
+	move	1969,n3
+	ifge	move	n7,n1
+	then	qloop
+			addq	1,n3		; bump to next year
+			subi	365,n1		; count down
+			blt	next
+			moveb	n3,n0		; leap year?
+			andib	3,n0
+			bne	this
+			subq	1,n1		; yes
+			bge	this
+			addq	1,n1
+		end
+	end
+	add	365,n1				; recover day
+	tst	4(r2)				; daylight savings time?
+	beq	gotit
+	ifeq	cmpi	1974,n3			; yes, get start and stop days
+	then	moveq	5,n0
+		move	333,n2
+	elfeq	cmpi	1975,n3
+	then	moveq	58,n0
+		move	303,n2
+	elfeq	moveb	n3,n0
+		andib	3,n0
+	then	moveq	120,n0
+		move	304,n2
+	else	moveq	119,n0
+		move	303,n2
+		
+	end
+	add	#70,,4,n7
+	move	n7,n6				; get day of week
+	swap	n6
+	ext	n6
+	divu	7,n6
+	movew	n7,n6
+	divu	7,n6
+	swap	n6
+	ext	n6
+	addw	700,n6
+	move	n0,n5				; get sunday
+	sub	n1,n5
+	add	n6,n5
+	divu	7,n5
+	swap	n5
+	ext	n5
+	sub	n5,n0
+	cmp	n0,n1
+	blt	gotit
+	ifeq
+	then	cmpa	2,r3
+		blt	gotit
+	end
+	move	n2,n5				; get sunday
+	sub	n1,n5
+	add	n6,n5
+	divu	7,n5
+	swap	n5
+	ext	n5
+	sub	n5,n2
+	cmp	n2,n1
+	bgt	gotit
+	ifeq
+	then	move	r3,n7
+		bgt	gotit
+	end
+	move	l,n7				; reget whole thing
+	asr	1,n7
+	swap	n7
+	move	rr,n6
+	asr	1,n6
+	movew	n6,n7
+	add	3600,n7				; back up
+	clr	4(r2)
+	bra	retry				; do it again
+gotit:	moveq	0,n2
+	lea	units+4,r2
+	moveb	n3,n0
+	ifeq	andib	3,n0			; leap year?
+	then	lea	48(r2),r2		; yes
+	end
+	qloop
+		addq	1,n2			; bump to next month
+		sub	(r2)+,n1		; count down
+		bge	this
+	end
+	add	-(r2),n1			; recover day
+	addq	1,n1
+	movea	n1,r2
+	pea	1(r2,r2)
+	movea	n2,r2
+	pea	1(r2,r2)
+	movea	n3,r2
+	pea	1(r2,r2)
+	pea	1(r3,r3)
+	pea	1(r1,r1)
+	lea	1(rr,rr),rr
+	moveq	1,n0				; restore 0
+	suba	r3,r3
+	suba	r2,r2
+	suba	r1,r1
+	date$create(*, *, *, *, *, rr)
+	return(rr)
+	end _local_time

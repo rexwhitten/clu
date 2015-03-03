@@ -1,0 +1,670 @@
+%% Copyright Massachusetts Institute of Technology 1985, 1989
+
+type_desc = cluster is
+	make_none, make_cluster_type, is_none, is_dummy_cluster,
+	is_routine_type, similar, non_param_similar,
+	bind, instantiate,
+	get_a_parameter, get_uid, get_c_template,
+	selector_types, get_selector_type, get_sel_name_strings,
+	get_routine_type, get_sig_name_strings,
+	make_unknown_result_type,
+	is_unknown_result_type, is_unknown_result_type_name,
+	print, unparse, canon_hasher, _gcd;
+
+    rep = variant[
+	      a_None:              null,
+	      b_Cluster_Type:      c_desc,
+	      c_Select_Type:       s_desc,
+	      d_M_Selector:        string,        %% Kind (oneof/variant,struct/record).
+	      e_Routine_Type:      rtn_type,
+	      f_C_Param:           int,
+	      g_R_Param:           int,
+	      h_Result_Type:       rtn_desc,      %% Type returned by this routine.
+	      i_Select_Param:	   null,
+	      w_Unknown_Res_Type:  unk_rt,	%% Unknown result type.
+	      xb_Cluster_Type:     c_desc,	%% All "x..." tags are instantiated.
+	      xc_Select_Type:      s_desc,
+	      xe_Routine_Type:     rtn_type,
+	      z_Inst:		   i_type,
+	      zz_Unknown:	   null
+		  ];
+
+    i_type = struct[
+		 T:      type_desc,
+		 UID:    int
+		    ];
+
+    unk_rt = record[
+		 RD:     rtn_desc,
+		 TD:     type_desc
+		    ];
+    Make_None = proc () returns (cvt);
+	return ( rep$Make_a_None(Nil) );
+	end Make_None;
+
+    Make_Cluster_Type = proc (C: c_desc) returns (cvt);
+	return ( rep$Make_b_Cluster_Type(C) );
+	end Make_Cluster_Type;
+
+    Make_Unknown = proc () returns (cvt);
+        own Unknown_Type: rep := rep$Make_zz_Unknown(nil);
+	return (Unknown_Type);
+	end Make_Unknown;
+
+    Is_None = proc (T: cvt) returns (bool);
+	return (rep$Is_a_None(T));
+	end Is_None;
+
+    Is_Dummy_Cluster = proc (T: cvt) returns (bool);
+	if (rep$Is_z_Inst(T))
+	   then T := down(rep$Value_z_Inst(T).T);
+	   end;
+	tagcase T
+	   tag b_Cluster_Type,
+	       xb_Cluster_Type (CD: c_desc):
+	       return (c_desc$Is_Dummy(CD));
+	   others: return (false);
+	   end;
+	end Is_Dummy_Cluster;
+
+    Is_Routine_Type = proc (T: cvt) returns (bool);
+	tagcase T
+	   tag e_Routine_Type:
+	       return (true);
+	   tag xe_Routine_Type:
+	       return (true);
+	   tag z_Inst (IT: i_type):
+	       return (Is_Routine_Type(IT.T));
+	   others:
+	       return (false);
+	   end;
+	end Is_Routine_Type;
+
+    Non_Param_Similar = proc (T1, T2: cvt, Env: lnk_env) returns (bool);
+	if (rep$Is_z_Inst(T1))
+	   then T1 := down(rep$Value_z_Inst(T1).T);
+	   end;
+	if (rep$Is_z_Inst(T2))
+	   then T2 := down(rep$Value_z_Inst(T2).T);
+	   end;
+	tagcase T1
+	   tag a_None:
+	       return (rep$Is_a_None(T2))
+	   others:
+	       if (rep$Is_a_None(T2))
+		  then return (false);
+		  end;
+	       CT1: c_template := Get_C_Template(up(T1), Env);
+	       CT2: c_template := Get_C_Template(up(T2), Env);
+	       return (CT1 = CT2);
+	   end;
+	   except when Wrong_Tag:
+		  end;
+	end Non_Param_Similar;
+
+
+    Similar = proc (T1, T2: cvt) returns (bool);
+	tagcase T1
+	   tag z_Inst (IT: i_type):
+	       if (rep$Is_z_Inst(T2))
+		  then return (IT.UID = rep$Value_z_Inst(T2).UID);
+		  end;
+	       T1 := down(IT.T);
+	   others:
+	   end;
+	if (rep$Is_z_Inst(T2))
+	   then T2 := down(rep$Value_z_Inst(T2).T);
+	   end;
+	tagcase T1
+	   tag a_None:
+	       return (rep$Is_a_None(T2))
+	   tag b_Cluster_Type,
+	       xb_Cluster_Type (CR1: c_desc):
+	       tagcase T2
+		  tag b_Cluster_Type,
+		      xb_Cluster_Type (CR2: c_desc):
+		      return (c_desc$Similar(CR1, CR2));
+		  others:
+		      return (false);
+		  end;
+	   tag c_Select_Type,
+	       xc_Select_Type (ST1: s_desc):
+	       tagcase T2
+		  tag c_Select_Type,
+		      xc_Select_Type (ST2: s_desc):
+		      return (s_desc$Similar(ST1, ST2));
+		  others:
+		      return (false);
+		  end;
+	   tag e_Routine_Type,
+	       xe_Routine_Type (RT1: rtn_type):
+	       tagcase T2
+		  tag e_Routine_Type,
+		      xe_Routine_Type (RT2: rtn_type):
+		      return (rtn_type$Similar(RT1, RT2));
+		  others:
+		      return (false);
+		  end;
+	   tag d_M_Selector,		%% These are never instantiated.
+	       f_C_Param,
+	       g_R_Param,
+	       h_Result_Type,
+	       i_Select_Param,
+	       w_Unknown_Res_Type,
+	       z_Inst,
+	       zz_Unknown:
+	       return (rep$Similar(T1, T2));
+	   end;
+	   except when Wrong_Tag:
+		  end;
+	return (false);
+	end Similar;
+
+
+    Bind = proc (T: cvt, R_D: rtn_desc, Env: lnk_env) returns (cvt)
+	     signals (error(string));
+	tagcase T
+	   tag a_None:
+	       return(T);
+	   tag b_Cluster_Type (CR: c_desc):
+	       T := rep$Make_b_Cluster_Type(c_desc$Bind(CR, R_D, Env));
+	   tag c_Select_Type (ST: s_desc):
+	       T := rep$Make_c_Select_Type(
+			s_desc$Bind(ST, R_D, Env));
+	   tag d_M_Selector (Kind: string):
+	       T_D: rep := down( R_D.Type_Desc);
+	       if (rep$Is_z_Inst(T_D))
+		  then T_D := down(rep$Value_z_Inst(T_D).T);
+		  end;
+	       tagcase T_D
+		  tag c_Select_Type,
+		      xc_Select_Type (S_D: s_desc):
+		      S_D := s_desc$Transform(Kind, S_D);
+		      T := rep$Make_c_Select_Type(
+			       s_desc$Bind(S_D, R_D, Env));
+		  tag b_Cluster_Type,
+		      xb_Cluster_Type (CR: c_desc):
+		      if (c_desc$Is_Dummy(CR))
+			 then T := down(Make_Unknown());
+			 else signal Error(" Invalid selector type \"" ||
+					   Kind ||
+					   " used in " ||
+					   rtn_desc$Unparse(R_D));
+			 end;
+		  tag zz_Unknown:
+		      T := down(Make_Unknown());
+		  others:
+		      signal Error(" Invalid selector type \"" ||
+				   Kind ||
+				   " used in " ||
+				   rtn_desc$Unparse(R_D));
+		  end;
+	   tag e_Routine_Type (RT: rtn_type):
+	       T := rep$Make_e_Routine_Type(rtn_type$Bind(RT, R_D, Env));
+	   tag f_C_Param (CPI: int):
+	       Prm_C: constant := type_desc$Get_A_Parameter(R_D.Type_Desc, CPI)
+		  except when Bounds:
+			      return (down(Make_Unknown()));
+			 end;
+	       return ( Bind_Type_Param(constant$Value_Type(Prm_C)) );
+		  except when wrong_tag:
+			      if (c_desc$Is_Dummy_Param(Prm_C))
+				 then return (down(Make_Unknown()));
+				 end;
+			      Should_Never_Happen
+				  [constant]( "Non-type param encountered when type expected: " ||
+					      constant$Unparse(Prm_C),
+					      Prm_C);
+			 end;
+	   tag g_R_Param (RPI: int):
+	       Prm_C: constant := rtn_desc$Get_A_Parameter(R_D, RPI);
+		  except when Bounds:
+			      return (down(Make_Unknown()));
+			 end;
+	       return ( Bind_Type_Param(constant$Value_Type(Prm_C) ));
+		  except when wrong_tag:
+			      if (rtn_desc$Is_Dummy_Param(Prm_C))
+				 then return (down(Make_Unknown()));
+				 end;
+			      Should_Never_Happen
+				  [constant]( "Non-type param encountered when type expected: " ||
+					      constant$Unparse(Prm_C),
+					      Prm_C);
+			 end;
+	   tag h_Result_Type (R: rtn_desc):
+	       T := rep$Make_h_Result_Type(rtn_desc$Bind(R, R_D, Env));
+	   tag i_Select_Param:
+	       return (Bind_Type_Param(
+			   Get_Selector_Param(R_D, Env)
+				       ));
+		  except when Not_Selector:
+			      Should_Never_Happen
+				  [rtn_desc]( "Non-selector routine for selector parameter type : " ||
+					      rtn_desc$Unparse(R_D),
+					      R_D);
+			 end;
+
+	   tag w_Unknown_Res_Type (URT: unk_rt):
+	       URT.TD := Bind(URT.TD, R_D, Env);
+	   others:			%% Already bound.
+	   end;
+	   resignal Error;
+	return (T);
+	end Bind;
+
+    Get_Selector_Param = proc (R_D: rtn_desc, Env: lnk_env) returns (type_desc)
+			   signals (not_selector, error(string));
+	Sel_Name: string,
+	Rtn_Name: string := Parse_Selector_Rtn_Name(R_D.Name);
+	   resignal Not_Selector;
+	T_I: int, R_T: type_desc := type_desc$Get_Selector_Type(
+					R_D.Type_Desc, Sel_Name);
+	   resignal Not_Selector;
+	return (R_T);
+	end Get_Selector_Param;
+
+    Bind_Type_Param = proc (TP: type_desc) returns (rep);
+	tagcase down(TP)
+	   tag f_C_Param,
+	       g_R_Param,
+	       i_Select_Param:
+	       Should_Never_Happen
+		   [type_desc]( "Trying to bind to un-bound parameter type",
+				TP);
+	   others:
+	   end;
+	return (down(TP));
+	end Bind_Type_Param;
+    
+
+    Instantiate = proc (T: cvt, Env: lnk_env) returns (cvt)
+		    signals (error(string));
+	tagcase T
+	   tag a_None:
+	       return (T);
+	   tag b_Cluster_Type (CD: c_desc):
+	       CT: c_template := c_template$Find_Cluster(CD.Name, Env);
+	       if ((CT.Param_Count ~= CD.Param_Count) cand
+		   (CT.Param_Count ~= -1) cand
+		   (~ c_desc$Is_Dummy(CD)) cand
+		   (~ c_template$Is_Stub_Cluster(CT)))
+		  then signal Error("Parameter count mismatch for type " ||
+				    CD.Name ||
+				    "\n  Given: " ||
+				    int$Unparse(CD.Param_Count) ||
+				    "  Actual: " ||
+				    int$Unparse(CT.Param_Count));
+		  end;
+	   tag h_Result_Type (R: rtn_desc):
+	       T_D:    type_desc;
+	       Eqv_RD: rtn_desc;
+	       begin
+		   rtn_desc$Instantiate(R, Env);
+		   rtn_desc$Closure(R, Env);
+		   T_D, Eqv_RD := rtn_desc$Result_Type(R, Env);
+		   T_D := Bind(T_D, Eqv_RD, Env);
+		   end;
+		  resignal Error;
+	       if (type_desc$Is_None(T_D))
+		  then signal Error("No result type for " ||
+				    rtn_desc$Unparse(R));
+		  end;
+	       if (rep$Is_w_Unknown_Res_Type(down(T_D)))
+		  then rep$V_Gets_V(T, down(T_D));
+		  else rep$V_Gets_V(T, down(Instantiate(T_D, Env)));
+		  end;
+	       return (T);
+	   tag w_Unknown_Res_Type:
+	       return (T);
+	   tag d_M_Selector,
+	       f_C_Param,
+	       g_R_Param,
+	       i_Select_Param:
+	       Should_Never_Happen
+		   [type_desc]( "Trying to instantiate unbound type",
+				up(T));
+	   tag z_Inst:
+	       return (T);     %% Already instantiated.
+	   tag zz_Unknown:
+	       return (T);
+	   others:                 %% Instantiate all others..
+	   end;
+	IT: type_desc,
+	New_Id: int := type_tab$Enter(Env.Types, up(T), Env);
+	if (New_Id ~= 0)
+	   then rep$Change_z_Inst(T, i_type${T:    up(rep$Copy1(T)),
+					     UID:  Env.Next_Type_ID
+					     });
+	   else rep$V_Gets_V(T, down(IT));
+	   end;
+	return (T);
+	end Instantiate;
+
+    Get_A_Parameter = proc (T: cvt, I: int) returns (constant)
+			signals (bounds);
+	if (rep$Is_z_Inst(T))
+	   then T := down(rep$Value_z_Inst(T).T);
+	   end;
+	tagcase T
+	   tag a_None:
+	       Should_Never_Happen
+		   [type_desc]("Attempt to get a cluster parameter of non-cluster rtn.",
+			       up(T));
+	   tag b_Cluster_Type,
+	       xb_Cluster_Type (C: c_desc):
+	       return (c_desc$Get_A_Parameter(C, I));
+		  resignal Bounds;
+	   tag f_C_Param,
+	       g_R_Param,
+	       i_Select_Param:
+	       Should_Never_Happen
+		   [type_desc]( "Attempt to get a parameter of a un-bound parameter type: " ||
+				type_desc$Unparse(up(T)),
+				up(T));
+	   others:
+	       Should_Never_Happen
+		   [type_desc]( "Attempt to get a parameter of a non-parameterized type: " ||
+				type_desc$Unparse(up(T)),
+				up(T));
+	   end;
+	end Get_A_Parameter;
+    
+
+    Get_UID = proc (T: cvt, Env: lnk_env) returns (int)
+		signals (not_instantiated);
+	tagcase T
+	   tag a_None:
+	       return (0);
+
+	   tag z_Inst (IT: i_type):
+	       return (IT.UID);
+
+	   tag zz_Unknown:
+	       Should_Never_Happen
+		   [type_desc]("Getting UID of unknown type", up(T));
+	   others:
+	       signal Not_Instantiated;
+	   end;
+	end Get_UID;
+
+    Get_C_Template = proc (T: cvt, Env: lnk_env) returns (c_template)
+		       signals (need_to_bind);
+	Orig_T: rep := T;
+	if (rep$Is_z_Inst(T))
+	   then T := down(rep$Value_z_Inst(T).T);
+	   end;
+	tagcase T
+	   tag a_None:
+	       Should_Never_Happen
+		   [type_desc]( "Attempt to get cluster template for non-cluster routine",
+				up(T));
+	   tag b_Cluster_Type,
+	       xb_Cluster_Type (C: c_desc):
+	       return (c_template$Find_Cluster(C.Name, Env));
+	   tag c_Select_Type,
+	       xc_Select_Type (S: s_desc):
+	       return (c_template$Find_Cluster(S.Name, Env));
+	   tag d_M_Selector (Kind: string):
+	       return (c_template$Find_Cluster(Kind, Env));
+	   tag e_Routine_Type,
+	       xe_Routine_Type (Rtn: rtn_type):
+	       return (rtn_type$Find_Cluster(Rtn, Env));
+	   tag f_C_Param,
+	       g_R_Param,
+	       i_Select_Param,
+	       h_Result_Type:
+	       signal Need_To_Bind;
+	   tag w_Unknown_Res_Type (URT: unk_rt):
+	       TD: type_desc;
+	       begin
+		   FndRD: rtn_desc,
+		   FndRT: r_template := rtn_desc$Lookup(URT.RD, Env);
+		      except when Not_Found:
+				  return (Get_C_Template(URT.TD, Env));
+			     end;
+		   begin
+		       rtn_desc$Instantiate(FndRD, Env);
+		       rtn_desc$Closure(FndRD, Env);
+		       TD, FndRD := rtn_desc$Result_Type(FndRD, Env);
+		       TD := Bind(TD, FndRD, Env);
+		       end;
+		      except when Error(Err_S: string):
+				  Should_Never_Happen[rtn_desc](Err_S, URT.RD);
+			     end;
+		   end;
+		  except when Found:
+			 end;
+	       if (type_desc$Is_None(TD))
+		  then Should_Never_Happen
+			   [rtn_desc]("bad result type ", URT.RD);
+		  end;
+	       rep$V_Gets_V(T, down(TD));
+	       if (Orig_T ~= T cand rep$Is_z_Inst(Orig_T))
+		  then rep$V_Gets_V(Orig_T, T);
+		  end;
+	       return (Get_C_Template(TD, Env));
+	   tag z_Inst:
+	       Should_Never_Happen
+		   [type_desc]("Doubly instantiated type", up(T));
+	   tag zz_Unknown:
+	       Should_Never_Happen
+		   [type_desc]("Getting cluster template of unknown type", up(T));
+	   end;
+	end Get_C_Template;
+    
+
+    Selector_Types = iter (T: cvt) yields (type_desc);
+	if (rep$Is_z_Inst(T))
+	   then T := down(rep$Value_z_Inst(T).T);
+	   end;
+	SD: s_desc;
+	SD := rep$Value_c_Select_Type(T);
+	   except when Wrong_Tag:		%% Just in case.
+		       SD := rep$Value_xc_Select_Type(T);
+		  end;
+	   except when Wrong_Tag:
+		       Should_Never_Happen
+			   [type_desc]("Getting selector types of non-Select_Type.", up(T));
+		  end;
+	for TT: tagged_type in sequence[tagged_type]$Elements(SD.Tagged_Types) do
+	    yield (TT.Type_Desc);
+	    end;
+	end Selector_Types;
+
+    Get_Selector_Type = proc (T: cvt, Sel_Name: string)
+			  returns (int, type_desc) signals (not_selector);
+	if (rep$Is_z_Inst(T))
+	   then T := down(rep$Value_z_Inst(T).T);
+	   end;
+	SD: s_desc;
+	SD := rep$Value_c_Select_Type(T);
+	   except when Wrong_Tag:		%% Just in case.
+		       SD := rep$Value_xc_Select_Type(T);
+		  end;
+	   except when Wrong_Tag:
+		       signal Not_Selector;
+		  end;
+	Index: int := 1;
+	for TT: tagged_type in sequence[tagged_type]$Elements(SD.Tagged_Types) do
+	    if (Sel_Name = TT.Tag_Name)
+	       then return (Index, TT.Type_Desc);
+	       end;
+	    Index := Index + 1;
+	    end;
+	signal Not_Selector;
+	end Get_Selector_Type;
+
+    Get_Sel_Name_Strings = proc (T: cvt) returns (strings);
+	strings = sequence[string];
+	if (rep$Is_z_Inst(T))
+	   then T := down(rep$Value_z_Inst(T).T);
+	   end;
+	SD: s_desc;
+	SD := rep$Value_c_Select_Type(T);
+	   except when Wrong_Tag:		%% Just in case.
+		       SD := rep$Value_xc_Select_Type(T);
+		  end;
+	   except when Wrong_Tag:
+		       Should_Never_Happen
+			   [type_desc]("Getting selector names of non-Select_Type.",
+				       up(T));
+		  end;
+	Strs: strings := strings$New();
+	for TT: tagged_type in sequence[tagged_type]$Elements(SD.Tagged_Types) do
+	    Strs := strings$AddH(Strs, TT.Tag_Name);
+	    end;
+	return (Strs);
+	end Get_Sel_Name_Strings;
+
+
+    Get_Routine_Type = proc (T: cvt) returns (rtn_type) signals (not_a_rtn_type);
+	tagcase T
+	   tag e_Routine_Type (RT: rtn_type):
+	       return (RT);
+	   tag xe_Routine_Type (RT: rtn_type):
+	       return (RT);
+	   tag z_Inst (IT: i_type):
+	       return (IT.T.Routine_Type);
+		  resignal Not_a_Rtn_Type;
+	   others:
+	       signal Not_a_Rtn_Type;
+	   end;
+	end Get_Routine_Type;
+
+    Get_Sig_Name_Strings = proc (T: type_desc) returns (strings)
+			     signals (not_a_rtn_type);
+	strings = sequence[string];
+	RT: rtn_type := T.Routine_Type;
+	   resignal Not_a_Rtn_Type;
+	Names: array[string] := array[string]$New();
+	for XD: x_desc in sequence[x_desc]$Elements(RT.Signal_List) do
+	    array[string]$AddH(Names, XD.Name);
+	    end;
+	return (strings$A2S(Names));
+	end Get_Sig_Name_Strings;
+
+
+    Make_Unknown_Result_Type = proc (RD, Dum_RD: rtn_desc) returns (cvt);
+	CD: c_desc := c_desc$Make_Dummy(("<result of " ||
+					 rtn_desc$Stub_Rtn_Unparse(Dum_RD) ||
+					 ">"),
+					false);
+	TD: rep := rep$Make_b_Cluster_Type(CD);
+	return (rep$Make_w_Unknown_Res_Type(unk_rt${ RD: RD,
+						     TD: up(TD) }));
+	end Make_Unknown_Result_Type;
+
+    Is_Unknown_Result_Type = proc (T: cvt) returns (bool);
+	tagcase T
+	   tag w_Unknown_Res_Type:
+	       return (true);
+	   tag z_Inst (IT: i_type):
+	       return (Is_Unknown_Result_Type(IT.T));
+	   others:
+	       return (false);
+	   end;
+	end Is_Unknown_Result_Type;
+
+    Is_Unknown_Result_Type_Name = proc (N: string) returns (bool);
+	return (string$IndexS("<result of ", N) = 1);
+	end Is_Unknown_Result_Type_Name;
+
+    Print = proc (T: cvt, S: pstream);
+	rep$Print(T, S);
+	end Print;
+
+    Unparse = proc (T: cvt) returns (string);
+	S: string;
+	tagcase T
+	   tag a_None:
+	       S := "";
+	   tag b_Cluster_Type,
+	       xb_Cluster_Type (CT: c_desc):
+	       S := c_desc$Unparse(CT);
+	   tag c_Select_Type,
+	       xc_Select_Type (ST: s_desc):
+	       S := s_desc$Unparse(ST);
+	   tag d_M_Selector (Kind: string):
+	       S := Kind;
+	   tag e_Routine_Type,
+	       xe_Routine_Type (R: rtn_type):
+	       S := "<" || rtn_type$Unparse(R) || ">";
+	   tag f_C_Param (CPI: int):
+	       S := "<CParam #" || int$Unparse(CPI) || ">";
+	   tag g_R_Param (RPI: int):
+	       S := "<RParam #" || int$Unparse(RPI) || ">";
+	   tag h_Result_Type (Rtn: rtn_desc):
+	       S := "<result of: " || rtn_desc$Unparse(Rtn) || ">";
+	   tag i_Select_Param:
+	       S := "<Selector Parameter>"
+	   tag w_Unknown_Res_Type (URT: unk_rt):
+	       S := "<unknown result of: " || rtn_desc$Unparse(URT.RD) || ">";
+	   tag z_Inst (IT: i_type):
+	       S := Unparse(IT.T);
+	   tag zz_Unknown:
+	       S := "<unknown type>";
+	   end;
+	return (S);
+	end Unparse;
+    
+
+    Canon_Hasher = proc (TD: cvt, Size: int, Env: lnk_env) returns (int);
+	if (rep$Is_z_Inst(TD))
+	   then TD := down(rep$Value_z_Inst(TD).T);
+	   end;
+	tagcase TD
+	   tag a_None,
+	       d_M_Selector,
+	       f_C_Param,
+	       g_R_Param,
+	       i_Select_Param:
+	       Should_Never_Happen
+		   [type_desc]("Invalid case in hashing type_desc",
+			       up(TD));
+	   tag b_Cluster_Type (CT: c_desc):
+	       c_desc$Instantiate(CT, Env);
+		  except when Error (Err_S: string):
+			      Should_Never_Happen[c_desc](Err_S, CT);
+			 end;
+	       rep$Change_xb_Cluster_Type(TD, CT);
+	       return (c_desc$Canon_Hasher(CT, Size, Env));
+	   tag xb_Cluster_Type (CT: c_desc):
+	       return (c_desc$Canon_Hasher(CT, Size, Env));
+	   tag c_Select_Type (ST: s_desc):
+	       s_desc$Instantiate(ST, Env);
+		  except when Error (Err_S: string):
+			      Should_Never_Happen[s_desc](Err_S, ST);
+			 end;
+	       rep$Change_xc_Select_Type(TD, ST);
+	       return (s_desc$Hasher(ST, Size));
+	   tag xc_Select_Type (ST: s_desc):
+	       return (s_desc$Hasher(ST, Size));
+	   tag e_Routine_Type (R: rtn_type):
+	       rtn_type$Instantiate(R, Env);
+		  except when Error (Err_S: string):
+			      Should_Never_Happen[rtn_type](Err_S, R);
+			 end;
+	       rep$Change_xe_Routine_Type(TD, R);
+	       return (rtn_type$Hasher(R, Size));
+	   tag xe_Routine_Type (R: rtn_type):
+	       return (rtn_type$Hasher(R, Size));
+	   tag h_Result_Type (R: rtn_desc):
+	       Should_Never_Happen[rtn_desc](
+		   "Canonicalizing result type of: " ||
+		   rtn_desc$Unparse(R), R);
+	   tag w_Unknown_Res_Type (URT: unk_rt):
+	       Should_Never_Happen[unk_rt](
+		   "Canonicalizing unknown result type: " ||
+		   type_desc$Unparse(URT.TD), URT);
+	   tag z_Inst (IT: i_type):
+	       return (Canon_Hasher(IT.T, Size, Env));
+	   tag zz_Unknown:
+	       return (1);
+	   end;
+	end Canon_Hasher;
+
+    _gcd = proc (TD: cvt, Tab: gcd_tab) returns (int);
+	return (rep$_gcd(TD, Tab));
+	end _gcd;
+
+    end type_desc;

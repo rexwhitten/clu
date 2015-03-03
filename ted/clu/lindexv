@@ -1,0 +1,43 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+_bytevec_lindexv = proc (find, s: _bytevec, i: int) returns (int)
+		     signals (bounds)
+    z: int := _bytevec$size(find)
+    max: int := z + 1
+    for i in int$from_to_by(i, max, -1) do
+	ok: bool := true
+	for j: int in int$from_to_by(z, 1, -1) do
+	    if find[max - j] ~= s[i - j]
+	       then ok := false
+		    break
+	       end
+	    end
+	if ok
+	   then return(i) end
+	end
+    return(0)
+    end _bytevec_lindexv
+
+_bytevec_nc_lindexv = proc (find, s: _bytevec, i: int) returns (int)
+			signals (bounds)
+    z: int := _bytevec$size(find)
+    max: int := z + 1
+    for i in int$from_to_by(i, max, -1) do
+	ok: bool := true
+	for j: int in int$from_to_by(z, 1, -1) do
+	    fc: char := find[max - j]
+	    sc: char := s[i - j]
+	    if fc = sc
+	       then continue
+	     elseif fc > sc
+	       then fc, sc := sc, fc end
+	    if sc < 'a'  cor  sc > 'z'  cor
+	       char$c2i(sc) - char$c2i(fc) ~= 32
+	       then ok := false
+		    break
+	       end
+	    end
+	if ok
+	   then return(i) end
+	end
+    return(0)
+    end _bytevec_nc_lindexv

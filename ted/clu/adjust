@@ -1,0 +1,134 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+adjust = proc (e: env, start_line, limit, width, init_hpos: int) returns (int)
+    justify: int := env$fetch_num(e, "justify", 0)
+    b: buf := e.buffer
+    lead: string := ""
+    line: int := start_line
+    no_fill_starters: string := env$fetch_str(e, "no_fill_starters", ".'")
+    % default saves R commands from being hacked
+    while line < limit do
+	s: string := b[line]
+	if string$indexc (s[1], no_fill_starters) > 0
+	   then line := line + 1
+		continue
+	   end except when bounds: end
+
+	% Desire is to leave initial spaces, and not to disturb stuff to the
+	% left of tabs.  Non-leading multiple spaces to the right of all tabs
+	% and not at the end of sentences are to be treated as single spaces.
+	% We accomplish this by pre-processing the string to remove such
+	% sequences.
+
+	pos: int := 1
+	while true do	% skip leading spaces/tabs
+	    c: char := s[pos]
+	    if c ~= ' ' cand c ~= '\t' then break end
+	    pos := pos + 1
+	    end except when bounds:
+			    if pos > 1 then
+			       env$delete(e, line, 1, line, pos)
+			       end
+			    line := line + 1
+			    continue
+		       end
+	sjpos: int := pos
+	while true do	% find last tab
+	    if s[pos] = '\t' then sjpos := pos + 1 end
+	    pos := pos + 1
+	    end except when bounds: end
+	pos := sjpos
+	lastc: char := 'x'
+	while true do
+	    c: char := s[pos]
+	    if c = ' ' cand lastc = ' '
+	       then if string$indexc(s[pos-2], ".!?:") > 0 cor
+		       (string$indexc(s[pos-2], "\"')]>}") > 0 cand
+			string$indexc(s[pos-3], ".!?") > 0)
+		       then pos := pos + 1
+			    if s[pos] ~= ' '
+			       then continue end
+		       end except when bounds: end
+		    idx: int := pos + 1
+		    while s[idx] = ' ' do idx := idx + 1 end
+		       except when bounds: end
+		    s := string$substr(s, 1, pos - 1) || string$rest(s, idx)
+		    continue
+	       end
+	    lastc := c
+	    pos := pos + 1
+	    end except when bounds: end
+
+	if lastc = ' '
+	   then s := string$substr(s, 1, pos - 2) end
+
+	% now we scan to find a place to break long lines, or will
+	% concatenate short ones
+
+	hpos: int := init_hpos
+	bpos: int := 0
+	pos := 0
+	new_line: bool := false
+	for c: char in string$chars(s) do
+	    pos := pos + 1
+	    if c = '\t' then
+	       hpos := hpos + 8 - (hpos // 8)
+	       bpos := pos
+	     elseif c = ' ' then
+	       hpos := hpos + 1
+	       bpos := pos
+	     else hpos := hpos + 1
+		  if c < ' ' cor c >= del then
+		     hpos := hpos + 1
+		     end
+	     end
+	    if hpos > width cand bpos >= sjpos then
+	       part1, part2: string := break_line(s, bpos, justify,
+						  width, 1, init_hpos, line)
+	       if string$empty(part1) then
+		  part1 := part2
+		  part2 := ""
+		  end
+	       b[line] := part1
+	       env$note_insert(e, line, 1, line, 2)
+	       line := line + 1
+	       buf$set_cursor(b, line, 1)
+	       if ~string$empty(part2) then
+		  env$insert1(e, "\n")
+		  b[line] := part2
+		  env$note_insert(e, line, 1, line, 2)
+		  limit := limit + 1
+		  end
+	       new_line := true
+	       break
+	       end
+	    end
+
+	if new_line then continue end
+
+	nline: int := line + 1
+	ns: string := b[nline]
+	c: char := ns[1]
+	   except when bounds: c := ' ' end
+	b[line] := s
+	env$note_insert(e, line, 1, line, 2)
+	if c = ' ' cor string$indexc (c, no_fill_starters) > 0
+	     cor string$indexc ('\t', ns) > 0 cor nline >= limit
+	   then % don't concatenate, just trim and break
+		line := nline
+	   else % concatenate with next line by deleting filler & newline
+		env$delete(e, line, pos + 1, nline, 1)
+		env$insert1(e, " ")
+		c := s[pos]
+		if string$indexc(c, ".!?:") > 0 cor
+		   (string$indexc(c, "\"')]>}") > 0  cand
+		    string$indexc(s[pos - 1], ".!?") > 0)
+		   then env$insert1(e, " ")
+		   end except when bounds: end
+		% adjust the line number for the limit
+		limit := limit - 1
+	   end
+	end
+
+    return(limit)
+
+    end adjust

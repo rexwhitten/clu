@@ -1,0 +1,43 @@
+;; Copyright Massachusetts Institute of Technology 1985, 1989
+
+_handler_zap = proc (code: _obj, size: int)
+	move	code, n5		;; Get start.
+	move	rr, n4
+	asr	1, n4			;; De-integerize size.
+	add	n5, n4			;; Get end.
+	movea	schain, r1		;; Get starting segment map.
+	qloop
+		move	nxtmap(r1), n1	;; Don't clobber last loaded
+		beq	next
+		movea	n1, r1
+		tst	nxtmap(r1)	;; or base load.
+		beq	next
+		move	exccnt(r1), n3	;; Count.
+		asr	1, n3		;; De-integerize
+		beq	this		;; Ignore if empty.
+		movea	excseg(r1), r2	;; Get start.
+		add	r2, n3		;; Get end.
+		qloop
+			move	(r2)+, n2	;; Get size.
+			asl	2, n2
+			add	r2, n2	;; Get addr of next.
+			suba	8, r1	;; Set up to start right.
+			loop
+				adda	12, r2	;; Bump to next entry.
+				cmpa	n2, r2	;; Done?
+				bge	next
+				cmp	4(r2), n5	;; End > code start?
+				bge	this
+				cmp	(r2), n4	;; Beg < code end?
+				ble	next
+				move	(r2), n1
+				subq	1, n1
+				move	n1, 4(r2)	;; Yes. Zap it.
+				end
+			movea	n2, r2	;; Move to next chain.
+			cmp	r2, n3
+			bgt	this
+			end
+		end
+	movea	n0, r2			;; Make r2 a valid ref.
+	end _handler_zap

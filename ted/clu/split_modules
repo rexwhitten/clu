@@ -1,0 +1,69 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+split_modules = proc (e: env) signals (errmsg(string))
+    defdir: string := fname$parse(get_frame_name(e)).dir
+       except when bad_format: defdir := "" end
+    defdir := get_string_arg(e, "Directory for new file(s)", defdir)
+       resignal errmsg
+    fn: fname := fname$create(defdir, "", "", "")
+       except when bad_format: signal errmsg("Bad directory name!") end
+    top_display(e, "Splitting current file into modules")
+    b: buf := e.buffer
+    low, max: int, sb: buf := buf$del_frame(b, 1)
+    env$note_delete(e, low, 1, max, max_int)
+    low, max := buf$get_frame(sb)
+    ie: ienv := ienv$create(sb, false)
+    i: int := low - 1
+    cnt: int := 0
+    while true do
+	tagcase ienv$peek(ie, 2)
+	   tag eob:
+	       break
+	   tag clust_key, oper_key:
+	   others:
+	       ienv$xmove(ie)
+	       continue
+	   end
+	name: string := ie.speek
+	while true do
+	    ienv$xmove(ie)
+	    tagcase ie.peek
+	       tag eob:
+		   break
+	       tag end_key:
+		   if ienv$speek(ie, 1) = name
+		      then ienv$xmove(ie)
+			   break
+		      end
+	       others:
+	       end
+	    end
+	buf$set_cursor(sb, low, 1)
+	lnum: int := ie.line
+	nb: buf := buf$sub_buf(sb, lnum, max_int)
+	nb.name := fname$unparse(fname$create(defdir, name, "clu", ""))
+	   except when bad_format: nb.name := name || ".clu" end
+	nb.changed := true
+	env$insert_buf1(e, nb)
+	cnt := cnt + 1
+	while lnum < max  cand  string$empty(sb[lnum + 1]) do
+	    lnum := lnum + 1
+	    end
+	low := lnum + 1
+	ienv$xmove(ie)
+	end
+    if low < max
+       then buf$set_cursor(sb, low, 1)
+	    nb: buf := buf$sub_buf(sb, max, max_int)
+	    if ~string$empty(sb.name)
+	       then nb.name := sb.name
+	       else nb.name := "new"
+	       end
+	    nb.changed := true
+	    env$insert_buf1(e, nb)
+	    cnt := cnt + 1
+       end
+    line, pos: int := buf$get_cursor(b)
+    if line = buf$size(b)
+       then cnt := cnt - 1 end
+    buf$new_frame(b, -cnt)
+    end split_modules

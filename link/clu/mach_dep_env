@@ -1,0 +1,233 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+mach_dep_env = cluster is
+	create,
+	get_rewrites,
+	get_a_symbols,
+	get_a_strings,
+	get_dbg_output,	set_dbg_output,
+	get_rtn_chains,
+	get_stb_rtn_chains,
+	get_sub_fork,	set_sub_fork,
+	get_to_pipe,	set_to_pipe,
+	get_from_pipe,	set_from_pipe,
+	get_found_rtns,
+	get_last_address, set_last_address,
+	get_top_of_immutable_space, set_top_of_immutable_space,
+	get_unknown_rtns,
+	prepare_to_dump, re_init, reset, _gcd;
+
+    rep = record [
+	      A_Strings:      a_strings,
+	      A_Symbols:      a_symbols,
+	      Dbg_Out:        out_link_chan,
+	      Rewrites:       rewrites,
+	      Rtn_Chains:     rtn_chains,
+	      Stb_Rtn_Chains: stb_rtn_chains,
+	      Sub_Fork:	      pos_job,
+	      To_Pipe:        pos_pipe,
+	      From_Pipe:      pos_pipe,
+	      Last_Addr:      address,
+	      Top_Im_Addr:    address,
+	      Found_Rtns:     found_rtns,
+	      Unknown_Rtns:   pos_ur
+		  ];
+
+    gcrep = record [
+		A_Strings:      a_strings,
+		A_Symbols:      a_symbols,
+		Dbg_Out:        out_link_chan,
+		Rewrites:       rewrites,
+		Rtn_Chains:     rtn_chains,
+		Stb_Rtn_Chains: stb_rtn_chains,
+		Sub_Fork:       no_job,
+		To_Pipe:        no_pipe,
+		From_Pipe:      no_pipe,
+		Last_Addr:      address,
+	        Top_Im_Addr:    address,
+		Found_Rtns:     found_rtns,
+		Unknown_Rtns:   no_ur
+		    ];
+    pos_job = variant[None:	null,
+		      Frk:	_job];
+
+    no_job = variant[None:	null,
+		     Frk:      null];
+
+    pos_pipe = variant[None:	null,
+		       Pipe:    _chan];
+
+    no_pipe = variant[None:	null,
+		      Pipe:    null];
+
+    pos_ur = variant [Dumped:	urs,
+		      Table:	unknown_rtns];
+    no_ur = variant [Dumped:	urs,
+		     Table:    null];
+    urs = array[ur];
+    ur = struct[Str:	string,
+		CI:	call_info];
+
+
+    Create = proc () returns (cvt);
+	return (rep${
+		    A_Strings:	   a_strings$New(),
+		    A_Symbols:	   a_symbols$New(),
+		    Dbg_Out:	   out_link_chan$New(),
+		    Rewrites:	   rewrites$New(),
+		    Rtn_Chains:	   rtn_chains$New(),
+		    Stb_Rtn_Chains: stb_rtn_chains$New(),
+		    Sub_Fork:      pos_job$Make_None(nil),
+		    To_Pipe:       pos_pipe$Make_None(nil),
+		    From_Pipe:     pos_pipe$Make_None(nil),
+		    Last_Addr:     address$Make_Specific(0),
+		    Top_Im_Addr:   address$Make_Specific(0),
+		    Found_Rtns:    found_rtns$New(),
+		    Unknown_Rtns:  pos_ur$Make_Table(
+				       unknown_rtns$Create(30,
+							   Hash,
+							   string$Equal))
+		     });
+	end Create;
+
+    Get_Rewrites = proc (MDE: cvt) returns (rewrites);
+	return (MDE.Rewrites);
+	end Get_Rewrites;
+
+    Get_A_Symbols = proc (MDE: cvt) returns (a_symbols);
+	return (MDE.A_Symbols);
+	end Get_A_Symbols;
+
+    Get_A_Strings = proc (MDE: cvt) returns (a_strings);
+	return (MDE.A_Strings);
+	end Get_A_Strings;
+
+    Get_Dbg_Output = proc (MDE: cvt) returns (out_link_chan);
+	return (MDE.Dbg_Out);
+	end Get_Dbg_Output;
+
+    Set_Dbg_Output = proc (MDE: cvt, Out: out_link_chan);
+	MDE.Dbg_Out := Out;
+	end Set_Dbg_Output;
+
+    Get_Rtn_Chains = proc (MDE: cvt) returns (rtn_chains);
+	return (MDE.Rtn_Chains);
+	end Get_Rtn_Chains;
+
+    Get_Stb_Rtn_Chains = proc (MDE: cvt) returns (stb_rtn_chains);
+	return (MDE.Stb_Rtn_Chains);
+	end Get_Stb_Rtn_Chains;
+
+    Set_Sub_Fork = proc (MDE: cvt, Fork: _job);
+	pos_job$Change_Frk(MDE.Sub_Fork, Fork);
+	end Set_Sub_Fork;
+
+    Get_Sub_Fork = proc (MDE: cvt) returns (_job) signals (none_set);
+	return (pos_job$Value_Frk(MDE.Sub_Fork));
+	   except when Wrong_Tag:
+		       signal None_Set;
+		  end;
+	end Get_Sub_Fork;
+
+    Set_To_Pipe = proc (MDE: cvt, Pipe: _chan);
+	pos_pipe$Change_Pipe(MDE.To_Pipe, Pipe);
+	end Set_To_Pipe;
+
+    Get_To_Pipe = proc (MDE: cvt) returns (_chan) signals (none_set);
+	return (pos_pipe$Value_Pipe(MDE.To_Pipe));
+	   except when Wrong_Tag:
+		       signal None_Set;
+		  end;
+	end Get_To_Pipe;
+
+    Set_From_Pipe = proc (MDE: cvt, Pipe: _chan);
+	pos_pipe$Change_Pipe(MDE.From_Pipe, Pipe);
+	end Set_From_Pipe;
+
+    Get_From_Pipe = proc (MDE: cvt) returns (_chan) signals (none_set);
+	return (pos_pipe$Value_Pipe(MDE.From_Pipe));
+	   except when Wrong_Tag:
+		       signal None_Set;
+		  end;
+	end Get_From_Pipe;
+
+    Get_Last_Address = proc (MDE: cvt) returns (address);
+	return (MDE.Last_Addr);
+	end Get_Last_Address;
+
+    Set_Last_Address = proc (MDE: cvt, LAddr: address);
+	MDE.Last_Addr := LAddr;
+	end Set_Last_Address;
+
+    Get_Top_of_Immutable_Space = proc (MDE: cvt) returns (address);
+	return (MDE.Top_Im_Addr);
+	end Get_Top_of_Immutable_Space;
+
+    Set_Top_of_Immutable_Space = proc (MDE: cvt, ImAddr: address);
+	MDE.Top_Im_Addr := ImAddr;
+	end Set_Top_of_Immutable_Space;
+
+    Get_Found_Rtns = proc (MDE: cvt) returns (found_rtns);
+	return (MDE.Found_Rtns);
+	end Get_Found_Rtns;
+
+    Get_Unknown_Rtns = proc (MDE: cvt) returns (unknown_rtns);
+	return (pos_ur$Value_Table(MDE.Unknown_Rtns));
+	end Get_Unknown_Rtns;
+
+    Prepare_to_Dump = proc (MDE: cvt, Env: lnk_env);
+	MDE.A_Symbols := a_symbols$New();
+	MDE.A_Strings := a_strings$New();
+	MDE.Dbg_Out   := out_link_chan$New();
+	MDE.Rewrites  := rewrites$New();
+	pos_job$Change_None(MDE.Sub_Fork, nil);
+	pos_pipe$Change_None(MDE.To_Pipe, nil);
+	pos_pipe$Change_None(MDE.From_Pipe, nil);
+	rtn_chains$Trim(MDE.Rtn_Chains, 1, 0);
+	stb_rtn_chains$Trim(MDE.Stb_Rtn_Chains, 1, 0);
+	MDE.Last_Addr   := address$Fix_Address(MDE.Last_Addr, Env.Locates);
+	MDE.Top_Im_Addr := address$Fix_Address(MDE.Top_Im_Addr, Env.Locates);
+	found_rtns$Trim(MDE.Found_Rtns, 1, 0);
+	URtn_Tab: unknown_rtns := pos_ur$Value_Table(MDE.Unknown_Rtns);
+	   except when Wrong_Tag:
+		       return;         %% Already dumped.
+		  end;
+	URtns: urs := urs$Predict(1, unknown_rtns$Count(URtn_Tab));
+	for RtnNm: string, CI: call_info in unknown_rtns$Elements(URtn_Tab) do
+	    urs$AddH(URtns, ur${Str:	RtnNm,
+				CI:      CI});
+	    end;
+	pos_ur$Change_Dumped(MDE.Unknown_Rtns, URtns);
+	end Prepare_to_Dump;
+
+    Re_Init = proc (MDE: cvt);
+	MDE.A_Symbols := a_symbols$New();
+	MDE.A_Strings := a_strings$New();
+	MDE.Dbg_Out   := out_link_chan$New();
+	MDE.Rewrites  := rewrites$New();
+	URtn_Tab: unknown_rtns := unknown_rtns$Create(30,
+						      Hash,
+						      string$Equal);
+	URtns: urs := pos_ur$Value_Dumped(MDE.Unknown_Rtns);
+	for URtn: ur in urs$Elements(URtns) do
+	    unknown_rtns$MBind(URtn_Tab, URtn.Str, URtn.CI);
+	    end;
+	pos_ur$Change_Table(MDE.Unknown_Rtns, URtn_Tab);
+	end Re_Init;
+
+    Reset = proc (MDE: cvt);
+	MDE.A_Symbols := a_symbols$New();
+	MDE.A_Strings := a_strings$New();
+	MDE.Dbg_Out   := out_link_chan$New();
+	MDE.Rewrites  := rewrites$New();
+	rtn_chains$Trim(MDE.Rtn_Chains, 1, 0);
+	stb_rtn_chains$Trim(MDE.Stb_Rtn_Chains, 1, 0);
+	found_rtns$Trim(MDE.Found_Rtns, 1, 0);
+	end Reset;
+
+    _gcd = proc (MDE: cvt, Tab: gcd_tab) returns (int);
+	%% Prepare_to_Dump must have been called for MDE first.
+	return (gcrep$_gcd(_cvt[rep, gcrep](MDE), Tab));
+	end _gcd;
+
+    end mach_dep_env;

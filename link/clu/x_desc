@@ -1,0 +1,60 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+x_desc = cluster is
+	similar, bind, instantiate,
+	get_name, get_type_list, print, unparse, _gcd;
+
+    rep = record[
+	      a_Name:	   string,
+	      b_Type_List: types];
+
+    Similar = proc (S1, S2: cvt) returns (bool);
+	return ( rep$Similar(S1,S2) );
+	end Similar;
+
+    Bind = proc (Excpt: cvt, R_D: rtn_desc, Env: lnk_env) returns (cvt)
+	     signals (error(string));
+	return ( rep${
+		     a_Name:      Excpt.a_Name,
+		     b_Type_List: Bind_List[type_desc](Excpt.b_Type_List,
+						       R_D, Env)
+		      } );
+	   resignal Error;
+	end Bind;
+
+    Instantiate = proc (X: cvt, Env: lnk_env) returns (cvt)
+		    signals (error(string));
+	X.a_Name := Name_Instantiate(X.a_Name, Env);
+	X.b_Type_List := Instantiate_List[type_desc](X.b_Type_List, Env);
+	   resignal Error;
+	return (X);
+	end Instantiate;
+
+    Get_Name = proc (X: cvt) returns (string);
+	return (X.a_Name);
+	end Get_Name;
+
+    Get_Type_List = proc (X: cvt) returns (types);
+	return (X.b_Type_List);
+	end Get_Type_List;
+
+    Print = proc (X: cvt, S: pstream);
+	rep$Print(X, S);
+	end Print;
+
+    Unparse = proc (X: cvt) returns (string);
+	S: string := X.a_Name;
+	if (~ types$Empty(X.b_Type_List))
+	   then S := (S || "(" ||
+		      Unparse_List[type_desc](X.b_Type_List,
+					      vMax_List_Output_Length) ||
+		      ")" );
+	   end;
+	return (S);
+	end Unparse;
+
+    _gcd = proc (XD: cvt, Tab: gcd_tab) returns (int);
+	return (rep$_gcd(XD, Tab));
+	end _gcd;
+
+    end x_desc;

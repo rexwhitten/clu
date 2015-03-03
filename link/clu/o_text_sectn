@@ -1,0 +1,40 @@
+%% Copyright Massachusetts Institute of Technology 1985, 1989
+
+Output_Text_Section = proc (Env: lnk_env, Get_Times: bool)
+			signals (cant_open(fname, string));
+    Out_Ts: out_times := Env.Times.Outs;
+    Optns:  options   := Env.Options;
+    begin
+	out_link_chan$Start_Text_Section(Env.Output);
+	Output_Prolog(Env);
+	if (Get_Times) then Out_Ts.Consts := Run_Time(); end;
+	if (Optns.Debugging)
+	   then out_link_chan$Position(Env.Output,
+				       Env.Locates.Consts.Low_Address);
+	   end;
+	Output_Constants(Env);
+	out_link_chan$Position(Env.Output,
+			       Env.Locates.Code.Low_Address);
+	if (Get_Times) then Out_Ts.Code   := Run_Time(); end;
+	Output_Code_and_Entries(Env.Files, Env);
+	if (Get_Times) then Out_Ts.Sigs   := Run_Time(); end;
+	Output_Signals(Env);
+	if (Get_Times) then Out_Ts.Excpts := Run_Time(); end;
+	%% We now know how big the excepts area is and thus how big
+	%% P0 space is.
+	if (Optns.Debugging cand ~ Optns.Output_to_File)
+	   then Advance_Last_Address(Env, address$Fix_Address(
+					      locates$P0_Top(Env.Locates),
+					      Env.Locates));
+	   end;
+	if (~ Optns.Debugging)
+	   then Output_Exceptions(Env);
+		if (Get_Times) then Out_Ts.SymTb  := Run_Time(); end;
+		Output_Symbol_Tables(Env);
+	   end
+	if (Get_Times) then Out_Ts.SegMp  := Run_Time(); end;
+	Output_Segment_Map(Env);
+	out_link_chan$End_Text_Section(Env.Output, Env);
+	end;
+       resignal Cant_Open;
+    end Output_Text_Section;

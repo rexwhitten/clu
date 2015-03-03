@@ -1,0 +1,16 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+Read_Except_Blocks = proc (Input: in_chan, Code_Address: address,
+			   UP_Uses: use_list, Env: lnk_env);
+    own Othrs: array[range_addr] := array[range_addr]$Predict(1, 20);
+    Num_Blocks: int := in_chan$Read(Input);
+    if (Num_Blocks > 0)
+       then array[range_addr]$Trim(Othrs, 1, 0);
+	    for I: int in int$From_To(1, Num_Blocks) do
+		EB: except_block := except_block$Read(Input, Code_Address,
+						      UP_Uses);
+		except_block$Invert(EB, Othrs, Env);
+		end;
+	    array[range_addr]$Trim(Othrs, 1, 0);
+       end;
+    end Read_Except_Blocks;

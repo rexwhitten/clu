@@ -1,0 +1,41 @@
+#
+set addlist = `cat addlist`
+set mutlist = `cat mutlist`
+
+chdir ..
+set f1 = asm/*.{clu,equ,defs}
+set f2 = cmp/*.{clu,equ,defs}
+set f3 = debug/asm/* 
+set f4 = debug/clu/*
+set f6 = lib/asm/*
+set f7 = lib/clu/*
+set f8 = link/*.equ
+set f9 = link/clu/*
+set f10 = sys/asm/*
+set f12 = sys/clu/*
+set f13 = ted/*.equ
+set f14 = ted/asm/*
+set f15 = ted/clu/*
+set f16 = util/*.clu
+
+set asmlist = ($f3 $f6 $f10 $f14)
+
+
+foreach f ($addlist)
+set found = false
+foreach fa ($asmlist)
+	if ($f == $fa) then
+		echo add asm copyright to $f
+		set found = true
+	endif
+end
+if ($found == false) echo add clu copyright to $f
+end
+
+foreach f1 ($mutlist)
+if ($f == $f1) then
+	echo mutate copyright of $f
+endif
+end
+
+chdir maint

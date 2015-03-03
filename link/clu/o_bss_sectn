@@ -1,0 +1,11 @@
+
+%% Copyright Massachusetts Institute of Technology 1984, 1989
+
+Output_BSS_Section = proc (Env: lnk_env, Get_Times: bool);
+    if (Get_Times) then Env.Times.Outs.BSS := Run_Time(); end;
+    Global_Size:  int := Env.Locates.Globals.Size;
+    Owns_Size:    int := Env.Locates.Owns.Size;
+    WV_Size:      int := Env.Locates.W_Vecs.Size;
+    Spc_Blk_Size: int := Env.Locates.Space_Blocks.Size;
+    Env.Output.BSS_Size := Global_Size + Owns_Size + WV_Size + Spc_Blk_Size;
+    end Output_BSS_Section;

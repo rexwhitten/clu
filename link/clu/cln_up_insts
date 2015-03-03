@@ -1,0 +1,24 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+Clean_Up_Instantiations = proc (Env: lnk_env);
+    for Nm: string, CT: c_template in clust_tab$Elements(Env.Clusters) do
+	for RT: r_template in routine_list$Elements(CT.Routines) do
+	    if (RT.Inst_Count > 0)
+	       then Insts: rtn_insts := RT.Instantiations;
+		    while (~ rtn_insts$Top(Insts).Was_Output) do
+			Insts := rtn_insts$RemH(Insts);
+			RT.Instantiations := Insts;
+			end;
+	       end;
+	    end;
+	end;
+    for Nm: string, RT: r_template in rtn_tab$Elements(Env.Routines) do
+	if (RT.Inst_Count > 0)
+	   then Insts: rtn_insts := RT.Instantiations;
+		while (~ rtn_insts$Top(Insts).Was_Output) do
+		    Insts := rtn_insts$RemH(Insts);
+		    RT.Instantiations := Insts;
+		    end;
+	   end;
+	end;
+    end Clean_Up_Instantiations;

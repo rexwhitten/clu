@@ -1,0 +1,21 @@
+%	MASM	CLU
+% Copyright Massachusetts Institute of Technology 1984, 1989
+%	MC68000 Assembler: Unix dependent routines
+
+# extend
+
+nul_dev = proc () returns (str)
+	return("/dev/null")
+	end nul_dev
+
+code_temp = proc () returns (str)
+	return("_c_")
+	end code_temp
+
+masm_dir = proc () returns (str)
+	return(_system_root() || "/asm")
+	end masm_dir
+
+bin_dir = proc () returns (str)
+	return(_system_root() || "/bin")
+	end bin_dir

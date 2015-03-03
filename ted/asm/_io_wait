@@ -1,0 +1,4 @@
+; Copyright	Massachusetts Institute of Technology     1989
+_io_wait = qproc (speed: int) returns (bool)
+	return(false)
+	end _io_wait

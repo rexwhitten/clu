@@ -1,0 +1,9 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+set_file_name = proc (e: env, fn: fname)
+    if string$empty(e.buffer.name)
+       then change_title(e, fname$unparse(fn))
+       else e.buffer.name := fname$unparse(fn)
+	       except when illegal: end
+	    env$maybe_change(e)
+       end
+    end set_file_name

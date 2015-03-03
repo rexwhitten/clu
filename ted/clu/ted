@@ -1,0 +1,196 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+% ted (e) performs the read-eval-print loop for characters
+
+ted = proc (e: env) returns (string)
+    e.next_arg := 1
+    disps: act := act$predict(1, e.width)
+    chars: act := act$predict(1, e.width)
+    ob: buf := e.buffer
+    newwin: bool := true
+    slow: bool := false
+    while true do
+	redisp: bool := env$display(e)
+	c: char := _getc()
+	b: buf := e.buffer
+	if newwin  cor  b ~= ob
+	   then slow := false
+		for ee: env in winset$displaying(b) do
+		    if e ~= ee
+		       then slow := true
+			    break
+		       end
+		    end
+		newwin := false
+		ob := b
+	   end
+	if ~slow  cand  ((c >= ' '  cand  c < del)  cor  c = '\t')  cand
+	   e.next_arg = 1  cand  ~e.overwrite  cand  buf$can_insert(b)
+	   then line, pos: int := buf$get_cursor(b)
+		ss: string := b[line]
+		vpos: int := 0
+		ohpos: int := _calc_hpos(ss, pos)
+		hpos: int := ohpos
+		if pos > string$size(ss)
+		   then limit: int := e.width
+			if hpos >= limit
+			   then exit slow end
+			break_lim: int := e.break_lim
+			if break_lim <= 0 then break_lim := max_int end
+			disps.low := ohpos
+			act$trim(disps, ohpos, 0)
+			act$trim(chars, 1, 0)
+			mhpos: int := hpos
+			dhpos: int := mhpos
+			dpos: int := 0
+			same: bool := true
+			while hpos < limit do
+			    if c = del
+			       then if act$empty(chars)
+				       then break
+				     elseif act$remh(chars) = '\t'
+				       then hpos := ohpos
+					    for cc: char in act$elements(chars) do
+						if cc = '\t'
+						   then hpos := hpos + 8 - (hpos // 8)
+						   else hpos := hpos + 1
+						   end
+						end
+				     else hpos := hpos - 1 end
+				    if hpos < dhpos
+				       then dhpos := hpos
+					    dpos := act$size(chars)
+				       end
+			     elseif c = '\t'
+			       then hpos := hpos + 8 - (hpos // 8)
+				    if hpos > limit
+				       then break end
+				    act$addh(chars, c)
+			     elseif c < ' '  cor  c > del  cor
+				    (c > ' '  cand  hpos >= break_lim)
+			       then break
+			     else act$addh(chars, c)
+				  hpos := hpos + 1
+			     end
+			    if _pending_chars()
+			       then c := _getc()
+				    same := false
+				    continue
+			     elseif vpos = 0
+			       then vpos := env$special_line(e, line)
+				    if vpos = 0
+				       then redisp := env$display(e)
+					    if redisp
+					       then c := _getc()
+						    same := false
+						    continue
+					       end
+					    vpos := env$special_line(e, line)
+				       end
+				    _display_line(ss, vpos)
+			     end
+			    if dhpos < mhpos
+			       then act$trim(disps, ohpos, dhpos - ohpos) end
+			    while dpos < act$size(chars) do
+				dpos := dpos + 1
+				c := chars[dpos]
+				if c = '\t'
+				   then act$addh(disps, ' ')
+					while act$high(disps) // 8 ~= 7 do
+					    act$addh(disps, ' ')
+					    end
+				   else act$addh(disps, c)
+				   end
+				end
+			    _display_chars(vpos, dhpos, hpos, disps, mhpos)
+			    mhpos := hpos
+			    dhpos := mhpos
+			    if redisp  cand  ~env$display(e)
+			       then redisp := false
+				    _set_cursor_pos(vpos, hpos, true)
+			       end
+			    c := _getc()
+			    same := true
+			    end
+			if ~act$empty(chars)
+			   then s1: string := string$ac2s(chars)
+				env$insert1(e, s1)
+				env$bump_change(e, string$size(s1))
+				env$mimic_char(e)
+			   end
+			if vpos > 0
+			   then if same
+				   then ss := b[line]
+				   else ss := ss || string$ac2s(disps)
+				   end
+				_update_line(ss, vpos)
+			   end
+		   else s1: string := string$substr(ss, 1, pos - 1)
+			s2: string := string$rest(ss, pos)
+			while true do
+			    if c = del
+			       then if hpos = ohpos then break end
+				    z: int := string$size(s1)
+				    c := s1[z]
+				    s1 := string$substr(s1, 1, z - 1)
+				    if c = '\t'
+				       then hpos := _calc_hpos(s1, z)
+				       else hpos := hpos - 1
+				       end
+			     elseif c > del
+			       then break
+			     elseif c >= ' '
+			       then s1 := string$append(s1, c)
+				    hpos := hpos + 1
+			     elseif c ~= '\t'
+			       then break
+			     else s1 := string$append(s1, c)
+				  hpos := hpos + 8 - (hpos // 8)
+			     end
+			    if _pending_chars()
+			       then c := _getc()
+				    continue
+			     elseif vpos = 0
+			       then vpos := env$special_line(e, line)
+				    if vpos = 0
+				       then redisp := env$display(e)
+					    if redisp
+					       then c := _getc()
+						    continue
+					       end
+					    vpos := env$special_line(e, line)
+				       end
+			     end
+			    _display_line(s1 || s2, vpos)
+			    if redisp
+			       then redisp := env$display(e) end
+			    if ~redisp
+			       then _set_cursor_pos(vpos, hpos, true) end
+			    c := _getc()
+			    end
+			if hpos > ohpos
+			   then s1 := string$rest(s1, pos)
+				env$insert1(e, s1)
+				env$bump_change(e, string$size(s1))
+				env$mimic_char(e)
+			   end
+		   end
+		env$clear_special(e)
+	   end except when slow: end
+	env$command(e, c)
+	   except when errmsg (why: string):
+		       _bell()
+		       if why ~= quit_msg then why := "Oops: " || why end
+		       top_display(e, why)
+		       _flush_macro_chars()
+		  when stop (ne: env, why: string):
+		       if why = quit_msg cor string$indexs("bye", why) > 0
+			  then return(why)
+			elseif ~string$empty(why)
+			  then _bell()
+			       top_display(ne, why)
+			end
+		       newwin := true
+		       e := ne
+		  end
+	end
+    end ted

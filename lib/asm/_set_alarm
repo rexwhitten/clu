@@ -1,0 +1,40 @@
+; Copyright Massachusetts Institute of Technology 1985, 1989
+
+_set_alarm = qproc (secs: int) returns (bool)
+	wvec	buf	{4}
+	own	flag				; alarm gone off?
+	lea	buf,r1
+	move	rr,n7
+	ifgt	asr	1,n7
+	then	clr	-(sp)
+		move	r1,-(sp)
+		moveq	14,n1			; SIGALRM
+		move	n1,-(sp)
+		lea	alarm,r2
+		move	r2,(r1)			; handler
+		move	n0,8(r1)		; on stack
+		clr	-(sp)
+		moveq	%sigvec,n0		; set handler
+		move	n0,-(sp)
+		trap	0
+		clr	(r1)
+		lea	16(sp),sp		; pop stack
+	end
+	clr	-(sp)
+	move	r1,-(sp)
+	move	n7,8(r1)
+	clr	-(sp)
+	clr	-(sp)
+	moveq	%setitimer,n0			; set alarm
+	move	n0,-(sp)
+	movea	flag,rr				; get flag
+	clr	flag				; clear flag
+	trap	0
+	lea	16(sp),sp			; pop stack
+	moveq	1,n0				; restore 0
+	return(rr)
+alarm:	move	true,flag			; remember it has gone off
+	addq	4,sp
+	move	139,(sp)			; cleanup
+	trap	0
+	end _set_alarm

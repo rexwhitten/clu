@@ -1,0 +1,31 @@
+%% Copyright Massachusetts Institute of Technology 1980, 1989
+
+%%% For each caller of routine P, print the caller's name and argument names on
+%%% the primary output. [user-interface routine].
+%%% (SEP/Nov  6 1984)
+
+_Callers = proc (P: _obj) signals (not_found);
+    ss = sequence[string];
+    Flag: bool := _Enter_System();
+    PP: pstream := pstream$Primary_Output();
+    pstream$Pause(PP, "");
+    for Caller_RI: _rtn_info in _frm_table$Elements(_Get_Frm_Table()) do
+	for Callee, Slot: _obj in _Call_Slots(Caller_RI.Routine, Caller_RI) do
+	    if (Callee = P)
+	       then pstream$Text(PP, Caller_RI.Name);
+		    pstream$Text(PP, "(");
+		    First: bool := true;
+		    for Arg_S: string in ss$Elements(Caller_RI.Args_Names) do
+			if (First)
+			   then First := false;
+			   else pstream$Text(PP, ", ");
+			   end;
+			pstream$Text(PP, Arg_S);
+			end;
+		    pstream$Pause(PP, ")");
+		    break;
+	       end;
+	    end;
+	end;
+    _Exit_System(Flag);
+    end _Callers;

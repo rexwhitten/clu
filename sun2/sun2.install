@@ -1,0 +1,11 @@
+To install CLU on a Sun2 the following must be done:
+
+1) Move ~CLU/sun2/exe/link to ~CLU/exe.
+
+2) Move ~CLU/sun2/bin/* to ~CLU/bin.
+
+5) Build and install a new clu, asm, ted, and any other
+   of the files in ~CLU/exe that don't seem to work.
+   See ~CLU/howto.cons to find out how to do this.
+
+6) Build a new basesys and basesys.dump.

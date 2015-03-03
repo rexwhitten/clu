@@ -1,0 +1,26 @@
+%% Copyright Massachusetts Institute of Technology 1986, 1989
+
+Setup_Addresses = proc (Env: lnk_env);
+    Prepare_For_Address_Update(Env);
+    for F: file in file_list$Elements(Env.Files) do
+	for C_or_R: clust_or_rtn in c_r_list$Elements(F.C_Rs) do
+	    tagcase C_or_R
+	       tag Rtn (R: r_template):
+		   Update_Rtn_Addresses(R, Env);
+	       tag Clust (C: c_template):
+		   Update_Clust_Addresses(C, Env);
+	       end;
+	    end;
+	end;
+    for C: constant, R: r_template in old_rtns$Elements(Env.Old_Rtns) do
+	Update_Rtn_Addresses(R, Env);
+	end;
+    Update_Code_Addresses(Env);
+    Update_Seg_Map(Env);
+    Update_Signals_Addresses(Env);
+    Update_Rtn_Infos(Env);
+    Update_Constants(Env);
+    Update_Sym_Tables(Env);
+    Update_Stack(Env);
+    Finish_Address_Update(Env);
+    end Setup_Addresses;

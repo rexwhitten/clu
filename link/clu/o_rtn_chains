@@ -1,0 +1,32 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+Output_Rtn_Chains = proc (Env: lnk_env);
+    Locs: locates := Env.Locates;
+    Out: out_link_chan := Env.Output;
+    for RC: rtn_chain in rtn_chains$Elements(
+			     Env.Mach_Dependent.Rtn_Chains) do
+	New_Insts: rtn_insts := RC.New_Rtn.Instantiations;
+	for New_RI: rtn_inst in rtn_insts$Elements(New_Insts) do
+	    DBs: dbg_blocks := New_RI.Dbg_Blocks;
+	    New_DB: dbg_block := dbg_blocks$Top(DBs);
+	    for I: int in int$From_To(1, (dbg_blocks$Size(DBs) - 1)) do
+		dbg_block$Chain_Overloaded_Block(DBs[I], New_DB, Env);
+		end;
+	    end;
+	end;
+    for SRC: stb_rtn_chain in stb_rtn_chains$Elements(
+				  Env.Mach_Dependent.Stb_Rtn_Chains) do
+	Stb_RI: rtn_inst := SRC.Stb_RI;
+	New_Addr: address := Stb_RI.New_Entry_Address;
+	for Old_RI: rtn_inst in rtn_insts$Elements(SRC.Old_RIs) do
+	    %if (~ Old_RI.Is_Dummy)	%% Always chain the blocks!
+	    % then
+	    for DB: dbg_block in dbg_blocks$Elements(Old_RI.Dbg_Blocks) do
+		dbg_block$Chain_Blocks(DB,
+				       New_Addr,
+				       Env);
+		end;
+	    % end;
+	    end;
+	end;
+    end Output_Rtn_Chains;

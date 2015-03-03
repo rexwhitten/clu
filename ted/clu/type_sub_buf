@@ -1,0 +1,100 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+% Type a portion of a buffer to the user, prompting when
+% necessary to move on to the next page to be typed, to start
+% over, or to quit, or to get help.
+
+type_sub_buf = proc (e: env, prompt: string, b: buf, line1, line2: int,
+		     rtn, help: bool) signals (help)
+    pause_msg = "<SP> or ^N: next, ^P: previous, ^A: start, ^E: end, <other>: next command"
+    valid = c2s(ctrla) || c2s(ctrle) || c2s(ctrlg) || c2s(ctrlh) ||
+	    c2s(ctrlm) || c2s(ctrln) || c2s(ctrlp) || " "
+    while line2 > 0 cand string$empty(b[line2]) do
+	line2 := line2 - 1
+	end
+    if line1 > line2  cor
+       (_pending_chars()  cand
+	string$indexc(_peek(), valid) = 0)
+       then return end
+    whole: bool, bdl, xdl: int := choose_type_area(e, line2 - line1 + 2)
+    first: bool := true
+    delta: int := xdl - bdl
+    dl: int := bdl
+    line: int := line1
+    oline: int := line
+    clear_top: bool := false
+    speed: int := _output_speed()
+    if speed < 100
+      then _display_line("[[[ Ted output speed is " || int$unparse(speed) ||
+		"]]]",dl)
+	   dl:=dl+1
+	   speed:=300
+	end %if
+    mod: int := (speed + 1500) / 1600
+    while true do
+	if dl = bdl then
+	   if whole then
+	      _should_scroll(1, 0, 2)
+		 except when clear:
+			     _clear()
+			     clear_top := false
+			end
+	      end
+	   _display_line(prompt, dl)
+	   dl := dl + 1
+	   end
+	if line > line2
+	   then _display_line("", dl)
+	   else _display_line(b[line], dl)
+	   end
+	line := line + 1
+	dl := dl + 1
+	if dl > xdl cor (dl // mod = 0 cand _io_wait(speed))
+	   then if line > line2
+		   then if rtn
+			   then break end
+			if first
+			   then if (whole  cand  ~_pending_chars())  cor
+				   (~whole  cand  ~env$xdisplay(e, bdl, xdl))
+				   then top_display(e, "(type next command)")
+					clear_top := true
+				   end
+				cc: char := _peek()
+				if cc = ' ' cor cc = '\r' then _getc() end
+				break
+			   end
+		   end
+		first := false
+		dl := bdl
+		if (whole  cand  ~_pending_chars())  cor
+		   (~whole  cand  ~env$xdisplay(e, bdl, xdl))
+		   then top_display(e, pause_msg)
+			clear_top := true
+		   end
+		cc: char := _getc()
+		if cc = ctrlg cor cc = '\r' then break
+		 elseif cc = ctrlh cand help then signal help
+		 elseif cc = ' ' cor cc = ctrln then
+		   line := oline + delta
+		   if line > line2 then break end
+		 elseif cc = ctrlp then
+		   line := oline - delta
+		   if line < line1 then line := line1 end
+		 elseif cc = ctrla then
+		   line := line1
+		 elseif cc = ctrle then
+		   line := line2 - delta + 1
+		   if line < line1 then line := line1 end
+		 else _push_pending_char(cc)
+		      break
+		 end
+		oline := line
+	   end
+	end
+    if whole cand (~rtn cor ~help)
+       then _should_scroll(1, 0, 2)
+       end except when clear:
+		       _clear()
+		       clear_top := false
+		  end
+    if clear_top then top_display(e, "") end
+    end type_sub_buf

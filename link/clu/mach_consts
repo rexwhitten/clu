@@ -1,0 +1,99 @@
+%% Copyright Massachusetts Institute of Technology 1984,, 1989
+
+mach_constants = cluster is
+	address_size, 	     addr_fits_ref_oneof,
+	debug_rtn_name,	     ent_vec_size,
+	vec_head_size, 	     max_vec_size,
+	word_size, own_size, ref_size,
+	code_unit, rel_ext,  lib_dir, default_library, lib_index_file,
+	debug_line, dump_file_name, image_file_name,
+	heap_alloc, stack_alloc,
+	default_heap_size, default_stack_size;
+
+    rep = any;
+
+    Address_Size = proc () returns (int);
+	return (vAddress_Size);
+	end Address_Size;
+
+    Addr_Fits_Ref_Oneof = proc () returns (bool);
+	return (true);
+	end Addr_Fits_Ref_Oneof;
+
+    Debug_Rtn_Name = proc () returns (string);
+	return (vDebug_Routine_Name);
+	end Debug_Rtn_Name;
+
+    Ent_Vec_Size = proc () returns (int);
+	return (vEnt_Head_Size);
+	end Ent_Vec_Size;
+
+    Vec_Head_Size = proc () returns (int);
+	return (vVec_Head_Size);
+	end Vec_Head_Size;
+
+    Max_Vec_Size = proc () returns (int);
+	return (vMax_Vec_Size);
+	end Max_Vec_Size;
+
+    Own_Size = proc () returns (int);
+	return (vOwn_Unit);
+	end Own_Size;
+
+    Ref_Size = proc () returns (int);
+	return (vRef_Size);
+	end Ref_Size;
+
+    Word_Size = proc () returns (int);
+	return (vWord_Size);
+	end Word_Size;
+
+    Code_Unit = proc () returns (int);
+	return (vCode_Unit);
+	end Code_Unit;
+
+    Rel_Ext = proc () returns (string);
+	return (vRel_Ext);
+	end Rel_Ext;
+
+    Lib_Dir = proc () returns (string);
+	return (System_Root() || vLib_Dir);
+	end Lib_Dir;
+
+    Lib_Index_File = proc () returns (string);
+	return (System_Root() || vLib_File);
+	end Lib_Index_File;
+
+    Default_Library = proc () returns (string);
+	return (System_Root() || vDefault_Lib);
+	end Default_Library;
+
+    Debug_Line = proc () returns (string);
+	return ("&" || System_Root() || vDbg_Xload_File);
+	end Debug_Line;
+
+    Dump_File_Name = proc () returns (file_name);
+	return (file_name$Parse(System_Root() || vDump_File_Name));
+	end Dump_File_Name;
+
+    Image_File_Name = proc () returns (file_name);
+	return (file_name$Parse(System_Root() || vImage_File_Name));
+	end Image_File_Name;
+
+    Heap_Alloc = proc () returns (int);
+	return (vHeap_Alloc);
+	end Heap_Alloc;
+
+    Stack_Alloc = proc () returns (int);
+	return (vStack_Alloc);
+	end Stack_Alloc;
+
+    Default_Heap_Size = proc () returns (int);
+	return (vDefault_Heap_Size);
+	end Default_Heap_Size;
+
+    Default_Stack_Size = proc () returns (int);
+	return (vDefault_Stack_Size);
+	end Default_Stack_Size;
+
+    end mach_constants;

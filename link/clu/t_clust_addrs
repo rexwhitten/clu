@@ -1,0 +1,18 @@
+%% Copyright Massachusetts Institute of Technology 1980, 1989
+
+Type_Cluster_Addresses = proc (C: c_template, Out: stream);
+    C_Nm_Str: string := C.Name;
+    stream$PutL(Out, "Cluster: " || C_Nm_Str);
+    Insts: clust_insts := C.Instantiations;
+    for CI: clust_inst in clust_insts$Elements(Insts) do
+	stream$PutS(Out, " Inst: ");
+	stream$PutL(Out, type_desc$Unparse(CI.Type_Desc));
+	OA: address := CI.Owns_Address;
+	stream$PutL(Out, " Owns @ " || address$OUnparse(OA));
+	end;
+    for R: r_template in routine_list$Elements(C.Routines) do
+	if (r_template$Used(R))
+	   then Type_Routine_Address(R, C_Nm_Str, Out);
+	   end;
+	end;
+    end Type_Cluster_Addresses;

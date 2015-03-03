@@ -1,0 +1,15 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+Get_Line_from_Chan = proc (Ch: _chan) returns (string)
+		       signals (end_of_file, not_possible(string));
+    ac = array[char];
+    Chars: ac := ac$New();
+    while (true) do
+	C: char := _chan$GetC(Ch, false);
+	   resignal End_of_File, Not_Possible;
+	if (C ~= '\n')
+	   then ac$AddH(Chars, C);
+	   else return (string$AC2S(Chars));
+	   end;
+	end;
+    end Get_Line_from_Chan;

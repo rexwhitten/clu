@@ -1,0 +1,7 @@
+externals false
+dir ~CLU/ted
+merge ~CLU/lib/lowlev,~CLU/lib/useful,ted
+ce ted,display
+dir ~CLU/ted/clu
+bindir ~CLU/ted/bin
+binsuf *

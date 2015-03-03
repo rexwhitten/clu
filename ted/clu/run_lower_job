@@ -1,0 +1,171 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+# extend
+
+run_lower_job = proc (e: env, prog_name, jcl: string, src: bool) returns (buf)
+		  signals (errmsg(string))
+    _bvec_size = 16 * 512
+    _bvec_max = _bvec_size + 1
+    qc = sequence[_chan]
+    fn: fname := fname$parse(prog_name)
+       except when bad_format: signal errmsg("bad program name!") end
+    dead: int := _job$dead()
+    ic, ioc: _chan := _chan$pipe()
+       except when not_possible (why: string): signal errmsg(why) end
+    oic, oc: _chan
+    if src  cand  ~buf$empty(e.buffer)
+       then oic, oc := _chan$pipe()
+       else src := false
+	    oic := _chan$nul()
+       end except when not_possible (why: string):
+		       _chan$close(ic)
+			  except when not_possible (*): end
+		       _chan$close(ioc)
+			  except when not_possible (*): end
+		       signal errmsg(why)
+		  end
+    _umask(env$fetch_num(e, "umask", 0))
+    _job$set_group_mode(1)
+    j: _job := _job$cons(fn, jcl, oic, ioc, ioc, sequence[_chan]$new())
+       except when not_possible (why: string):
+		   _umask(0)
+		   _chan$close(ic)
+		      except when not_possible (*): end
+		   _chan$close(ioc)
+		      except when not_possible (*): end
+		   if src
+		      then _chan$close(oic)
+			      except when not_possible (*): end
+			   _chan$close(oc)
+			      except when not_possible (*): end
+		      end
+		   signal errmsg(why)
+	      end
+    _umask(0)
+    _chan$close(ioc)
+       except when not_possible (*): end
+    sb: buf
+    idx, max: int
+    if src
+       then _chan$close(oic)
+	       except when not_possible (*): end
+	    sb := e.buffer
+	    idx, max := buf$get_frame(sb)
+       end
+    prog_name := make_upper_case(string$rest(prog_name,
+					     _last_indexc('/', prog_name) + 1))
+    chars: string := _flush_macro_chars()
+    text1: _bytevec := _cvt[string, _bytevec](
+			   "Running " || prog_name || " for 00:00 seconds")
+    text2: _bytevec := _bytevec$copy(text1)
+    min: int := _bytevec$size(text2) - 12
+    mode: string := "      second"
+    b: buf := buf$create()
+    bv: _bytevec := _io_buf()
+    i: int := 0
+    chans: qc := qc$[_input_chan(), ic]
+    btime: int := _real_time()
+    ntime: int := btime + 5000
+    while _job$dead() = dead do
+	while _pending_chars() do
+	    cc: char := _getc()
+	    _bell()
+	    if cc ~= ctrlg then continue end
+	    while _pending_chars() cand ctrlg = _peek() do _getc() end
+	    if mconfirm(e, "Kill " || prog_name, true) then
+	       _job$sig_group(j, 9)
+	       end except when errmsg (*): end
+	    end
+	cnt: int := _chan$pend_count(ic)
+	if cnt = 0
+	   then if src
+		   then _chan$puts(oc, sb[idx], false)
+			if idx < max  cor  ~string$empty(sb[idx])
+			   then _chan$putc(oc, '\n', false) end
+			if idx < max
+			   then idx := idx + 1
+				continue
+			   end
+			_chan$close(oc)
+			   except when not_possible (*): end
+			src := false
+		   end
+		delay: int := ntime - _real_time()
+		if delay > 0  cand  _chan$wait(chans, qc$new(), delay) > 0
+		   then continue end
+		if _job$dead() ~= dead
+		   then break end
+		secs: int := (_real_time() - btime) / 1000
+		ntime := ntime + 5000
+		mins: int := secs / 60
+		if mins > 0
+		   then mode := "  :   minute" end
+		secs := secs // 60
+		_bytevec$move_lr(_cvt[string, _bytevec](mode), 1,
+				 text1, min,
+				 12)
+		if mins > 0
+		   then text1[min + 1] := char$i2c(mins // 10 + 48)
+			if mins >= 10
+			   then text1[min] := char$i2c((mins / 10) // 10 + 48)
+			   end
+			if secs < 10
+			   then text1[min + 3] := '0' end
+		   end
+		text1[min + 4] := char$i2c(secs // 10 + 48)
+		if secs >= 10
+		   then text1[min + 3] := char$i2c(secs / 10 + 48) end
+		top_display(e, _cvt[_bytevec, string](text1))
+		text1, text2 := text2, text1
+		continue
+	   end
+	while cnt > 0 do
+	    n: int := _chan$getbv(ic, bv, i + 1, int$min(cnt, _bvec_size - i))
+	    cnt := cnt - n
+	    i := i + n
+	    if i = _bvec_size
+	       then extract_strings(b, bv, _bvec_max)
+		    i := 0
+	       end
+	    end
+	end except when end_of_file:
+		   when not_possible (*):
+		   end
+    status: int := _job$wait(j)
+       except when not_possible (*): status := 0 end
+    if status // 0400 = 0177
+       then _job$sig_group(j, 9)
+	    _job$wait(j)
+       end except when not_possible (*): end
+    while true do
+	i := i + _chan$getbv(ic, bv, i + 1, _bvec_size - i)
+	if i = _bvec_size
+	   then extract_strings(b, bv, _bvec_max)
+		i := 0
+	   end
+	end except when end_of_file, not_possible (*): end
+    extract_strings(b, bv, i + 1)
+    _chan$close(ic)
+       except when not_possible (*): end
+    if src
+       then _chan$close(oc)
+       end except when not_possible (*): end
+    if status // 0400 = 0177
+       then buf$addh(b, "Stopped: " || _signal_type(status / 0400))
+       else if status ~= 0
+	       then s: string
+		    if status // 0200 ~= 0
+		       then s := "Killed: " || _signal_type(status // 0200)
+			    if status >= 0400
+			       then s := s || ", " end
+		       else s := ""
+		       end
+		    if status >= 0400
+		       then s := s || "Status: " || int$unparse(status / 0400)
+		       end
+		    buf$addh(b, s)
+	       end
+       end
+    b.changed := false
+    _push_macro_chars(chars)
+    return(b)
+    end run_lower_job

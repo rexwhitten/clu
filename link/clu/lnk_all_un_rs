@@ -1,0 +1,68 @@
+%% Copyright Massachusetts Institute of Technology 1984, 1989
+
+Link_All_Unused_Rtns = proc (Do_All: bool, Env: lnk_env);
+    %% Do_All => even link parameterized routines (only usefull if creating
+    %% basesys or if debugging in lower fork with linker on top).
+    R_D: rtn_desc;
+    I: int := file_list$Low(Env.Files);
+    while (true) do
+        F: file := Env.Files[I];
+	for C_R: clust_or_rtn in c_r_list$Elements(F.C_Rs) do
+	    tagcase C_R
+	       tag Clust (C: c_template):
+		   if (clust_tab$Lookup(Env.Clusters, C.Name) = C)
+		      then for R: r_template in routine_list$Elements(C.Routines) do
+			       if ((~ r_template$Used(R)) cand
+				   (Do_All cor ~r_template$Is_Parameterized(R)))
+				  then R_D := rtn_desc$Make_Dummy_Rtn(R, C);
+       				       if (r_template$Is_Renamed(R))
+					  then %% Don't bother linking the equivalent
+					       %% routine here.  It will be found
+					       %% later if it isn't already linked.
+					       continue
+					  end;
+				       if (r_template$Is_Parameterized(R) cor
+					    (R.Param_Count > 0))
+					  then rtn_desc$Dummy_Closure(R_D, R, Env);
+					  else Routine_Closure(R_D, R, Env);
+					  end;
+					  except when Error(Err_S: string):
+						      stream$PutL(Env.Options.List_Stream, Err_S);
+						      stream$PutL(Env.Options.List_Stream,
+								  " Not loading " ||
+								  r_template$Unparse(R));
+						 end;
+				  end;
+			       end;
+		      end;
+	       tag Rtn   (R: r_template):
+		   if ((~ r_template$Used(R)) cand
+		       (Do_All cor ~r_template$Is_Parameterized(R)) cand
+		       (rtn_tab$Lookup(Env.Routines, R.Name) = R))
+		      then R_D := rtn_desc$Make_Dummy_Main(R);
+			   if (r_template$Is_Renamed(R))
+			      then %% Don't bother linking the equivalent
+				   %% routine here.  It will be found
+				   %% later if it isn't already linked.
+				   continue
+			      end;
+			   if (rtn_desc$Has_Dummy_Params(R_D) cand
+			       (r_template$Is_Parameterized(R) cor
+				(R.Param_Count > 0)))
+			      then rtn_desc$Dummy_Closure(R_D, R, Env);
+			      else Routine_Closure(R_D, R, Env);
+			      end;
+			      except when Error(Err_S: string):
+					  stream$PutL(Env.Options.List_Stream, Err_S);
+					  stream$PutL(Env.Options.List_Stream,
+						      " Not loading " ||
+						      r_template$Unparse(R));
+				     end;
+		      end;
+	       end;
+	    end;
+	I := I + 1;
+	end;
+       except when Bounds:
+	      end;
+    end Link_All_Unused_Rtns;

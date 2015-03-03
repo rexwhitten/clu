@@ -1,0 +1,78 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+break_line = proc (s: string, place, just, width, pos, hpos, line: int)
+	       returns (string, string)
+    slen: int := string$size(s)
+    while slen >= pos  cand  (s[slen] = ' '  cor  s[slen] = '\t') do
+	slen := slen - 1
+	end except when bounds: end
+    part1, part2: string
+    if place > slen
+       then part1 := string$substr(s, 1, slen)
+	    part2 := ""
+       else i: int := place - 1
+	    while i >= pos  cand  (s[i] = ' '  cor  s[i] = '\t') do
+		i := i - 1
+		end except when bounds: end
+	    part1 := string$substr(s, 1, i)
+	    while s[place] = ' '  cor  s[place] = '\t' do
+		place := place + 1
+		end except when bounds: end
+	    part2 := string$substr(s, place, slen - place + 1)
+       end
+    if just = 0  cor  string$empty(part1)
+       then return(part1, part2) end
+    nspaces: int := 0
+    lastt: int := pos - 1
+    lastc: char := 'x'
+    while true do
+	c: char := part1[pos]
+	if c = '\t'
+	   then lastt := pos
+		nspaces := 0
+		hpos := hpos + 8 - (hpos // 8)
+	 elseif c < ' ' cor c >= del
+	   then hpos := hpos + 2
+	 else if c = ' '
+		 then if lastt = pos - 1
+			 then lastt := pos
+		       elseif lastc ~= ' '
+			 then nspaces := nspaces + 1 end
+		 end
+	      hpos := hpos + 1
+	 end
+	lastc := c
+	pos := pos + 1
+	end except when bounds: end
+    delta: int := width - hpos
+    if delta <= 0 cor nspaces = 0
+       then return(part1, part2) end
+    per: int := delta / nspaces
+    extra: int := delta // nspaces
+    skip: int := 0
+    if line // 2 ~= 0
+       then skip := nspaces - extra end
+    lag: int := 1
+    pos := lastt + 1
+    new: string := ""
+    spaces: string := ""
+    for j: int in int$from_to_by(per, 1, -1) do
+	spaces := string$append(spaces, ' ')
+	end
+    while true do
+	while part1[pos] ~= ' ' do
+	    pos := pos + 1
+	    end
+	while part1[pos] = ' ' do
+	    pos := pos + 1
+	    end
+	new := new || string$substr(part1, lag, pos-lag) || spaces
+	if skip > 0
+	   then skip := skip - 1
+	 elseif extra > 0
+	   then new := string$append(new, ' ')
+		extra := extra - 1
+	 end
+	lag := pos
+	end except when bounds: end
+    return(new || string$rest(part1, lag), part2)
+    end break_line

@@ -1,0 +1,19 @@
+% Copyright Massachusetts Institute of Technology 1982, 1989
+
+%%% Load (compiled) routines from file named s. [user-interface routine]
+%%% (SEP/Nov  7 1984)
+
+load = proc (s: string) signals (not_possible(string))
+	lnkval = oneof[load: string,
+		       desc: null]
+	flag: bool := _enter_system()
+	gcd_tab$grindp[lnkval](lnkval$make_load(s), _get_pipe(false))
+	   except when not_possible (why: string):
+			_exit_system(flag)
+			signal not_possible(why)
+		  end
+	_load_from_pipe()
+	_update_tracing()
+	_rtn_table$overloads(_get_rtn_table())
+	restart()
+	end load

@@ -1,0 +1,9 @@
+;; Copyright Massachusetts Institute of Technology Liskov, 1989
+
+hash_obj = qproc (o: _obj, max: int) returns (int)
+	move	o, n1
+	asr	1, n1
+	bset	1, n1
+	int$mod	(n1, rr)
+	return (rr)
+	end hash_obj

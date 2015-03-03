@@ -1,0 +1,168 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+# extend
+
+write_file = proc (e: env, fn: fname, appflg, sfnflg: bool)
+	       signals (errmsg(string))
+    own init: bool := false
+    own pid: string
+    if string$empty(fn.name)  cand  string$empty(fn.suffix)  cand
+       string$empty(fn.dir)  cand  string$empty(fn.other)
+       then prompt: string
+	    if appflg
+	       then prompt := "Append text to file"
+	       else prompt := "Write text to file"
+	       end
+	    fn := get_file_name1(e, prompt, fn)
+	       resignal errmsg
+	    sfnflg := true
+       end
+    cnt: int
+    dez: int := _dir_ent_size()
+    fmode: int := env$fetch_num(e, "write_check", 0)
+    if fmode ~= 0
+       then cnt := 0
+	    if ~string$empty(fn.suffix)  cor  ~string$empty(fn.other)
+	       then cnt := 1 + string$size(fn.suffix) end
+	    if ~string$empty(fn.other)
+	       then cnt := cnt + 1 + string$size(fn.other) end
+	    if string$size(fn.name) + cnt > dez
+	       then if fmode < 0  cor  cnt >= dez
+		       then signal errmsg("file name too long") end
+		    fn := fname$create(fn.dir,
+				       string$substr(fn.name, 1, dez - cnt),
+				       fn.suffix,
+				       fn.other)
+	       end
+       end
+    file_name_fill(fn, "")
+    fmode := env$fetch_num(e, "write_mode", 0644)
+    style: int := env$fetch_num(e, "write_style", 0)
+    if appflg
+       then style := 0
+     elseif style = 4
+       then style := 0
+	    cnt, fmode := _file_facts(fn)
+	    style := 4
+     elseif style > 0  cand  style < 9
+       then cnt, fmode := _file_facts(fn)
+	    d: string := env$fetch_str(e, "backup_name", ".old")
+	    i: int := _last_indexc('/', d)
+	    o: string := string$rest(d, i + 1)
+	    if string$indexc('\000', d) > 0  cor  string$size(o) > dez
+	       then signal errmsg("Bad backup name!") end
+	    d := logical_name(e, string$substr(d, 1, i))
+	    if string$empty(d)
+	       then d := fn.dir
+	     elseif d[1] ~= '/'  cand  d[1] ~= '~'
+	       then d := string$append(fn.dir, '/') || d end
+	    n: string := fn.name
+	    if ~string$empty(fn.suffix)  cor  ~string$empty(fn.other)
+	       then n := string$append(n, '.') || fn.suffix end
+	    if ~string$empty(fn.other)
+	       then n := string$append(n, '.') || fn.other end
+	    vers: afnt
+	    keep: bool := o = ".\^V"
+	    if keep
+	       then vers, o := file_versions(string$append(d, '/') || n) end
+	    s: string := string$substr(n, 1, dez - string$size(o)) || o
+	    if n = s  cand  d = fn.dir
+	       then exit done end
+	    n, s, o := _split_name_part(s)
+	    ofn: fname := fname$create(d, n, s, o)
+	    if style // 2 = 1  cand  file_exists(ofn)
+	       then exit done end
+	    if style < 5  cor  (style < 7  cand  cnt = 1)
+	       then rename_file(fn, ofn)
+		       except when not_possible (why: string):
+				   signal errmsg(why)
+			      end
+	       else bv: _bytevec := _io_buf()
+		    ic: _chan := _chan$open(fn, "read", 0)
+		    oc: _chan := _chan$open(ofn, "write", fmode)
+		       except when not_possible (why: string):
+				   _chan$close(ic)
+				   signal errmsg(why)
+			      end
+		    while true do
+			_chan$putb(oc, bv, 1, _chan$getb(ic, bv), false)
+			end except when end_of_file, not_possible (*): end
+		    _chan$close(ic)
+		    _chan$close(oc)
+	       end
+	    if keep
+	       then afnt$addh(vers, ofn)
+		    keep_versions(vers, env$fetch_num(e, "keep_count", 1))
+	       end
+     end except when not_possible (*):
+		when done: if style = 3 then style := 4 end
+		end
+    wfn: fname := fn
+    if style = 4
+       then if ~init
+	       then pid := int$unparse(_get_pid())
+		    init := true
+	       end
+	    wfn := fname$create(fn.dir, "_tedtmp", pid, "")
+       end
+    wfn := wstream$open(wfn, appflg, fmode)
+       except when not_possible (msg: string): signal errmsg(msg) end
+    if style = 4
+       then fn := fname$create(wfn.dir, fn.name, fn.suffix, fn.other)
+       else fn := wfn
+       end
+    wmsg: string := "Writing to " || fname$unparse(fn)
+    top_display(e, wmsg)
+    b: buf := e.buffer
+    low, high: int := buf$get_frame(b)
+    begin
+	for bl: int in int$from_to(low, high-1) do
+	    wstream$put(b[bl], true)
+	    end
+	if high >= low then wstream$put(b[high], false) end
+	wstream$close()
+	if style = 4
+	   then rename_file(wfn, fn) end
+	end except when not_possible (why: string): signal errmsg(why) end
+    top_display(e, wmsg || " - Done.")
+    if sfnflg then
+       set_file_name(e, fn)
+       b.changed := false
+       e.change_count := 0
+       end
+    end write_file
+
+set_backup_mode = proc (e: env, c: char)
+		    signals (errmsg(string), stop(env, string))
+    prompt = "Change backup-on-write mode"
+    legal = "\^C\^R\^T\^XCNRTX"
+    help = "^C: copy if no backup; write direct\n" ||
+	   "^R: rename if no backup; write direct\n" ||
+	   "^T: rename if no backup; write to temporary and rename\n" ||
+	   "^X: if no backup, rename if no links else copy; write direct\n" ||
+	   " C: copy always; write direct\n" ||
+	   " N: no backup; write direct\n" ||
+	   " R: rename always; write direct\n" ||
+	   " T: no backup; write to temporary and rename\n" ||
+	   " X: rename if no links, else copy; write direct"
+    i: int, opt: char := get_option (e, prompt, legal, help, false)
+       resignal errmsg
+    if opt = 'N'
+       then i := 0
+     elseif opt = ctrlr
+       then i := 1
+     elseif opt = 'R'
+       then i := 2
+     elseif opt = ctrlt
+       then i := 3
+     elseif opt = 'T'
+       then i := 4
+     elseif opt = ctrlx
+       then i := 5
+     elseif opt = 'X'
+       then i := 6
+     elseif opt = ctrlc
+       then i := 7
+     else i := 8
+     end
+    env$store_num(e, "write_style", i)
+    end set_backup_mode

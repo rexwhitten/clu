@@ -1,0 +1,7 @@
+; Copyright Massachusetts Institute of Technology 1983, 1989
+
+istream2chan = proc (ist: istream) returns (_chan) signals (not_possible(string))
+	istream$%get_chan(rr)
+	   resignal not_possible
+	return(rr)
+	end istream2chan

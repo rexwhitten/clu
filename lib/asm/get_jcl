@@ -1,0 +1,45 @@
+; Copyright Massachusetts Institute of Technology 1980, 1989
+
+get_jcl = qproc () returns (string)
+	own	done
+	ifle	bset	n0,done			; got it already?
+		bne	this
+		movea	environ,r1
+		move	(r1),n2
+		subq	1,n2			; at most one arg?
+	then	return("")			; nothing
+	end
+	movea	8(r1),r1			; get start of args
+	movea	r1,r2
+	moveq	' ',n3
+	qloop
+		qloop
+			tstb	(r2)+		; look for terminator
+			bne	this
+		end
+		moveb	n3,-1(r2)		; change to space
+		subq	1,n2
+		bgt	this
+	end
+	clrb	-(r2)
+	move	r2,n2
+	sub	r1,n2				; get char count
+	move	n2,n1
+	add	n1,n1				; get header
+	addqb	1,n1
+	addq	7,n2				; get byte count
+	andib	-4,n2
+	movea	heaphi,rr			; alloc
+	iflt	sub	n2,freecnt
+	then	jsr	memout
+	end
+	add	n2,heaphi
+	move	n1,(rr)
+	lea	4(rr),r2
+	qloop
+		moveb	(r1)+,(r2)+
+		bne	this
+	end
+	movea	n0,r2
+	return(rr)
+	end get_jcl

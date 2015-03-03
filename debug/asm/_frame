@@ -1,0 +1,439 @@
+; Copyright Massachusetts Institute of Technology 1984, 1989
+
+_frame = cluster is
+	current, fetch, store, get_prev, get_addr, get_loop, iters,
+	retry, mrtn, myld, msig, equal
+
+;; The rep for this cluster is *always* a real ep. Thus a legitimate "frame"
+;; argument will never point into the heap.
+
+;; Offsets into fake EP
+tflags = 8				;; Trace  flags.
+realra = 16				;; Real return address.
+realep = 20				;; Real EP.
+reallp = 24				;; Real loop body address.
+realrs = 28				;; Real resume address.
+realre = 32 				;; Real resume EP.
+
+tn%myld = 6				;; Bit number of myld flag (from 0)
+
+	;; Return the ep for the current frame (of the caller---since this
+	;; is a qproc the ep isn't changed during the call).
+	current = qproc () returns (cvt)
+		movea	ep, rr
+		return (rr)
+		end current
+
+	;; Returns the ith item in the frame f., i.e., the contents of the ith
+	;; longword above the ep.
+	fetch = qproc (f: cvt, i: int) returns (_obj) signals (bounds)
+		movea	f, r1
+		if	cmpa	sp, r1	;; Check if in stack.
+			blt	next
+			cmpa	stkhi, r1
+			bgt	next
+			lea	-2(rr, rr), rr	;; Get offset * 4.
+			lea	(r1, rr), r1	;; Get address of item.
+			cmpa	sp, r1	;; Check if still in stack.
+			blt	next
+			cmpa	stkhi, r1
+			bgt	next
+		then	movea	(r1), rr 	;; Fetch.
+			return (rr)
+			end
+		movea	n0, r1		;; Make sure rr is a valid ref.
+		signal bounds
+		end fetch
+
+	;; Store object x in the ith item position in frame f, i.e., i
+	;; longwords above the ep.
+	store = qproc (f: cvt, i: int, x: _obj) signals (bounds)
+		movea	f, r1
+		if	cmpa	sp, r1	;; Check if in stack.
+			blt	next
+			cmpa	stkhi, r1
+			bgt	next
+			movea	i, r2
+			lea	-2(r2, r2), r2	;; Get offset * 4.
+			lea	(r1, r2), r2	;; Get addr. of item.
+			cmpa	sp, r2	;; Check if still in stack.
+			blt	next
+			cmpa	stkhi, r2
+			bgt 	next
+		then	move	rr, (r2)	;; Store.
+			return
+			end
+		movea	n0, r1
+		movea	n0, r2		;; Make sure r1 and r2 are valid refs.
+		signal	bounds
+		end store
+
+	;; Return the previous ep, i.e., the real one to which the current ep
+	;; points.
+	get_prev = qproc (f: cvt) returns (cvt) signals (bounds, none)
+		if	cmpa	sp, rr	;; Check if in stack
+			blt	next
+			cmpa	stkhi, rr
+			bgt	next
+		then	movea	(rr), rr	;; Get previous frame.
+			iflt	cmpa	heaphi, rr	;; Check for fake frame.
+			then	movea	realep(rr), rr
+				end
+			if	move	rr, n1	
+				beq	sig_none	;; End of frame chain?
+				cmpa	sp, rr	;; No. Check if still in stack.
+				blt	next
+				cmpa	stkhi, rr
+				bgt	next
+			then	ifeq	tst	(rr)	;; Next = 0 => end of frame chain.
+				then	
+sig_none:				signal none
+					end
+				return (rr)
+				end
+			end
+		movea	n0, rr		;; Make sure rr is a valid ref.
+		signal bounds
+		end get_prev
+
+	;; Returns the return address for the frame.
+	get_addr = qproc (f: cvt) returns (_obj) signals (bounds)
+		if	cmpa	sp, rr	;; Check if in stack.
+			blt	next
+			cmpa	stkhi, rr
+			bgt	next
+		then	move	(rr), n1	;; Check for fake frame.
+			iflt	cmp	heaphi, n1
+			then	movea	n1, rr
+				movea	realra(rr), rr
+			else	movea	4(rr), rr	;; Get return pc.
+				end
+			return (rr)
+			end
+		movea	n0, rr		;; Make sure rr is a valid ref.
+		signal bounds
+		end get_addr
+
+	;; Returns the loop body address for an iterator given its frame. (No
+	;; check is done to make sure that frame is for an iter---so it had
+	;; better be if the caller expects it to be valid!)
+	get_loop = qproc (f: cvt) returns (_obj) signals (bounds)
+		if	cmpa	sp, rr	;; Check if in stack.
+			blt	next
+			cmpa	stkhi, rr
+			bgt	next
+		then	move	(rr), n1	;; Check for fake frame.
+			iflt	cmp	heaphi, n1
+			then	movea	n1, rr
+				movea	reallp(rr), rr
+			else	movea	8(rr), rr	;; Get loop body addr.
+				end
+			return (rr)
+			end
+		movea	n0, rr		;; Make sure rr is a valid ref.
+		signal bounds
+		end get_loop
+
+	;; f is the frame, addr is an address that may be enclosed by iterator
+	;; calls, and rtn is the _rtn_info of the routine containing addr.
+	;; iters looks for all for loop in rtn whose loop bodies encompass
+	;; addr. For each one found, it yields the offset in f of the iter's ep,
+	;; the iter's frame and the iter's resume address.
+	iters = iter (f: cvt, addr: _obj, rinf: _rtn_info) yields (int, cvt, _obj)
+			signals (bounds, not_found)
+		movea	f, r1
+		if	cmpa	sp, r1	;; Check if in stack.
+			blt	this
+			cmpa	stkhi, r1
+			ble	next
+		then	movea	n0, r1	;; Make sure r1 is a valid ref.
+			signal	bounds
+			end
+
+		_rtn_info$get_raw_routine (rinf)
+		move	addr, n1
+		sub	rr, n1		;; Get offset of addr.
+		add 	n1, n1
+		addqb	1, n1
+		for rr in _for_loops (rinf, n1) do
+			movea	f, r1
+			move	rr, n6	;; Save the offset as a clu int.
+			ifeq	cmpa	n0, rr	;; offset will be 1 (CLU 0) if
+ 						;; the for loop was optimized.
+			then	movea	r1, r3
+				movea	(r1), r2
+				cmpa	heaphi, r2
+				blt	check
+				continue 	;; Just loop if not fake frame,
+ 					 	;; because we don't know how
+ 					 	;; to find iters of optimized
+  					 	;; for loops in routines that
+					 	;; aren't being debugged.
+				end
+
+			move	rr, n2
+			asr	1, n2	;; De-integerize offset.
+			movea	(r1, n2), r3	;; Get iter's ep.
+			if	cmpa	r3, r1
+				blt	this
+				cmpa	stkhi, r3
+				ble	next
+			then	movea	n0, r3	;; Make sure r3 is a valid ref.
+				signal bounds
+				end
+			ifgt	move	heaphi, n7
+				cmp     (r3), n7	;; Check for fake frame.
+			then	qloop
+check:					movea	(r3), r1
+					movea	realrs(r1), r4	;; Get resume address.
+					move	realre(r1), n1	;; Get real resume EP.
+					ifgt	cmp	stkhi, n1
+					then	signal bounds
+						end
+					cmp	r3, n1	;; Optimized for loop?
+					beq	next	;; No.
+					movea	n1, r3
+					move	heaphi, n7
+					cmp	(r3), n7
+					bgt	this
+					end
+			else	movea	4(r1, n2), r4
+				;; Note: Just after the iter yielded, the sp
+				;; was stored in the reserved space in the
+				;; caller's frame (above the ep). The return
+				;; (resume) address for the iter was on the top
+				;; of the stack at the time the sp was saved---
+				;; so we can find it now.
+				movea	(r4), r4	;; Get iter's resume address.
+				end
+			yield	(n6, r3, r4)	;; Yield it all (use saved ep-offset).
+			end
+		end iters
+
+	;; Retry a particular routine activation with the same arguments.
+	retry = proc (f: cvt, rtn: _rtn_info) signals (bounds)
+		var	loc
+		if	movea	f, r1
+			cmpa	sp, r1	;; Check if f in stack.
+			blt	this
+			cmpa	stkhi, r1
+			ble	next
+		then	signal bounds
+			end
+
+		loc := _rtn_info$get_routine (rr)	;; Get start addr.
+		ift	_rtn_info$is_iter(rtn)	;; Iterator?
+		then	movea	f, r1
+			movea	(r1), rr
+			if	cmpa	heaphi, rr	;; Check for fake frame.
+				bge	next	;; No if rr >= heaphi...
+				cmpa	heaplo, rr
+				blt	next	;; or r1 < heaplo.
+			then	move	reallp(rr), 8(r1)	;; Put in real loop body.
+				end
+			end
+		ift	_rtn_info$is_parameterized(rtn)	;; Parameterized?
+		then	movea	f, r1		;; Yes.
+			movea	-4(r1), pp	;; Set up pp.
+			ifne	_rtn_info$uses_params(rtn)	;; Uses params?
+			then	movea	-4(pp), r4	;; Get real start addr.
+			else	movea	loc, r4
+				end
+			movea	-4(r1), rr	;; Get last arg, if any.
+		else	movea	f, r1
+			movea	-4(r1), rr	;; Get last arg, if any.
+			movea	loc, r4		;; Get start addr.
+			end
+
+		movea	f, sp		;; Cut back stack.
+		movea	(sp)+, ep	;; Get old ep.
+
+		move	true, trcflg	;; Turn tracing on.
+
+		if	cmpa	heaphi, ep	;; Check for fake frame.
+			bge	next
+			cmpa	heaplo, ep
+			blt	next
+		then	move	realra(ep), (sp)	;; Fix return address.
+			movea	realep(ep), ep		;; Get real ep.
+			end
+		jmp	(r4)		;; Try again.
+
+		end retry
+
+	;; Force return of multiple objects. 
+	mrtn = proc (f: cvt, rtn: _rtn_info, vals: sequence[_obj])
+					signals (bounds, illegal_results)
+		var	cut
+		if	movea	f, r1
+			cmpa	sp, r1	;; Check if f in stack.
+			blt	this
+			cmpa	stkhi, r1
+			ble	next
+		then	signal 	bounds
+			end
+		clr	cut		;; Set cutback count to 0.
+		ift	_rtn_info$is_iter (rtn)	;; Iterator?
+		then	ifne	movea	vals, r1	;; Yes.
+				cmpa	2, r1	;; Check for no results.
+			then	signal illegal_results
+				end
+			addq	1, cut	;; Remember for cutback.
+		elfne	_rtn_info$get_num_returns(rtn)	;; Get result count.
+			movea	vals, r1
+			move	(r1), n1
+			asr	1, n1	;; Get size of vals seq as a clu int.
+			cmp	rr, n1	;; Equal to expected result count?
+		then	_rtn_info$get_name(rtn)	;; No.
+			iff	string$equal ("__stub_routine", rr)
+			then	signal illegal_results
+				end
+			end
+		ifne	_rtn_info$get_num_args (rtn)
+			move	rr, n1
+			asr	1, n1
+		then	subq	1, n1	;; Get args - 1
+			end
+		add	cut, n1		;; Computer real cutback
+		movea	vals, r1	;; Hold on to vals.
+		movea	f, sp		;; Cut back stack.
+		movea	(sp)+, ep	;; Get old ep.
+		movea	(sp)+, r4	;; Get return addr.
+		asr	2, n1
+		lea	(sp, n1), sp	;; Final stack cutback.
+		ifge	move	(r1)+, n1
+			asr	2, n1
+			subq	1, n1	;; Get res count - 1 and test if any.
+		then	if	beq	next	;; More than one?
+			then	qloop	move	(r1)+, -(sp)	;; Yes. Push another.
+					subq	1, n1
+					bgt	this	;; Loop if still more tan one.
+					end
+				end
+			movea	(r1), rr	;; Get last result.
+			movea	n0, r1	;; Make sure r1 is a valid ref.
+			end
+		move	true, trcflg	;; Turn tracing on.
+		jmp	(r4)		;; Return.
+
+		end mrtn
+
+	;; Force yield of multiple objects.
+	myld = proc (f: cvt, addr: _obj, rtn: _rtn_info, vals: sequence[_obj])
+					signals (bounds, illegal_results)
+		var	fake
+		if	movea	f, r1
+			cmpa	sp, r1	;; Check if f in stack
+			blt	this
+			cmpa	stkhi, r1
+			ble	next
+		then	signal bounds
+			end
+		ift	_rtn_info$is_iter(rtn)	;; Iterator?
+		then	_rtn_info$get_num_returns(rtn)	;; Yes, get yield count.
+			ifne	movea	vals, r1
+				move	(r1), n1
+				asr	1, n1	;; Get size of vals seq as a clu int.
+				cmpa	n1, rr	;; Num of yields must match.
+			then	signal	illegal_results
+				end
+		else	_rtn_info$get_name(rtn)
+			iff	string$equal ("__stub_routine", rr)
+			then	signal illegal_results
+				end
+			end
+		movea	f, pp
+		move	ep, -(sp)	;; Save our ep.
+		movea	(pp), r2
+		if	cmpa	heaphi, r2	;; Fake frame?
+			bge	next
+			cmpa	heaplo, r2
+			blt	next
+		then	pea	finish	;; Yes,  save our return.
+			ifeq	move	realrs(r2), -(sp)
+			then	move	addr, (sp)	;; Fake resume addr.
+				end
+		else	pea	resume	;; Save our return.
+			end
+		movea	vals, r1
+		move	(r1)+, n2	;; Get arg count * 4 + 2
+		asr	2, n2		;; Get arg count.
+		ifge	subq	1, n2	;; Any args?
+		then	if	beq	next	;; More than one?
+			then	qloop	move	(r1)+, -(sp)	;; Yes, push another.
+				subq	1, n2
+				bgt	this
+				end
+			end
+			movea	(r1), rr;; Get last result.
+			movea	n0, r1	;; Make sure r1 is a valid ref.
+			end
+	
+		move	true, trcflg	;; Turn tracing on.
+		if	cmpa	heaphi, r2	;; Fake frame?
+			bge	this
+			cmpa	heaplo, r2
+			bge	next
+		then	movea	r2, ep	;; No, yield.
+			movea	8(pp), r2
+			jmp	(r2)
+			end
+		move	pp, -(sp)	;; Save regs.
+		move	rr, -(sp)
+		move	r2, fake
+		_vec[any]$copy(r2)	;; Copy fake ep.
+		movea	fake, r2
+		move	rr, fake
+		bset	tn%myld, tflags(r2)	;; Set flag.
+		movea	(sp)+, rr	;; Restore regs.
+		movea	(sp)+, pp
+		movea	(pp), ep	;; Yield.
+		movea	8(pp), r2
+		jmp	(r2)
+
+resume:		movea	(sp)+, ep
+		return
+
+finish:		movea	(sp)+, ep	;; Restore our ep.
+		movea	f, r1
+		move	fake, (r1)	;; Restore fake ep.
+
+		end myld
+
+	msig = proc (f: cvt, addr: _obj, blk: _signal_block, vals: sequence[_obj])
+					signals (bounds)
+		if	movea	f, r1
+			cmpa	sp, r1	;; Check if f in stack.
+			blt	this
+			cmpa	stkhi, r1
+			ble	next
+		then	signal	bounds
+			end
+		movea	vals, r1
+		move	(r1)+, n2
+		asr	2, n2		;; Get arg count.
+		ifge	subq	1, n2	;; Any args?
+		then	qloop	move	(r1)+, -(sp)	;; Yes, push another.
+				subq	1, n2
+				bgt	this	;; Loop if more.
+				end
+			movea	n0, r1	;; Make sure r1 is a valid ref.
+			end
+
+		move	true, trcflg	;; Turn on tracing.
+		movea	blk, r4
+		lea	-12(r4), r4	;; Get addr of code of signal block.
+		move	addr, -(sp)	;; Fake the call.
+		movea	f, ep		;; Get old ep.
+		jmp	(r4)
+
+		end msig
+
+	equal = qproc (f1, f2: cvt) returns (bool)
+		ifeq	cmpa	f1, rr
+		then	return (true)
+			end
+		return (false)
+		end equal
+
+	end _frame

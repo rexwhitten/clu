@@ -1,0 +1,21 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+change_title = proc (e: env, fnm: string)
+    bufset$store_filename(e.name, fnm)
+       except when bad_name: end
+    b: buf := e.buffer
+    for e in winset$all() do
+	if e.buffer ~= b then continue end
+	e.fname := fnm
+	old: string := e.title
+	pos: int := string$indexs(" [", old)
+	if pos = 0
+	   then pos := _last_indexc('(', old)
+		if pos > 0
+		   then old := string$append(string$substr(old, 1, pos - 1),
+					     '[')
+		   end
+	   else old := string$substr(old, 1, pos + 1)
+	   end
+	update_title(e, old || string$append(fnm, ']'))
+	end
+    end change_title

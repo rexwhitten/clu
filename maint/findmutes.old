@@ -1,0 +1,28 @@
+#
+chdir ..
+set f1 = asm/*.{clu,equ,defs}
+set f2 = cmp/*.{clu,equ}
+set f3 = debug/asm/* 
+set f4 = debug/clu/*
+set f6 = lib/asm/*
+set f7 = lib/clu/*
+set f8 = link/*.equ
+set f9 = link/clu/*
+set f10 = sys/asm/*
+set f12 = sys/clu/*
+set f13 = ted/*.equ
+set f14 = ted/asm/*
+set f15 = ted/clu/*
+set f16 = util/*.clu
+
+foreach flist (f1 f2 f3 f4 f6 f7 f8 f9 f10 f12 f13 f14 f15 f16)
+foreach f (`eval echo \$$flist`)
+set count = `grep -ic copyright $f`
+if ( $count == 0) then
+	echo $f --- no copyright
+else
+	echo $f --- OK
+endif
+end
+end
+chdir maint

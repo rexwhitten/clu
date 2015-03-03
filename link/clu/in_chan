@@ -1,0 +1,338 @@
+%% Copyright Massachusetts Institute of Technology 1984, 1989
+
+%% Vax cross linker for 68000.
+
+vVax = false		%% True if linker is to run on a Vax.
+
+in_chan = cluster is
+	new, open, read, read_long, read_obj, read_buf, close, 
+	start_block_out_mode, end_block_out_mode,
+	read_2_words_from_block,
+	position, get_out_position, get_file_name,
+	advance,
+	set_long_in_block, set_2_words_in_block, set_tagged_long_in_block,
+	print, size;
+
+    %% Position is of last data read.
+
+    rep = record [ Base:     int,	     %% _chan index of first word of _wordvec (in 36-bit words).
+		   B_Out:    out_link_chan,  %% Output chan for block.
+		   B_Size:   int,            %% Remaining byte size of block
+		   %			     %% (< 0 if not in block mode).
+		   B_SIndx:  int,	     %% Starting word index of block.
+		   Chan:     _chan,          %% The channel.
+		   FN:       file_name,      %% The file name.
+		   Ofst:     int,            %% Index of next byte in _wordvec.
+		   Page:     _wordvec,       %% Page used for buffering.
+		   Top:      int ];          %% Index of last byte in _wordvec.
+
+    vPg_Size = 4096			     %% In bytes.
+    vBits_per_Full = 32;
+
+    own Null_Out: out_link_chan		%% Initialized in New.
+
+    New = proc () returns (cvt);
+	Pg: _wordvec := _wordvec$Create(vPg_Size / 4);
+	Null_out := out_link_chan$New();
+	return (rep${ Base:     0,
+		      B_Out:	Null_Out,
+		      B_Size:   -1,
+		      B_SIndx:  0,
+		      Chan:     _chan$Nul(),
+		      FN:	file_name$create("", "", "", ""),
+		      Ofst:     1,
+		      Page:     Pg,
+		      Top:      -1 });
+	end New;
+
+    Open = proc (IC: cvt, Fn: file_name) signals (not_possible(string));
+	IC.Base := 0;
+	IC.B_Out   := Null_Out;
+	IC.B_Size  := -1;
+	IC.B_SIndx := 0;
+	IC.Ofst := 1;
+	IC.Top  := 0;
+	IC.Chan := _chan$Open(Fn, "read", 0);
+	   resignal Not_Possible
+        IC.FN := Fn;
+	end Open;
+
+    Close = proc (IC: cvt) signals (not_possible(string));
+	_chan$Close(IC.Chan);
+	   resignal Not_Possible;
+	IC.Base := 0;
+	IC.Ofst := 1
+	IC.Top  := -1;
+	IC.B_Out  := Null_Out;
+	IC.B_Size := -1;
+	end Close;
+
+
+    Read = proc (IC: cvt) returns (int) signals (not_possible, end_of_file);
+	if (IC.B_Size >= 0)
+	   then signal Not_Possible;
+	   end;
+	if (IC.Ofst > IC.Top)
+	   then IC.Base := IC.Base + IC.Top;
+		IC.Ofst := 1;
+		IC.Top := 0;
+		IC.Top := _chan$GetW(IC.Chan, IC.Page);
+		   resignal End_Of_File;
+		   except when Not_Possible (Err_S: string):
+			       Should_Never_Happen[in_chan](
+				   "Unable to read from _chan: " ||
+				   Err_S, up(IC));
+			  end;
+	   end;
+	Idx: int := IC.Ofst;
+	IC.Ofst := IC.Ofst + 2;
+	if (vVax)
+	   then return (BSwap_WFetch(IC.Page, Idx))
+	   else return (_wordvec$WFetch(IC.Page, Idx));
+	   end
+	end Read;
+
+    Read_Long = proc (IC: cvt) returns (int)
+		  signals (overflow, not_possible, end_of_file);
+	if (IC.B_Size >= 0)
+	   then signal Not_Possible;
+	   end;
+	if (IC.Ofst > IC.Top)
+	   then IC.Base := IC.Base + IC.Top;
+		IC.Ofst := 1;
+		IC.Top := 0;
+		IC.Top := _chan$GetW(IC.Chan, IC.Page);
+		   resignal End_Of_File;
+		   except when Not_Possible (Err_S: string):
+			       Should_Never_Happen[in_chan](
+				   "Unable to read from _chan: " ||
+				   Err_S, up(IC));
+			  end;
+	   end;
+
+	Idx: int := IC.Ofst;
+	IC.Ofst := IC.Ofst + 4;
+	if (false)			%% Never swap!
+	   then return (BSwap_LFetch(IC.Page, Idx))
+	   else return (_wordvec$LFetch(IC.Page, Idx));
+	   end
+	   resignal Overflow;
+	end Read_Long;
+
+    Read_Obj = proc (IC: cvt) returns (_obj)
+		 signals (not_possible, end_of_file);
+	if (IC.B_Size >= 0)
+	   then signal Not_Possible;
+	   end;
+	if (IC.Ofst > IC.Top)
+	   then IC.Base := IC.Base + IC.Top;
+		IC.Ofst := 1;
+		IC.Top := 0;
+		IC.Top := _chan$GetW(IC.Chan, IC.Page);
+		   resignal End_Of_File;
+		   except when Not_Possible (Err_S: string):
+			       Should_Never_Happen[in_chan](
+				   "Unable to read from _chan: " ||
+				   Err_S, up(IC));
+			  end;
+	   end;
+
+	Idx: int := IC.Ofst;
+	IC.Ofst := IC.Ofst + 4;
+	return (_wordvec$Fetch_Obj(IC.Page, ((Idx / 4) + 1)));	%% Uses long index.
+	end Read_Obj;
+
+
+    Read_Buf = proc (IC: cvt, Num: int, Buf: ai)
+		 signals (not_possible, end_of_file);
+	ai = array[int]
+	if (IC.B_Size >= 0)
+	   then signal Not_Possible;
+	   end;
+	for I: int in int$From_To(1, Num) do
+	    if (IC.Ofst > IC.Top)
+	       then IC.Base := IC.Base + IC.Top;
+		    IC.Ofst := 1;
+		    IC.Top := 0;
+		    IC.Top := _chan$GetW(IC.Chan, IC.Page);
+		       resignal End_Of_File;
+		       except when Not_Possible (Err_S: string):
+				   Should_Never_Happen[in_chan](
+				       "Unable to read from _chan: " ||
+				       Err_S, up(IC));
+			      end;
+	       end;
+	    Idx: int := IC.Ofst;
+	    IC.Ofst := IC.Ofst + 2;
+	    if (vVax)
+	       then % Swap bytes.
+		    ai$AddH(Buf, BSwap_WFetch(IC.Page, Idx));
+	       else ai$AddH(Buf, _wordvec$WFetch(IC.Page, Idx));
+	       end
+	    end;
+	end Read_Buf;
+
+
+    Start_Block_Out_Mode = proc (IC: cvt, Output: out_link_chan, B_Len: int)
+			     signals (not_possible);
+	IC.B_Out   := Output;
+	IC.B_Size  := ((B_Len + 3) / 4) * 4;	%% Pad length to long.
+	IC.B_SIndx := IC.Ofst;
+	end Start_Block_Out_Mode;
+
+    End_Block_Out_Mode = proc(IC: cvt);
+	if (IC.B_Size > 0)
+	   then %% Advance to end of block, writing it out.
+		Advance(up(IC), IC.B_Size);
+	   end;
+	%% If something left, write it out.
+	Bytes_Left: int := IC.Ofst - IC.B_SIndx;
+	if (Bytes_Left > 0)
+	   then out_link_chan$Write_Page(IC.B_Out, IC.Page,
+					 IC.B_SIndx, Bytes_Left);
+		IC.B_SIndx := IC.Ofst;
+	   end;
+	IC.B_Size := -1;
+	IC.B_Out := Null_Out;
+	end End_Block_Out_Mode;
+
+    Read_2_Words_from_Block = proc (IC: cvt) returns (int, int)
+			     signals (not_possible, end_of_block);
+	vByte_Mul = 2 ** vBits_per_Byte
+	if (IC.B_Size < 0)
+	   then signal Not_Possible;
+	   end;
+	if ((IC.Top - IC.Ofst) < 3)
+	   then %% Advance block, keeping top word.
+		%% Assumes Top on long word boundary.
+		Num_Bytes: int := IC.Top - 3 - IC.B_Sindx;
+		out_link_chan$Write_Page(IC.B_Out, IC.Page,
+					 IC.B_SIndx, Num_Bytes);
+		IC.Base := IC.Base + IC.Top - 4;
+		_wordvec$WStore(IC.Page, 1,	%% Move last long down.
+				_wordvec$WFetch(IC.Page, IC.Top-3));
+		_wordvec$WStore(IC.Page, 3,
+				_wordvec$WFetch(IC.Page, IC.Top-1));
+		IC.B_SIndx := 1;
+		Num_Bytes := _chan$GetWV(IC.Chan, IC.Page, 5,
+					 (vPg_Size - 4));
+		IC.Top := Num_Bytes + 4;
+		IC.Ofst := IC.Ofst - (vPg_Size - 4);
+	   end;
+	%% Read words, low byte comes first.
+	IC.B_Size := IC.B_Size - 4;
+	if (IC.B_Size < 0)
+	   then signal End_of_Block;
+	   end;
+	WH, WL: int
+	if (vVax)
+	   then %% Bytes are swapped in Vax format
+		WH := BSwap_WFetch(IC.Page, IC.Ofst);
+		WL := BSwap_WFetch(IC.Page, IC.Ofst+2);
+	   else WH := _wordvec$WFetch(IC.Page, IC.Ofst);
+		WL := _wordvec$WFetch(IC.Page, IC.Ofst+2);
+	   end
+	IC.Ofst := IC.Ofst + 4;
+	return (WL, WH);
+	end Read_2_Words_from_Block;
+
+
+    Advance = proc (IC: cvt, Delta: int) signals (not_possible);
+	%% Advance, sending bytes to output as necessary.
+	Del: int := IC.Top - IC.Ofst + 1;
+	while (Delta > Del) do
+	    IC.B_Size := IC.B_Size - Del;
+	    Delta := Delta - Del;
+	    Num_Bytes: int := IC.Top - IC.B_Sindx + 1;
+	    out_link_chan$Write_Page(IC.B_Out, IC.Page,
+				     IC.B_SIndx, Num_Bytes);
+	    IC.Base := IC.Base + IC.Top;
+	    IC.B_SIndx := 1;
+	    Del := _chan$GetW(IC.Chan, IC.Page);
+	    IC.Top := Del;
+	    IC.Ofst := 1;
+	    end;
+	IC.B_Size := IC.B_Size - Delta;
+	IC.Ofst := IC.Ofst + Delta;
+	end Advance;
+
+    Set_Long_in_Block = proc (IC: cvt, L: int) signals (not_possible, bounds);
+	%% Put it in last long.
+	if (vVax)
+	   then    BSwap_LStore(IC.Page, (IC.Ofst - 4), L);
+	   else    _wordvec$LStore(IC.Page, (IC.Ofst - 4), L);
+	   end
+	end Set_Long_in_Block;
+
+    Set_2_Words_in_Block = proc (IC: cvt, L, R: int) signals (not_possible, bounds);
+	%% Put them in last 2 words.
+	if (vVax)
+	   then %% Byte swapped
+		BSwap_WStore(IC.Page, (IC.Ofst - 2), R);
+		BSwap_WStore(IC.Page, (IC.Ofst - 4), L);
+	   else _wordvec$WStore(IC.Page, (IC.Ofst - 2), R);
+		_wordvec$WStore(IC.Page, (IC.Ofst - 4), L);
+	   end
+	end Set_2_Words_in_Block;
+
+    Set_Tagged_Long_in_Block = proc (IC: cvt, Tg: int, L: int) signals (not_possible, bounds);
+	%% Put them in last long.
+	if (vVax)
+	   then % Swap bytes
+		BSwap_LStore(IC.Page, (IC.Ofst - 4), L);
+	   else _wordvec$LStore(IC.Page, (IC.Ofst - 4), L);
+	   end
+	_wordvec$BStore(IC.Page, (IC.Ofst - 4), Tg);
+	end Set_Tagged_Long_in_Block;
+    
+
+    Print = proc (IC: cvt, S: pstream);
+	end Print;
+
+    %% New_Pos is in bytes.
+    Position = proc (IC: cvt, New_Pos: int) signals (not_possible);
+	if (IC.Top < 0)
+	   then signal Not_Possible;
+	   end;
+	Next: int := New_Pos + 1 - IC.Base;
+	if ((Next <= 0) cor (Next > IC.Top))
+	   then IC.Chan.Access := New_Pos;
+		   except when Not_Possible (Err_S: string):
+			       Should_Never_Happen[in_chan](
+				   "Unable to position input _chan: " ||
+				   Err_S, up(IC));
+			  end;
+		IC.Ofst := 1;
+		IC.Top := 0;
+		IC.Base := New_Pos;
+	   else IC.Ofst := Next;
+	   end;
+	end Position;
+
+    %% Position of LAST long read (by Read_2_Words_from_Block).
+
+    Get_Out_Position = proc (IC: cvt) returns (address) signals (not_possible);
+	if (IC.B_Size < 0)	%% Must be in block mode.
+	   then signal Not_Possible;
+	   end;
+	B_Delta: int := IC.Ofst - IC.B_SIndx - 4;
+	return (address$Advance(IC.B_Out.Position, B_Delta));
+	end Get_Out_Position;
+
+    Get_File_Name = proc (IC: cvt) returns (file_name)
+    	return(IC.FN);
+	end Get_File_Name;
+
+    Size = proc (IC: cvt) returns (int) signals (not_possible);
+	if (IC.Top < 0)
+	   then signal Not_Possible;
+	   end;
+	return (IC.Chan.Length);
+	   except when Not_Possible (Err_S: string):
+		       Should_Never_Happen[in_chan](
+			   "Unable to get length of input _chan: " ||
+			   Err_S, up(IC));
+		  end;
+	end Size;
+
+    end in_chan;

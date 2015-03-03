@@ -1,0 +1,189 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+# extend
+
+run_compiler = proc (e: env, cmds: string, kflag: bool) returns (buf)
+		 signals (done, errmsg(string))
+    _bvec_size = 16 * 512
+    _bvec_max = _bvec_size + 1
+    qc = sequence[_chan]
+    own have: bool := false
+    own keep: bool := false
+    own j: _job
+    own ic, oc: _chan
+    own chans: qc
+    own text1, text2: _bytevec
+    own min: int
+    if kflag
+       then if ~have
+	       then keep := mconfirm(e, "Keep a new compiler", true)
+	     elseif ~mconfirm(e, "Keep the existing compiler", true)
+	       then _chan$close(oc)
+		       except when not_possible (*): end
+		    _chan$close(ic)
+		       except when not_possible (*): end
+		    _job$sig_group(j, 9)
+		       except when not_possible (*): end
+		    _job$wait(j)
+		       except when not_possible (*): end
+		    have := false
+		    keep := false
+	     end resignal errmsg
+	    signal done
+       end
+    dead: int := _job$dead()
+    if ~have
+       then name, opts: string := program_name(e, "compiler_name", "clu")
+	       resignal errmsg
+	    fn: fname := fname$parse(name)
+	       except when bad_format: signal errmsg("illegal compiler name!")
+		      end
+	    cmds := opts || cmds
+	    ioc, oic: _chan
+	    ic, ioc := _chan$pipe()
+	       except when not_possible (why: string): signal errmsg(why) end
+	    oic, oc := _chan$pipe()
+	       except when not_possible (why: string):
+			   _chan$close(ic)
+			      except when not_possible (*): end
+			   _chan$close(oic)
+			      except when not_possible (*): end
+			   signal errmsg(why)
+		      end
+	    _umask(env$fetch_num(e, "umask", 0))
+	    _job$set_group_mode(1)
+	    j := _job$cons(fn, "", oic, ioc, ioc, sequence[_chan]$new())
+	       except when not_possible (why: string):
+			   _umask(0)
+			   _chan$close(ic)
+			      except when not_possible (*): end
+			   _chan$close(ioc)
+			      except when not_possible (*): end
+			   _chan$close(oc)
+			      except when not_possible (*): end
+			   _chan$close(oic)
+			      except when not_possible (*): end
+			   signal errmsg(why)
+		      end
+	    _umask(0)
+	    _chan$close(ioc)
+	       except when not_possible (*): end
+	    _chan$close(oic)
+	       except when not_possible (*): end
+	    chans := qc$[_input_chan(), ic]
+	    text1 := _cvt[string, _bytevec](
+			 "Running " ||
+			 make_upper_case(
+			     string$rest(name,
+					 string$indexc('/', name) + 1)) ||
+			 " for 00:00 seconds")
+	    text2 := _bytevec$copy(text1)
+	    min := _bytevec$size(text2) - 12
+	    have := true
+       else _job$sig_group(j, 19)
+	       except when not_possible (why: string): signal errmsg(why) end
+       end
+    chars: string := _flush_macro_chars()
+    b: buf := buf$create()
+    bv: _bytevec := _io_buf()
+    i: int := 0
+    idx: int := 0
+    left: int := string$size(cmds)
+    btime: int := _real_time()
+    ntime: int := btime + 5000
+    if ~keep
+       then cmds := cmds || "#q\n"
+       else cmds := cmds || "#esc\n"
+       end
+    _chan$puts(oc, cmds, false)
+    mode: string := "      second"
+    while dead = _job$dead() do
+	while _pending_chars() do
+	    cc: char := _getc()
+	    _bell()
+	    if cc ~= ctrlg then continue end
+	    while _pending_chars() cand ctrlg = _peek() do _getc() end
+	    if mconfirm(e, "Kill compiler", true) then
+	       keep := false
+	       _job$sig_group(j, 9)
+	       exit end_of_file
+	       end except when errmsg (*): end
+	    end
+	cnt: int := _chan$pend_count(ic)
+	if cnt = 0
+	   then delay: int := ntime - _real_time()
+		if delay > 0  cand  _chan$wait(chans, qc$new(), delay) > 0
+		   then continue end
+		if _job$dead() ~= dead
+		   then break end
+		secs: int := (_real_time() - btime) / 1000
+		ntime := ntime + 5000
+		mins: int := secs / 60
+		if mins > 0
+		   then mode := "  :   minute" end
+		secs := secs // 60
+		_bytevec$move_lr(_cvt[string, _bytevec](mode), 1,
+				 text1, min,
+				 12)
+		if mins > 0
+		   then text1[min + 1] := char$i2c(mins // 10 + 48)
+			if mins >= 10
+			   then text1[min] := char$i2c((mins / 10) // 10 + 48)
+			   end
+			if secs < 10
+			   then text1[min + 3] := '0' end
+		   end
+		text1[min + 4] := char$i2c(secs // 10 + 48)
+		if secs >= 10
+		   then text1[min + 3] := char$i2c(secs / 10 + 48) end
+		top_display(e, _cvt[_bytevec, string](text1))
+		text1, text2 := text2, text1
+		continue
+	   end
+	while cnt > 0 do
+	    n: int := _chan$getbv(ic, bv, i + 1, int$min(cnt, _bvec_size - i))
+	    cnt := cnt - n
+	    i := i + n
+	    if i = _bvec_size
+	       then extract_strings(b, bv, _bvec_max)
+		    i := 0
+	       end
+	    end
+	end except when end_of_file:
+		   when not_possible (*):
+		   end
+    status: int := _job$wait(j)
+       except when not_possible (*): status := 0 end
+    while true do
+	cnt: int := _chan$pend_count(ic)
+	if cnt = 0
+	   then break end
+	n: int := _chan$getbv(ic, bv, i + 1, int$min(cnt, _bvec_size - i))
+	cnt := cnt - n
+	i := i + n
+	if i = _bvec_size
+	   then extract_strings(b, bv, _bvec_max)
+		i := 0
+	   end
+	end
+    extract_strings(b, bv, i + 1)
+    if status // 0400 ~= 0177
+       then status := status // 0200
+	    if status ~= 0
+	       then buf$addh(b, "Killed: " || _signal_type(status)) end
+	    have := false
+     elseif ~keep
+       then have := false
+	    _job$sig_group(j, 9)
+	    _job$wait(j)
+     end except when not_possible (*): end
+    if ~have
+       then _chan$close(ic)
+	       except when not_possible (*): end
+	    _chan$close(oc)
+	       except when not_possible (*): end
+	    keep := false
+       end
+    b.changed := false
+    _push_macro_chars(chars)
+    return(b)
+    end run_compiler

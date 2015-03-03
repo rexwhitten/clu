@@ -1,0 +1,61 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+list_files = proc (oe: env, afn: afnt, fns, name: string)
+    e: env
+    e, name := winset$push(oe, name, fns)
+    e.chtab[c2i(ctrlr)] := run_edit
+    b: buf := e.buffer
+    for ffn: fname in afnt$elements(afn) do
+	buf$addh(b, fname$unparse(ffn))
+	end
+    b.changed := false
+    buf$set_cursor(b, 1, 1)
+    update_title(e, "---- Buffer: " || name ||
+		    " [" || fns || "] (^^ to exit, ^R to edit)")
+    while ted(e) = "bye-edit" do
+	cl, cpos: int := buf$get_cursor(b)
+	fns := b[cl]
+	fn: fname
+	if string$empty(fns)
+	   then exit bad_format
+	   else fn := fname$parse(fns)
+	   end except when bad_format:
+			   _bell()
+			   top_display(e, "Bad format file name!")
+			   continue
+		      end
+	isdir: bool
+	fns, isdir := check_dir(fn, fns)
+	if isdir
+	   then fns, afn := get_file_list1(e, "Match file spec(s)", fns)
+		list_files(e, afn, fns, "Sub-" || name)
+	   else ne: env, ename: string := winset$push(e, "Edit", fns)
+		update_title(ne, "---- Buffer: " || ename ||
+				 " [] (^^ to exit)")
+		begin
+		    read_file(ne, fn)
+		    ne.chtab[c2i(ctrlr)] := run_ctrlr
+		    while true do
+			ted(ne)
+			if ~buf$any_changed(ne.buffer)  cor
+			   mconfirm(ne, "Exit to old edit level", true)
+			   then break
+			   end
+			end
+		    end except when errmsg (why: string):
+				    _bell()
+				    top_display(ne, why)
+			       end
+		winset$pop(ne)
+		bufset$kill_buf(e, ename)
+		   except when errmsg (*): end
+	   end except when errmsg (why: string):
+			   _bell()
+			   top_display(e, why)
+		      end
+	buf$set_cursor(b, cl+1, 0)
+	env$display(e)
+	end
+    winset$pop(e)
+    bufset$kill_buf(e, name)
+       except when errmsg (*): end
+    end list_files

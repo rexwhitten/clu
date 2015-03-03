@@ -1,0 +1,751 @@
+; Copyright Massachusetts Institute of Technology 1980, 1989
+
+string = cluster is	size, indexs, indexc, c2s, concat, append, fetch,
+			empty, substr, rest, s2ac, ac2s, s2sc, sc2s, chars,
+			lt, le, ge, gt, equal, similar, copy, print, 
+			encode, decode, _gcd
+
+size = qproc (s: cvt) returns (int)
+	movea	(rr),rr
+	return(rr)
+	end size
+
+indexs = qproc (find, s: cvt) returns (int)
+	movea	find,r2
+	move	(r2),n3
+	ifeq	asr	1,n3				; find empty?
+	then	return(1)				; yes, index is 1
+	end
+	movea	rr,r1
+	move	(r1),n4
+	asr	1,n4
+	iflt	sub	n3,n4				; get delta size
+	then	return(0)
+	end
+	addq	4,n3
+	add	r2,n3
+	addq	4,rr					; index into s
+	add	rr,n4
+	qloop
+		lea	4(r2),r3			; index into find
+		moveb	(r3)+,n1			; fetch first char
+		qloop
+			cmpb	(rr)+,n1		; compare next char
+			beq	next
+			cmp	rr,n4
+			bge	this			; test and branch
+			bra	none			; no match
+		end
+		move	rr,n6				; save ptr
+		qloop
+			cmp	r3,n3			; done?
+			beq	found
+			cmpmb	(rr)+,(r3)+		; compare
+			beq	this
+		end
+		movea	n6,rr				; reget ptr
+		cmp	rr,n4
+		bge	this				; test and branch
+	end
+none:	movea	n0,rr
+	movea	n0,r3
+	return(rr)					; not found
+found:	movea	n6,rr					; reget ptr
+	suba	r1,rr					; compute index
+	lea	-7(rr,rr),rr
+	movea	n0,r3
+	return(rr)
+	end indexs
+
+indexc = qproc (find: char, s: cvt) returns (int)
+	move	(rr),n3					; get size
+	ifeq	asr	1,n3				; get count
+	then	return(0)
+	end
+	move	find,n1
+	movea	rr,r1
+	addq	4,rr					; point at first char
+	subq	1,n3
+	loop
+		cmpb	(rr)+,n1			; compare
+		dbeq	n3,this
+		ifeq
+		then	suba	r1,rr			; get index
+			lea	-7(rr,rr),rr
+			return(rr)
+		end
+		swap	n3
+		subqw	1,n3
+		blt	next
+		swap	n3
+	end
+	movea	n0,rr					; not found
+	return(rr)
+	end indexc
+
+c2s = qproc (c: char) returns (cvt)
+	move	rr,n1
+	aslw	2,n1			; get byte count
+	movea	strtab,rr
+	movea	4(rr,n1),rr		; fetch
+	return(rr)
+	end c2s
+
+concat = qproc (s1, s2: cvt) returns (cvt)
+	movea	s1,r1
+	move	(r1),n3
+	ifeq	asr	1,n3			; s1 empty?
+	then	return(rr)			; yes
+	end
+	move	(rr),n4
+	ifeq	asr	1,n4			; s2 empty?
+	then	return(r1)			; yes
+	end
+	movea	rr,r2
+	move	n3,n1				; get total
+	add	n4,n1
+	move	n1,n2
+	add	n1,n1				; get header
+	addqb	1,n1
+	addq	7,n2				; get byte count
+	andib	-4,n2
+	movea	heaphi,rr			; alloc
+	iflt	sub	n2,freecnt
+	then	jsr	memout
+	end
+	add	n2,heaphi
+	movea	rr,r3
+	move	n1,(r3)+			; point at first space
+	addq	4,r1				; point at first word
+	addq	4,r2				; point at first word
+	move	n3,n5
+	subq	1,n3
+	asr	2,n3
+	subq	1,n4
+	loop
+		move	(r1)+,(r3)+		; copy words of s1
+		dbra	n3,this
+		swap	n3
+		subqw	1,n3
+		blt	next
+		swap	n3
+	end
+	moveq	3,n3
+	ifeq	andb	n5,n3			; first even?
+	then	asr	2,n4
+		loop
+			move	(r2)+,(r3)+	; copy words of s2
+			dbra	n4,this
+			swap	n4
+			subqw	1,n4
+			blt	done
+			swap	n4
+		end
+	else	lea	-4(r3,n3),r3		; move back
+		loop
+			moveb	(r2)+,(r3)+	; copy bytes of s2
+			dbra	n4,this
+			swap	n4
+			subqw	1,n4
+			blt	next
+			swap	n4
+		end
+	end
+done:	movea	n0,r1
+	movea	n0,r2
+	movea	n0,r3
+	return(rr)
+	end concat
+
+append = qproc (s: cvt, c: char) returns (cvt)
+	move	rr,n3
+	movea	s,r1
+	move	(r1),n1
+	move	n1,n2
+	ifeq	asr	1,n2			; empty?
+	then	aslw	2,n3			; yes, get byte count
+		movea	strtab,rr
+		movea	4(rr,n3),rr		; fetch
+		return(rr)
+	end
+	move	n2,n4
+	addq	2,n1				; get header
+	addq	8,n2				; get byte count
+	andib	-4,n2
+	movea	heaphi,rr			; alloc
+	iflt	sub	n2,freecnt
+	then	jsr	memout
+	end
+	add	n2,heaphi
+	movea	rr,r2
+	move	n1,(r2)+			; point at first space
+	move	n4,n5
+	addq	4,r1				; point at first word
+	subq	1,n4
+	asr	2,n4
+	loop
+		move	(r1)+,(r2)+		; copy words
+		dbra	n4,this
+		swap	n4
+		subqw	1,n4
+		blt	next
+		swap	n4
+	end
+	moveb	n3,4(rr,n5)			; store new char
+	movea	n0,r1
+	movea	n0,r2
+	return(rr)
+	end append
+
+fetch = qproc (s: cvt, index: int) returns (char) signals (bounds)
+	movea	s,r1
+	ifgt	cmpa	(r1),rr			; check bounds
+		bgt	next
+		move	rr,n1
+		asr	1,n1
+	then	moveq	0,n2
+		moveb	3(r1,n1),n2		; fetch
+		return(n2)
+	end
+	signal	bounds
+	end fetch
+
+empty = qproc (s: cvt) returns (bool)
+	moveq	0,n1
+	cmp	(rr),n0			; check size
+	seq	n1
+	return(n1)
+	end empty
+
+substr = qproc (s: cvt, beg, length: int) returns (cvt)
+					      signals (bounds, negative_size)
+	movem	beg,n3/r1
+	move	(r1),n2
+	ifgt	subq	3,n3			; check bounds
+		blt	this
+		cmp	n2,n3
+	then	signal	bounds
+	end
+	iflt	move	rr,n1			; check length
+	then	signal	negative_size
+	end
+	move	n1,n4
+	add	n3,n4
+	ifhi	cmp	n2,n4			; check length
+	then	move	n2,n1			; use rest of s
+		sub	n3,n1
+	end
+	ifeq	cmp	n2,n1			; check if whole string
+	then	return(r1)
+	end
+	move	n1,n2
+	ifeq	asr	1,n2			; check if empty
+	then	return("")
+	end
+	asr	1,n3
+	ifeq	cmp	n0,n2			; check if single char
+	then	moveb	4(r1,n3),n2		; fetch
+		aslw	2,n2
+		movea	strtab,rr
+		movea	4(rr,n2),rr
+		return(rr)
+	end
+	move	n2,n4
+	addq	7,n2				; get byte count
+	andib	-4,n2
+	movea	heaphi,rr			; alloc
+	iflt	sub	n2,freecnt
+	then	jsr	memout
+	end
+	add	n2,heaphi
+	movea	rr,r2
+	move	n1,(r2)+			; point at first space
+	lea	4(r1,n3),r1			; point at first char
+	subq	1,n4
+	loop
+		moveb	(r1)+,(r2)+		; copy bytes
+		dbra	n4,this
+		swap	n4
+		subqw	1,n4
+		blt	next
+		swap	n4
+	end
+	movea	n0,r1
+	movea	n0,r2
+	return(rr)
+	end substr
+
+rest = qproc (s: cvt, beg: int) returns (cvt) signals (bounds)
+	movea	s,r1
+	move	rr,n3
+	iflt	subq	3,n3			; check bounds
+		ble	this
+		move	(r1),n1
+		sub	n3,n1
+	then	ifeq				; check if whole string
+		then	return(r1)
+		end
+		signal	bounds
+	end
+	move	n1,n2
+	ifeq	asr	1,n2			; check if empty
+	then	return("")
+	end
+	asr	1,n3
+	ifeq	cmp	n0,n2			; check if single char
+	then	moveb	4(r1,n3),n2		; fetch
+		aslw	2,n2
+		movea	strtab,rr
+		movea	4(rr,n2),rr
+		return(rr)
+	end
+	move	n2,n4
+	addq	7,n2				; get byte count
+	andib	-4,n2
+	movea	heaphi,rr			; alloc
+	iflt	sub	n2,freecnt
+	then	jsr	memout
+	end
+	add	n2,heaphi
+	movea	rr,r2
+	move	n1,(r2)+			; point at first space
+	lea	4(r1,n3),r1			; point at first char
+	subq	1,n4
+	loop
+		moveb	(r1)+,(r2)+		; copy bytes
+		dbra	n4,this
+		swap	n4
+		subqw	1,n4
+		blt	next
+		swap	n4
+	end
+	movea	n0,r1
+	movea	n0,r2
+	return(rr)
+	end rest
+
+s2ac = proc (s: cvt) returns (array[char])
+	string$s2sc(rr)				; cons real part
+	movea	rr,r1
+	move	%adv,,1,n1			; get header
+	moveq	dv%blen,n2			; get byte count
+	moveq	3,n4				; get low
+	move	(r1),n3				; get max
+	asr	1,n3
+	sub	n4,n3
+	moveaw	3,r2				; get lcnt
+	movea	heaphi,rr			; alloc
+	iflt	sub	n2,freecnt
+	then	jsr	memout
+	end
+	add	n2,heaphi
+	adda	r2,r1				; get rel
+	movem	n1/n3/n4/r1/r2,(rr)		; initialize
+	return(rr)
+	end s2ac
+
+ac2s = qproc (a: array[char]) returns (cvt)
+	ifle	move	dv%max(rr),n1			; check length
+	then	ifeq					; check if empty
+		then	movea	dv%rel(rr),rr		; get rel
+			moveb	4(rr),n1		; fetch
+			aslw	2,n1
+			movea	strtab,rr
+			movea	4(rr,n1),rr
+			return(rr)
+		end
+		return("")
+	end
+	movea	rr,r1
+	addq	3,n1					; get header
+	move	n1,n2					; get byte count
+	asr	1,n2
+	move	n2,n3
+	addq	7,n2
+	andib	-4,n2
+	movea	heaphi,rr				; alloc
+	iflt	sub	n2,freecnt
+	then	jsr	memout
+	end
+	add	n2,heaphi
+	movea	rr,r2
+	move	n1,(r2)+				; point at first space
+	movea	dv%rel(r1),r1				; point at first char
+	addq	1,r1
+	add	r2,n3
+	qloop
+		move	(r1)+,n1			; fetch
+		moveb	n1,(r2)+			; store
+		cmp	r2,n3
+		bne	this				; test and branch
+	end
+	movea	n0,r1
+	movea	n0,r2
+	return(rr)
+	end ac2s
+
+s2sc = qproc (s: cvt) returns (sequence[char])
+	move	(rr),n1
+	ifeq	cmp	n0,n1			; check if empty
+	then	return([])
+	end
+	movea	rr,r1
+	add	n1,n1				; get header
+	move	n1,n2				; get byte count
+	addq	2,n2
+	movea	heaphi,rr			; alloc
+	iflt	sub	n2,freecnt
+	then	jsr	memout
+	end
+	add	n2,heaphi
+	movea	rr,r2
+	move	n1,(r2)+			; point at first space
+	addq	4,r1				; point at first char
+	add	rr,n2
+	moveq	0,n1
+	qloop
+		moveb	(r1)+,n1		; fetch
+		move	n1,(r2)+		; store
+		cmp	r2,n2
+		bne	this			; test and branch
+	end
+	movea	n0,r1
+	movea	n0,r2
+	return(rr)
+	end s2sc
+
+sc2s = qproc (q: sequence[char]) returns (cvt)
+	move	(rr),n1
+	asr	1,n1				; get header
+	move	n1,n2
+	ifeq	asr	1,n2			; check if empty
+	then	return("")
+	end
+	ifeq	cmp	n0,n2			; check if single char
+	then	move	4(rr),n1		; fetch
+		aslw	2,n1
+		movea	strtab,rr
+		movea	4(rr,n1),rr
+		return(rr)
+	end
+	movea	rr,r1
+	move	n2,n3
+	addq	7,n2				; get byte count
+	andib	-4,n2
+	movea	heaphi,rr			; alloc
+	iflt	sub	n2,freecnt
+	then	jsr	memout
+	end
+	add	n2,heaphi
+	movea	rr,r2
+	move	n1,(r2)+			; point at first space
+	addq	4,r1				; point at first char
+	add	r2,n3
+	qloop
+		move	(r1)+,n1		; fetch
+		moveb	n1,(r2)+		; store
+		cmp	r2,n3
+		bne	this			; test and branch
+	end
+	movea	n0,r1
+	movea	n0,r2
+	return(rr)
+	end sc2s
+
+chars = iter (s: cvt) yields (char)
+	var	idx
+	move	n0,idx
+	loop
+		addq	2,idx			; bump index
+		move	idx,n1
+		movea	s,rr
+		cmp	(rr),n1			; done?
+		bgt	next
+		asr	1,n1			; no
+		moveq	0,n2
+		moveb	3(rr,n1),n2		; fetch
+		yield(n2)
+	end
+	end chars
+
+lt = qproc (s1, s2: cvt) returns (bool)
+	movea	s1,r1
+	move	(r1)+,n1			; get size of s1
+	move	(rr)+,n2			; get size of s2
+	asr	1,n2				; s2 empty?
+	beq	compnl
+	asr	1,n1				; no, s1 empty?
+	beq	complt
+	add	r1,n1
+	add	rr,n2
+	loop
+		cmpm	(r1)+,(rr)+		; compare 4 bytes
+		bhi	complt
+		bne	compnl
+		cmp	r1,n1
+		ble	next			; go until s1 empty
+		cmp	rr,n2
+		bgt	this			; or until s2 empty
+		bra	compnl
+	end
+	sub	r1,n1				; compare final counts
+	sub	rr,n2
+	cmp	n2,n1				; compare final counts
+	blt	complt
+compnl: suba	rr,rr
+	movea	n0,r1
+	return(rr)
+complt: moveaw	true,rr
+	movea	n0,r1
+	return(rr)
+	end lt
+
+le = qproc (s1, s2: cvt) returns (bool)
+	movea	s1,r1
+	move	(r1)+,n1			; get size of s1
+	move	(rr)+,n2			; get size of s2
+	asr	1,n1				; s1 empty?
+	beq	comple
+	asr	1,n2				; no, s2 empty?
+	beq	compnl
+	add	r1,n1
+	add	rr,n2
+	loop
+		cmpm	(r1)+,(rr)+		; compare 4 bytes
+		bhi	comple
+		bne	compnl
+		cmp	r1,n1
+		ble	next			; go until s1 empty
+		cmp	rr,n2
+		bgt	this			; or until s2 empty
+		bra	compnl
+	end
+	sub	r1,n1				; compare final counts
+	sub	rr,n2
+	cmp	n2,n1				; compare final counts
+	ble	comple
+compnl: suba	rr,rr
+	movea	n0,r1
+	return(rr)
+comple: moveaw	true,rr
+	movea	n0,r1
+	return(rr)
+	end le
+
+ge = qproc (s1, s2: cvt) returns (bool)
+	movea	s1,r1
+	move	(r1)+,n1			; get size of s1
+	move	(rr)+,n2			; get size of s2
+	asr	1,n2				; s2 empty?
+	beq	compge
+	asr	1,n1				; no, s1 empty?
+	beq	compng
+	add	r1,n1
+	add	rr,n2
+	loop
+		cmpm	(rr)+,(r1)+		; compare 4 bytes
+		bhi	compge
+		bne	compng
+		cmp	r1,n1
+		ble	next			; go until s1 empty
+		cmp	rr,n2
+		bgt	this			; or until s2 empty
+		bra	compge
+	end
+	sub	r1,n1				; compare final counts
+	sub	rr,n2
+	cmp	n2,n1				; compare final counts
+	bge	compge
+compng: suba	rr,rr
+	movea	n0,r1
+	return(rr)
+compge: moveaw	true,rr
+	movea	n0,r1
+	return(rr)
+	end ge
+
+gt = qproc (s1, s2: cvt) returns (bool)
+	movea	s1,r1
+	move	(r1)+,n1			; get size of s1
+	move	(rr)+,n2			; get size of s2
+	asr	1,n1				; s1 empty?
+	beq	compng
+	asr	1,n2				; no, s2 empty?
+	beq	compgt
+	add	r1,n1
+	add	rr,n2
+	loop
+		cmpm	(rr)+,(r1)+		; compare 4 bytes
+		bhi	compgt
+		bne	compng
+		cmp	r1,n1
+		ble	next			; go until s1 empty
+		cmp	rr,n2
+		bgt	this			; or until s2 empty
+		bra	compgt
+	end
+	sub	r1,n1				; compare final counts
+	sub	rr,n2
+	cmp	n2,n1				; compare final counts
+	bgt	compgt
+compng: suba	rr,rr
+	movea	n0,r1
+	return(rr)
+compgt: moveaw	true,rr
+	movea	n0,r1
+	return(rr)
+	end gt
+
+equal = qproc (s1, s2: cvt) returns (bool)
+	movea	s1,r1
+	ifeq	cmpa	r1,rr		; same string?
+	then	return(true)
+	end
+	move	(r1),n1
+	addq	5,n1
+	asr	3,n1
+	moveq	0,n2
+	qloop
+		cmpm	(rr)+,(r1)+	; compare 4 bytes
+		dbne	n1,this
+		bne	next
+		swap	n1
+		ifge	subqw	1,n1
+		then	swap	n1
+			continue
+		end
+		subqb	1,n2
+	end
+	movea	n2,rr
+	movea	n0,r1
+	return(rr)
+	end equal
+
+similar = qproc (s1, s2: cvt) returns (bool)
+	movea	s1,r1
+	ifeq	cmpa	r1,rr		; same string?
+	then	return(true)
+	end
+	move	(r1),n1
+	addq	5,n1
+	asr	3,n1
+	moveq	0,n2
+	qloop
+		cmpm	(rr)+,(r1)+	; compare 4 bytes
+		dbne	n1,this
+		bne	next
+		swap	n1
+		ifge	subqw	1,n1
+		then	swap	n1
+			continue
+		end
+		subqb	1,n2
+	end
+	movea	n2,rr
+	movea	n0,r1
+	return(rr)
+	end similar
+
+copy = qproc (s: cvt) returns (cvt)
+	return(rr)
+	end copy
+
+print = proc (s: cvt, pst: pstream)
+	var	max,idx,c
+	pstream$get_max_width(pst)
+	move	rr,n1
+	asl	4,n1
+	movem	n0/n1,idx
+	pstream$text(pst, "\"")
+	loop
+		addq	2,idx			; bump index
+		move	idx,n1
+		movea	s,rr
+		cmp	(rr),n1			; more?
+		bgt	next
+		iflt	subq	2,max		; enough already?
+		then	pstream$text(pst, "..."); yes
+			break
+		end
+		asr	1,n1
+		moveq	0,n2
+		moveb	3(rr,n1),n2
+		moveq	0177,n1
+		andb	n2,n1
+		ifeq	cmpib	'\177',n1
+		then	lea	"\\^",rr
+			ifne	cmpb	n2,n1
+			then	lea	"\\!",rr
+			end
+			moveq	'?',n1
+		elfeq	cmpib	'"',n1
+			beq	this
+			cmpib	'\\',n1
+		then	lea	"\\",rr
+			ifne	cmpb	n2,n1
+			then	lea	"\\&",rr
+			end
+		elfge	cmpib	' ',n1
+		then	cmpb	n2,n1
+			beq	single
+			lea	"\\&",rr
+		elfne	cmpb	n2,n1
+		then	lea	"\\!",rr
+			addib	64,n1
+		elfeq	cmpib	'\n',n1
+		then	lea	"\\",rr
+			moveq	'n',n1
+		elfeq	cmpib	'\t',n1
+		then	lea	"\\",rr
+			moveq	't',n1
+		elfeq	cmpib	'\p',n1
+		then	lea	"\\",rr
+			moveq	'p',n1
+		elfeq	cmpib	'\b',n1
+		then	lea	"\\",rr
+			moveq	'b',n1
+		elfeq	cmpib	'\r',n1
+		then	lea	"\\",rr
+			moveq	'r',n1
+		elfeq	cmpib	'\v',n1
+		then	lea	"\\",rr
+			moveq	'v',n1
+		else	lea	"\\^",rr
+			addib	64,n1
+		end
+		move	n1,c
+		pstream$text(pst, rr)
+		move	c,n1
+single:		aslw	2,n1
+		movea	strtab,rr
+		movea	4(rr,n1),rr
+		pstream$text(pst, rr)
+	end
+	pstream$text(pst, "\"")
+	end print
+
+encode = proc (s: cvt, ist: istream) signals (not_possible(string))
+	istream$%putbv(rr, s)
+		resignal not_possible
+	end encode
+
+decode = proc (ist: istream) returns (cvt)
+				signals (end_of_file, not_possible(string))
+	istream$%getbv(rr)
+		resignal end_of_file, not_possible
+	return (rr)
+	end decode
+
+
+_gcd = proc (s: cvt, tab: gcd_tab) returns (int)
+	move	rr,-(sp)
+	movea	s,rr
+	move	(rr),n2
+	moveq	14,n1
+	add	n1,n2
+	andib	-7,n2
+	gcd_tab$%insert(*, n2, <1: 0>, rr)
+	return(rr)
+	end _gcd
+
+end string

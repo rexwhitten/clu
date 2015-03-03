@@ -1,0 +1,45 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+Cluster_Overloaded = proc (Old_C, New_C: c_template, Env: lnk_env);
+    LS: stream := Env.Options.List_Stream;
+    stream$PutS(LS, "Overloading ");
+       except when Not_Possible(*): end;
+    stream$PutL(LS, New_C.Name);
+       except when Not_Possible(*): end;
+    for Old_R: r_template in routine_list$Elements(Old_C.Routines) do
+	Old_Nm: string := Old_R.Name;
+	for New_R: r_template in routine_list$Elements(New_C.Routines) do
+	    if (Old_Nm = New_R.Name)
+	       then Routine_Overloaded(Old_R, New_R,
+				       pos_ct$Make_C_Temp(Old_C), Env);
+		    exit Found;
+	       end;
+	    end;
+	   except when Found:
+		       continue;
+		  end;
+	if (string$IndexC('%', Old_Nm) = 0)     %% Complain if not internal.
+	   then stream$PutS(LS, "Removed ");
+		   except when Not_Possible(*): end;
+		stream$PutL(LS, (Old_C.Name || "$" || Old_R.Name));
+		   except when Not_Possible(*): end;
+	   end;
+	if (~ rtn_insts$Empty(Old_R.Instantiations))
+	   then %% Must make stub routine to chain old instantiations to.
+		CD: c_desc := c_desc$Create(New_C.Name, params$New());
+		RD: rtn_desc := rtn_desc$Create(type_desc$Make_Cluster_Type(CD),
+						Old_Nm,
+						params$New(),
+						Old_R.Arg_Count,
+						Old_R.Result_Count);
+		Stub_RD: rtn_desc := rtn_desc$Change_to_Stub_Rtn(RD, Env);
+		Env.Ignore_Unknown := true;
+		Stb_RI: rtn_inst := rtn_desc$Closure(Stub_RD, Env);
+		Env.Ignore_Unknown := false;
+		stb_rtn_chains$AddH(Env.Mach_Dependent.Stb_Rtn_Chains,
+				    stb_rtn_chain${ Old_RIs: Old_R.Instantiations,
+						    Stb_RI:  Stb_RI });
+	   end;
+	r_template$Clean_Out(Old_R);    %% Clean out old one's contents.
+	end;
+    end Cluster_Overloaded;

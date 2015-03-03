@@ -1,0 +1,18 @@
+%% Copyright Massachusetts Institute of Technology 1980, 1989
+
+Output_Signals = proc (Env: lnk_env);
+    Opts: options := Env.Options;
+    Out: out_link_chan := Env.Output;
+    Start_Signals(Env);
+    Type_It: bool := Opts.Do_Type_Excepts;
+    if (Type_It)
+       then stream$PutL(Env.Options.List_Stream,
+			"\nSignal Entries:" );
+	       except when Not_Possible(*): end;
+       end;
+    for Sg: sig,
+	Inst_Sg: inst_signal in inst_signals$Elements(Env.Inst_Signals) do
+	inst_signal$Output(Inst_Sg, Type_It, Env);
+	end;
+    Output_End_of_Signals(Env);
+    end Output_Signals;

@@ -1,0 +1,15 @@
+;; Copyright Massachusetts Institute of Technology 1985, 1989
+
+_get_gid = qproc () returns (int, int)
+	clr	-(sp)			;; Hack pc.
+	moveq	%getgid, n0
+	move	n0, -(sp)
+	trap	0			;; Do the call.
+	add	n0, n0
+	addqb	1, n0			;; Integerize first result.
+	move	n0, (sp)		;; Push first result (over hack pc).
+	moveq	1, n0			;; Restore n0.
+	add	n1, n1
+	addqb	1, n1			;; Integerize second result
+	return (*, n1)
+	end _get_gid

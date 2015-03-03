@@ -1,0 +1,40 @@
+;; Copyright Massachusetts Institute of Technology 1985, 1989
+
+_groups = qproc () returns (sequence[int])
+	wvec	buf	{16}
+
+	pea	buf			;; Push buffer address.
+	move	16, -(sp)		;; Push max number of groups.
+	clr	-(sp)			;; Hack pc.
+	moveq	%getgroups, n0
+	move	n0, -(sp)
+	trap	0			;; Do the call.
+	addq	4, sp			;; Pop pc.
+	clr	(sp)+			;; Pop args.
+	clr	(sp)+
+	move	n0, n2			;; Save # groups written.
+	moveq	1, n0			;; Restore n0.
+	asl	2, n2			;; Get byte count for new sequence.
+	addq	4, n2			;; Byte count + 4.
+	movea	heaphi, rr
+	iflt	sub	n2, freecnt	;; Alloc mem for result.
+	then	jsr	memout
+		end
+	add	n2, heaphi
+	subq	2, n2			;; (Size of seq * 4) + 2
+	move	n2, (rr)		;; Store header.
+	ifgt	asr	2, n2		;; Size of seq.
+	then	lea	buf, r1		;; Copy the seq. Get pointer to buffer.
+		movea	rr, r2		;; Pointer to new sequence.
+		addq	4, r2		;; Move pointer past header.
+		qloop	movea	(r1)+, r3	;; Get next group number.
+			lea	1(r3, r3), r3	;; Integerize it.
+			move	r3, (r2)+	;; Store it.
+			subq	1, n2	;; Decrement counter.
+			bgt	this	;; Loop if more.
+			end
+		movea	n0, r1		;; Make r1 a valid ref.
+		movea	n0, r2		;; Make r2 a valid ref.
+		end
+	return (rr)
+	end _groups

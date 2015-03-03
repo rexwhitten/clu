@@ -1,0 +1,46 @@
+%	ADDR	DEFS
+%	Copyright    Barbara Liskov    1982
+%	MC68000 Assembler: permanent addresses
+
+# extend
+
+; abolute address
+
+jmploc		= 0000002	; JMP _start
+start		= 0000010	; start address
+rtntab		= 0000014	; (first) code range to routine record table
+namtab		= 0000020	; (first) routine name to routine record table
+ochain		= 0000024	; others exception handling chain
+fchain		= 0000030	; failure exception handling chain
+segmap		= 0000034	; (first) address of segment map
+stacksz		= 0000040	; size of stack
+heapsz		= 0000044	; size of heap
+version		= 0000050	; version number
+jclsize		= 0000054	; amount to alloc (if non-zero)
+
+; data space offsets
+
+heapmx		= 000		; maximum high end of heap
+stkhi		= 004		; base of stack
+freecnt		= 010		; remaining free bytes in heap
+heaplo		= 014		; low end of heap
+heaphi		= 020		; current high end of heap
+memout		= 024		; JMP
+memloc		= 026		; out of heap address
+strtab		= 034		; single char string table
+numgcs		= 040		; number of GC's
+trcflg		= 044		; trace flag
+gcflag		= 050		; GC flag
+defer		= 054		; _event flag
+environ		= 060		; JCL and shell variables
+dbgflg		= 064		; system debug flag
+intflg		= 070		; interrupt flag
+rchain		= 074		; routine table chain
+nchain		= 0100		; name table chain
+schain		= 0104		; segment map chain
+rdpipe		= 0110		; read from linker pipe
+wrpipe		= 0114		; write to linker pipe
+sigtab		= 0120		; table of traced signals
+uninit		= 0124		; uninitialized variable flag
+brkaddr         = 0130          ; brk address - top of allocated memory
+gcpoint         = 0134          ; next address at which gc should occur

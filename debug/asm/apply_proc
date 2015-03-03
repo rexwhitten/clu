@@ -1,0 +1,103 @@
+;; Copyright Massachusetts Institute of Technology 1984, 1989
+
+apply_proc = proc (prc: _obj, args: objlist, rcnt: int) returns (objlist)
+					signals (error (string, objlist))
+	objlist = sequence[_obj]
+	var 	_error_			;; Extra special variable name.
+	var	svd_trcflg		;; To save trcflg.
+	move	sp, _error_		;; Save stack pointer
+
+ 	movea	args, r1		;; Sequence of args to be pushed.
+	move	(r1)+, n1		;; (number of args * 4) + 2
+	asr	2, n1
+	ifge	subq	1, n1		;; Get #args - 1
+	then	ifne			;; At least 2?
+		then	qloop	move	(r1)+, -(sp)	;; Push next arg.
+				subq	1, n1
+				bgt	this	;; At least 2 left?
+				end
+			end
+		movea	(r1), rr	;; Final arg in rr.
+		movea	n0, r1		;; (Don't leave invalid ref.)
+		end
+
+	begin				;; Scope to catch FAILURE exception if 
+					;; called routine should signal it.
+	move	trcflg, svd_trcflg	;; Save current trcflg.
+	move	true, trcflg		;; Turn tracing on.
+        movea   prc, r1
+	jsr	(r1)			;; Do the call
+	move	svd_trcflg, trcflg	;; Restore trcflg
+
+
+        move    rcnt, n2		;; rcnt = (num. results * 2) + 1
+        asr     1, n2			;; actual # of results
+	ifeq	tst	n2		;; Expecting any results?
+	then	cmpa	_error_, sp	;; None. Check stack.
+		bne	badcal		;; No good. SP is not where we left it.
+		return ([])		;; Return empty result sequence.
+		end
+
+	;; There should be results. Put them into a sequence.
+	move	rr, -(sp)		;; Save last res.
+	move	sp, n1			;; Check that we got rcnt # of results.
+	asl	2, n2			;; Byte count of res refs.
+	add	n2, n1			;; 'Back up' SP by rcnt longwords
+	cmp	_error_, n1		;; Is it where we left it?
+	bne	badcal			;; No, error.
+
+	addq	4, n2
+	movea	heaphi, rr
+	iflt	sub	n2, freecnt	;; Alloc mem. for the sequence.
+	then	jsr	memout
+		end
+	add	n2, heaphi
+	lea	(rr, n2), r1		;; Ptr to last slot in sequence + 4
+	subq	2, n2			;; Get (SIZE*4) + 2.
+	move	n2, (rr)		;; Put in header.
+        asr     2, n2			;; Get # results
+	qloop	move	(sp)+, -(r1)	;; Pop results into vector.
+		subq	1, n2
+		bgt	this
+		end
+	movea	n0, r1			;; (Don't leave invalid ref.)
+	return (rr)
+	end  except when 
+		failure (_error_):
+		  	move	_error_, -(sp)	;; Make "failure" look like "others".
+			_error_ := "failure"
+			moveq	3, n7
+	  	others (_error_) :	;; Prevent stack cutback.
+		end
+	move	svd_trcflg, trcflg	;; Restore trcflg.
+	ifeq	cmpi	1, n7		;; n7 has (number of values * 2) + 1
+					;; (it is set by _siggy).
+	then	signal	error(_error_, [])	;; No signal values.
+		end
+	
+	;; There are signal values. Put them into a sequence
+	move	n7, n2
+	asl	1, n2
+	move	n2, n3			;; Save (number of value * 4) + 2
+	addq	2, n2			;; (number of values * 4) + 4
+	movea	heaphi, rr
+	iflt	sub	n2, freecnt	;; Alloc mem. for the sequence.
+	then	jsr	memout
+		end
+	add	n2, heaphi
+	move	n3, (rr)		;; Header.
+	asr	1, n7			;; n7 := number of values
+	lea	(rr, n2), r1		;; Ptr to last slot in seq. + 4
+	qloop	move	(sp)+, -(r1)	;; Pop values into sequence
+		subq	1, n7
+		bgt	this
+		end
+	movea	n0, r1			;; (Don't leave invalid ref.)
+	signal	error (_error_, rr)
+
+badcal:	signal	error ("failure", ["wrong number of results"])
+	end apply_proc
+	
+		
+		
+	

@@ -1,0 +1,172 @@
+;; Copyright Massachusetts Institute of Technology 1985, 1989
+
+%dcod = 0				;; Done.
+%wcod = 1				;; Write bytes.
+%zcod = 2				;; Change addr space.
+%ocod = 3				;; (Not used on M68000)
+%ncod = 4				;; New nchain.
+%rcod = 5				;; New rchain.
+%scod = 6				;; New schain.
+%lcod = 7				;; Linker result.
+
+_load_from_pipe = proc () returns (_obj)
+	wvec	buf	{2}		;; Buffer for reads.
+	var	result
+
+	clr	result
+	lea	-12(sp), sp		;; Stack space for args to read().
+init:	move	rdpipe, (sp)		;; Descriptor number. Is there a pipe?
+	ble	dcod
+again:	lea	buf, r1
+	move	r1, 4(sp)		;; Buffer address
+	move	4, 8(sp)		;; Number of bytes.
+	bsr	read4			;; Read code
+
+	move	buf, n1			;; Figure out which code we got.
+	ifeq	cmpi	%wcod, n1
+	then	bra	wcod
+	elfeq	cmpi	%dcod, n1
+	then	bra	dcod
+	elfeq	cmpi	%zcod, n1
+	then	bra	zcod
+	elfeq	cmpi	%ncod, n1
+	then	bra	ncod
+	elfeq	cmpi	%rcod, n1
+	then	bra	rcod
+	elfeq	cmpi	%scod, n1
+	then	bra	scod
+	elfeq	cmpi	%lcod, n1
+	then	bra	lcod
+		end
+	movea	"linker<->debugger protocol error", rr	;; Bad code.
+
+tell:	move	(rr), n1
+	asr	1, n1			;; Get size of error string.
+	move	n1, -(sp)		;; Push count.
+	pea	4(rr)			;; Push string address.	
+	move	2, -(sp)		;; Push descriptor (2 = error output).
+	clr	-(sp)			;; Hack pc.
+	moveq	%write, n0
+	move	n0, -(sp)
+	trap	0			;; Write the message.
+	move	"\n"+4, 8(sp)
+	move	1, 12(sp)
+	moveq	%write, n0
+	move	n0, -(sp)
+	trap	0			;; Write a newline.
+	moveq	1, n0			;; Restore n0.
+	addq	8, sp			;; Pop pc and count (1)
+	clr	(sp)+			;; Clear string addr.
+	addq	4, sp			;; Pop file number.
+	_chan$_save_tty()
+	move	15, -(sp)		;; SIGTERM.
+	clr	-(sp)			;; Hack pc.
+	moveq	%exit , n0
+	move	n0, -(sp)
+	trap 	0			;; Exit.
+
+dcod:	clr	(sp)+			;; Pop and clear stack.
+	clr	(sp)+
+	clr	(sp)+
+	moveq	1, n0			;; Restore n0.
+	movea	n0, r1			;; Make r1 a valid ref.
+	return (result)			;; Return.
+
+wcod:	bsr	read4			;; Read address.
+	lea	8(sp), r1
+	move	r1, 4(sp)
+	bsr	read4			;; Read count--putting result in stack
+ 					;; for next read.
+	move	buf, 4(sp)		;; Setup address read from linker as
+					;; destination for reads.
+	loop
+		ifcs	clr	-(sp)   ;; Hack pc.
+			moveq	%read, n0	;; Read it all.
+			move	n0, -(sp)
+			trap	0			
+		then	cmpi	4, n0	;; EINTR?
+			beq	this
+			bra	death
+			end
+		clr	(sp)+		;; Pop pc.
+		tst	n0
+		beq	badcnt
+		add	n0, 4(sp)
+		sub	n0, 8(sp)	;; Got it all?
+		beq	again
+		end
+
+ncod:	lea	nchain, r1
+	move	r1, 4(sp)		;; Get new nchain.
+	bsr	read4
+	bra	again
+
+rcod:	lea	rchain, r1
+	move	r1, 4(sp)		;; Get new rchain.
+	bsr	read4
+	bra	again
+
+scod:	lea	schain, r1
+	move	r1, 4(sp)		;; Get new schain.
+	bsr	read4
+	bra	again
+
+lcod:	lea	result, r1
+	move	r1, 4(sp)		;; Get result.
+	bsr	read4
+	bra	again
+
+zcod:	lea	buf, r1
+	move	r1, 4(sp)		;; Read new address.
+	bsr	read4
+	iflt	move	buf, n2
+		sub	heaplo, n2	;; Enough room below the heap?
+	then	bra	again		;; Yes.
+		end
+	addq	4, n2
+	move	brkaddr, n1		;; No. Alloc more space and move the heap.
+	add	n2, n1			;; Get new max addr in address space.
+	move    n1, brkaddr		;; Record new break addr.
+	move	n1, (sp)		;; Push for brk() call.
+	clr	-(sp)			;; Hack pc.
+	move	%brk, n0
+	move	n0, -(sp)
+	trap	0			;; Extend address space.
+	bcs	death			;; Ok?
+	moveq	1, n0			;; Yes. Prepare to relocate the heap.
+	addq	4, sp			;; Pop pc.
+	move	n0, (sp)		;; Make sure the stack won't
+	move	n0, 4(sp)		;; contain any non-CLU refs.
+	move	n0, 8(sp)
+	add	n2, n2
+	addqb	1, n2			;; Integerize # place to move heap.
+	_gc$%reloc(n2)			;; Move it.
+	bra	init
+
+	;; Subroutine to read 4 bytes (assuming all args are on the stack).
+read4:	qloop
+		ifcc	moveq	%read, n0
+			move	n0, -(sp)
+			trap	0
+		then	cmpi	4, n0
+			bne	badcnt
+			rts
+			end
+		cmpi	4, n0		;; EINTR?
+		beq	this
+		end
+
+death:	movea	n0, rr
+	lea	1(rr, rr), rr		;; Save and integerize error code.
+	moveq	1, n0			;; Restore n0.
+	movea	n0, r1			;; Make r1 a valid ref.
+	clr	(sp)+
+	clr	(sp)+
+	clr	(sp)+
+	_erstr(rr)
+	bra	tell
+
+badcnt:	movea	"linker<->debugger data size error", rr
+	bra	tell
+
+	end	_load_from_pipe

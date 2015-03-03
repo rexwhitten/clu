@@ -1,0 +1,31 @@
+; Copyright Massachusetts Institute of Technology 1985, 1989
+
+_get_runtime = qproc () returns (int, int, int)
+	wvec	buf	{18}
+	lea	buf,r1
+	move	r1,-(sp)		; buffer
+	clr	-(sp)
+	clr	-(sp)
+	moveq	%getrusage,n0		; get resource usage
+	move	n0,-(sp)
+	trap	0
+	lea	12(sp),sp		; pop stack
+	moveq	1,n0			; restore 0
+	move	1000,n1
+	movea	(r1),rr			; user secs
+	adda	8(r1),rr		; + system secs
+	move	4(r1),n4		; user micros
+	add	12(r1),n4		; + system micros
+	divu	n1,n4			; divide down
+	ifge	cmpw	n1,n4
+	then	addq	1,rr
+		subw	n1,n4
+	end
+	pea	1(rr,rr)
+	moveaw	n4,rr
+	pea	1(rr,rr)
+	swap	n4
+	moveaw	n4,rr
+	lea	1(rr,rr),rr
+	return(*, *, rr)
+	end _get_runtime

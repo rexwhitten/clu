@@ -1,0 +1,19 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+Get_Out_File_Name = proc (Out_Fn_Str: string) returns (file_name)
+		      signals (error(string));
+    Out_File: file_name;
+    if (string$Empty(Out_Fn_Str))
+       then Out_File := fname$Create(Default_Dir, Default_Out_Name,
+				     Default_Out_Suffix, Default_Out_Others);
+       else Out_File := fname$Parse(Out_Fn_Str);
+	       except when Bad_Format: signal Error("Bad Format: " ||
+						    Out_Fn_Str);
+		      end;
+	    if (string$Empty(Out_File.Dir))
+	       then Out_File := fname$Create(Default_Dir, Out_File.Name,
+					     Out_File.Suffix, Out_File.Other);
+	       end;
+       end;
+    return (Out_File);
+    end Get_Out_File_Name;

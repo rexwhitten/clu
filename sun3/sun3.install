@@ -1,0 +1,18 @@
+NO:  this release is configured for a Sun3 and thus all this does NOT
+     need to be done.
+
+To install CLU on a Sun3 the following must be done:
+
+1) Move ~CLU/sun3/exe/link to ~CLU/exe.
+
+2) Move ~CLU/sun3/bin/* to ~CLU/bin.
+
+3) Move ~CLU/sun3/lib/asm/* ~CLU/lib/asm/*.
+
+4) Move ~CLU/sun3/sys/asm/* ~CLU/sys/asm/*.
+
+5) Build and install a new clu, asm, ted, and any other
+   of the files in ~CLU/exe that don't seem to work.
+   See ~CLU/howto.cons to find out how to do this.
+
+6) Build a new basesys and basesys.dump.

@@ -1,0 +1,13 @@
+%% Copyright Massachusetts Institute of Technology 1984, 1989
+
+Output_Oneof = proc (Tag_Indx: int, V: constant, Env: lnk_env)
+		 returns (address);
+    if (Tag_Indx > vMax_Tag_Size)
+	then Should_Never_Happen[int]("Tag to big to be output.", Tag_Indx);
+	end;
+    constant$Output_Block(V, true, Env);
+    Addr: address := out_link_chan$Start_Object(Env.Output);
+    out_link_chan$Write_Word_Pair(Env.Output, vTagCell_Head, Tag_Indx);
+    constant$Output_Ref(V, Env);
+    return (Addr);
+    end Output_Oneof;

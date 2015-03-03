@@ -1,0 +1,142 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+run_ctrla = proc (e: env, c: char) signals (errmsg(string), stop(env, string))
+    b: buf := e.buffer
+    line, pos: int := buf$get_cursor(b)
+    if e.this_arg > 1 then line := 1 end
+    buf$set_cursor(b, line, 1)
+    end run_ctrla
+
+run_ctrlb = proc (e: env, c: char) signals (errmsg(string), stop(env, string))
+    buf$new_cursor(e.buffer, 0, -e.this_arg)
+    end run_ctrlb
+
+run_ctrld = proc (e: env, c: char) signals (errmsg(string), stop(env, string))
+    nline, npos: int := buf$add_cursor(e.buffer, 0, e.this_arg)
+    env$delete1(e, nline, npos)
+    end run_ctrld
+
+run_ctrle = proc (e: env, c: char) signals (errmsg(string), stop(env, string))
+    b: buf := e.buffer
+    line, pos: int := buf$get_cursor(b)
+    if e.this_arg > 1 then line := buf$size(b) end
+    buf$set_cursor(b, line, max_int)
+    end run_ctrle
+
+run_ctrlf = proc (e: env, c: char) signals (errmsg(string), stop(env, string))
+    buf$new_cursor(e.buffer, 0, e.this_arg)
+    end run_ctrlf
+
+run_ctrlg = proc (e: env, c: char) signals (errmsg(string), stop(env, string))
+    _bell()
+    end run_ctrlg
+
+run_ctrll = proc (e: env, c: char) signals (errmsg(string), stop(env, string))
+    if e.this_arg > 1
+       then save_buffers(e, true)
+     elseif e.this_arg <= 0
+       then env$new_window(e)
+     else env$clear(e)
+     end
+    end run_ctrll
+
+run_ctrlm = proc (e: env, c: char) signals (errmsg(string), stop(env, string))
+    own indent: bool := false
+    if c ~= '\r'
+       then indent := c = 'I'
+       else insert_char(e, '\n')
+	    if indent  cand  e.this_arg > 0  cand  ~env$is_argenv(e)
+	       then move_under(e, 0) end
+       end
+    end run_ctrlm
+
+run_ctrlo = proc (e: env, c: char) signals (errmsg(string), stop(env, string))
+    e.this_arg := -e.this_arg
+    insert_char(e, '\n')
+    end run_ctrlo
+
+run_ctrlq = proc (e: env, c: char) signals (errmsg(string), stop(env, string))
+    if _pending_wait()
+       then insert_char(e, _getc())
+	    return
+       end
+    top_display(e, "Quote: ")
+    env$display(e)
+    c := _getc()
+    top_display(e, string$append("Quote: ", c))
+    insert_char(e, c)
+    end run_ctrlq
+
+run_ctrls = proc (e: env, c: char) signals (errmsg(string), stop(env, string))
+    own incr: bool := false
+    if c = ctrlat
+       then prompt = "Change search mode"
+	    legal = "RS"
+	    help = "R: reset to normal search mode\n" ||
+		   "S: set to incremental search mode"
+	    i: int, opt: char := get_option (e, prompt, legal, help, false)
+	    incr := opt = 'S'
+       else arg: int := e.this_arg
+	    if arg = 0
+	       then if mconfirm(e, "Ignore upper/lower case in searches", true)
+		       then arg := 1 end
+		    env$store_num(e, "ignore_case", arg)
+	     elseif incr
+	       then run_incsrch(e, c)
+	     else obj: string := get_string_arg(e, "Search for string",
+						env$fetch_str(e, "search", ""))
+		  env$store_str(e, "search", obj)
+		  if ~string_search(e.buffer, obj, arg,
+				    env$fetch_num(e, "ignore_case", 0) = 0)
+		     then signal errmsg("Not found!") end
+	     end
+       end resignal errmsg, stop
+    end run_ctrls
+
+run_ctrlt = proc (e: env, c: char) signals (errmsg(string), stop(env, string))
+    b: buf := e.buffer
+    line, pos: int := buf$get_cursor(b)
+    if e.this_arg ~= 1 then
+       % exchange mark and cursor
+       mline, mpos: int := buf$get_mark(b)
+       buf$set_cursor(b, mline, mpos)
+       end
+    buf$set_mark(b, line, pos)
+    end run_ctrlt
+
+run_ctrlw = proc (e: env, c: char) signals (errmsg(string), stop(env, string))
+    arg: int := e.this_arg
+    if arg < 0
+       then write_all_files(e)
+     elseif arg = 0
+       then if e.buffer.changed
+	       then fn: fname := fname$parse(get_frame_name(e))
+		       except when bad_format: fn := fname$parse("") end
+		    write_file(e, fn, false, false)
+		    e.buffer.changed := false
+	       else top_display(e, "File not changed.")
+	       end
+     else prompt: string := "Write text to file"
+	  if arg > 1 then prompt := "Append text to file" end
+	  fn: fname := get_file_name(e, prompt)
+	  write_file(e, fn, arg > 1, true)
+     end resignal errmsg
+    end run_ctrlw
+
+run_del = proc (e: env, c: char) signals (errmsg(string), stop(env, string))
+    b: buf := e.buffer
+    line, pos: int := buf$get_cursor(b)
+    buf$new_cursor(b, 0, -e.this_arg)
+    env$delete1(e, line, pos)
+    end run_del
+
+run_quit = proc (e: env, c: char) signals (errmsg(string), stop(env, string))
+    signal stop(e, quit_msg)
+    end run_quit
+
+run_bye = proc (e: env, c: char) signals (errmsg(string), stop(env, string))
+    signal stop(e, "bye")
+    end run_bye
+
+run_edit = proc (e: env, c: char) signals (errmsg(string), stop(env, string))
+    signal stop(e, "bye-edit")
+    end run_edit

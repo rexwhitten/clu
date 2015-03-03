@@ -1,0 +1,22 @@
+%% Copyright Massachusetts Institute of Technology 1980, 1989
+
+Ask = proc (Quest: string) returns (bool) signals(end_of_file);
+    own Last_Quest:  string := "";
+    own Last_Prompt: string := " (y or n): ";
+    PI: stream := stream$Primary_Input();
+    if (Quest ~= Last_Quest)
+       then Last_Quest := Quest;
+	    Last_Prompt := Last_Quest || " (y or n): ";
+       end;
+    stream$Set_Prompt(PI, Last_Prompt);
+    while (true) do
+	Ans: string := Unify_Spacing(stream$GetBuf(PI, "\n"));
+	stream$GetC(PI);
+	if ((Ans = "y") cor (Ans = "Y"))
+	   then return (true);
+	 elseif ((Ans = "n") cor (Ans = "N"))
+	   then return (false);
+	 end;
+	end;
+       resignal End_of_File;
+    end Ask;

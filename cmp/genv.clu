@@ -1,0 +1,603 @@
+%	GENV	CLU
+% Copyright Massachusetts Institute of Technology 1982, 1989
+%	CLU Compiler Version 3: master generator environment
+
+g_env = cluster is create,		% CE, stream, file_name -> g_env
+		   reset,		% g_env, CE, stream, file_name ->
+		   end_all,		% g_env ->
+		   get_err,		% g_env -> int
+		   reset_err,		% g_env -> 
+		   set_line,		% g_env, int ->
+		   err,			% g_env, string ->
+		   get_space,		% g_env -> bool
+		   set_space,		% g_env, bool ->
+		   get_time,		% g_env -> bool
+		   set_time,		% g_env, bool ->
+		   get_either,		% g_env -> bool
+		   force_signal,	% g_env ->
+		   get_tenv,		% g_env -> g_tenv
+		   get_menv,		% g_env -> g_menv
+		   begin_routine,	% g_env, mref, mref, bool ->
+		   set_rparm_count,	% g_env, int ->
+		   set_arg_count,	% g_env, int ->
+		   get_arg_count,	% g_env -> int
+		   set_arg_names,	% g_env, mref ->
+		   set_var_count,	% g_env, int ->
+		   set_var_names,	% g_env, mref ->
+		   set_own_names,	% g_env, mref ->
+		   set_result,		% g_env, mref ->
+		   set_res_count,	% g_env, int ->
+		   set_rown_count,	% g_env, int ->
+		   is_iter,		% g_env -> bool
+		   end_routine,		% g_env ->
+		   begin_type,		% g_env, mref, typespec ->
+		   set_cparm_count,	% g_env, int ->
+		   get_cparm_count,	% g_env -> int
+		   set_cown_count,	% g_env, int ->
+		   get_cown_count,	% g_env -> int
+		   set_cown_names,	% g_env, mref ->
+		   get_uptype,		% g_env -> typespec
+		   end_type,		% g_env ->
+		   get_vcons,		% g_env -> exprabs
+		   get_ocause,		% g_env -> expr
+		   get_bcause,		% g_env -> expr
+		   get_wcause,		% g_env -> expr
+		   get_tcause,		% g_env -> expr
+		   get_icause,		% g_env -> expr
+		   get_type_of_,	% g_env -> expr
+		   get_anyize_,		% g_env -> DU
+		   get_force_,		% g_env -> DU
+		   begin_while,		% g_env -> int
+		   begin_for,		% g_env, bool -> int, int
+		   in_for,		% g_env -> bool
+		   for_env,		% g_env, int -> int
+		   get_iter_env,	% g_env -> int
+		   add_break,		% g_env, int ->
+		   get_loop_disp,	% g_env -> int
+		   end_loop,		% g_env -> qi
+		   begin_except,	% g_env, handlerlist -> int
+		   push_handler,	% g_env, str, int ->
+		   add_exit,		% g_env, str, int ->
+		   is_exit,		% g_env, str -> int
+		   pop_handler,		% g_env, str -> ai
+		   end_except,		% g_env, handlerlit -> aai
+		   add_fixup,		% g_env, int ->
+		   pop_fixups		% g_env -> ai
+
+rep        = record[comp:        CE,		% compilation environment
+		    time:        bool,		% optimize for time
+		    space:       bool,		% optimize for space
+		    either:	 bool,		% optimize for either
+		    signal_:	 bool,		% inline should still signal
+		    reset:       bool,		% reset flag
+		    tenv:	 g_tenv,
+		    menv:        g_menv,
+		    empty_vec:	 mref,		% empty vec
+		    cell2:	 mref,		% <2: 0>
+		    vcons:	 exprabs,	% _vec[any]$create
+		    ocause:      expr,		% _cause_overflow
+		    bcause:      expr,		% _cause_bounds
+		    wcause:      expr,		% _cause_wrong_tag
+		    tcause:      expr,		% _cause_wrong_type
+		    icause:	 expr,		% _cause_illegal_char
+		    type_of_:    expr,		% type_of
+		    anyize:	 DU,		% _anyize
+		    force_:	 DU,		% force
+		    in_type:	 bool,		% true if in cluster
+		    templates:	 av,		% all clusters/routines
+		    ctemplate:	 ctemplate,	% current cluster (if any)
+		    rtemplate:	 rtemplate,	% current routine
+		    loops:       lplist,	% while/for loops
+		    exits:	 exittab,	% exits
+		    fixups:      ai]		% SP fixup locs
+ctemplate  = record[name:     mref,
+		    uptype:   typespec,
+		    parms:    int,
+		    owns:     int,
+		    names:    mref,
+		    routines: av]
+rtemplate  = record[name:    mref,
+		    sname:   mref,
+		    is_iter: bool,
+		    parms:   int,
+		    args:    int,
+		    anames:  mref,
+		    vars:    int,
+		    vnames:  mref,
+		    onames:  mref,
+		    result:  mref,
+		    results: int,
+		    owns:    int]
+exittab	   = table[string, aai]
+handlist   = array[handlerlist]
+lplist	   = array[lpent]
+lpent	   = oneof[while_: whilerec,
+		   for_:   forrec]
+whilerec   = record[start:  int,
+		    breaks: qi]
+forrec	   = record[iter_env: int,
+		    for_env:  int,
+		    breaks:   qi]
+tabsize    = 300
+none       = 0
+trouble    = 1
+serious    = 2
+
+create = proc (comp: CE, errst: stream, binfn: file_name) returns (cvt)
+	atx: expr := expr$create(exprabs$make_type_(comp.any_type),
+				 comp.type_type)
+	_vec: DU := CE$add_du(comp, xlib$get_du("_vec"))
+	vta: typeabs := typeabs$make_cluster_(clutype${gen:   _vec,
+						       parms: exprlist$[atx]})
+	vect: typespec, vecold: bool := CE$get_type(comp, vta)
+	_tof: DU := CE$add_du(comp, xlib$get_du("type_of"))
+	tof: expr := expr$create(exprabs$make_apply(
+					clutype${gen:   _tof,
+						 parms: exprlist$new()}),
+				 comp.unknown_type)
+	_any: DU := CE$add_du(comp, xlib$get_du("_anyize"))
+	_frc: DU := CE$add_du(comp, xlib$get_du("force"))
+	_ovr: DU := CE$add_du(comp, xlib$get_du("_cause_overflow"))
+	_covr: expr := expr$create(exprabs$make_apply(
+					clutype${gen:   _ovr,
+						 parms: exprlist$new()}),
+				   comp.unknown_type)
+	_bnd: DU := CE$add_du(comp, xlib$get_du("_cause_bounds"))
+	_cbnd: expr := expr$create(exprabs$make_apply(
+					clutype${gen:   _bnd,
+						 parms: exprlist$new()}),
+				   comp.unknown_type)
+	_wtg: DU := CE$add_du(comp, xlib$get_du("_cause_wrong_tag"))
+	_cwtg: expr := expr$create(exprabs$make_apply(
+					clutype${gen:   _wtg,
+						 parms: exprlist$new()}),
+				   comp.unknown_type)
+	_wtp: DU := CE$add_du(comp, xlib$get_du("_cause_wrong_type"))
+	_cwtp: expr := expr$create(exprabs$make_apply(
+					clutype${gen:   _wtp,
+						 parms: exprlist$new()}),
+				   comp.unknown_type)
+	_icp: DU := CE$add_du(comp, xlib$get_du("_cause_illegal_char"))
+	_cicp: expr := expr$create(exprabs$make_apply(
+					clutype${gen:   _icp,
+						 parms: exprlist$new()}),
+				   comp.unknown_type)
+	e: rep := rep${comp:        comp,
+		       time:        false,
+		       space:       false,
+		       either:	    false,
+		       signal_:	    false,
+		       reset:       true,
+		       tenv:	    g_tenv$create(comp, errst, binfn),
+		       menv:        g_menv$create(errst, binfn),
+		       empty_vec:   mref$make_val(0),
+		       cell2:       mref$make_val(0),
+		       vcons:       exprabs$make_op(
+					clusterop${type_: vect,
+						   name:  "create",
+						   parms: exprlist$new()}),
+		       ocause:      _covr,
+		       bcause:      _cbnd,
+		       wcause:      _cwtg,
+		       tcause:      _cwtp,
+		       icause:      _cicp,
+		       type_of_:    tof,
+		       anyize:      _any,
+		       force_:      _frc,
+		       in_type:     false,
+		       templates:   av$predict(1, 25),
+		       ctemplate:   ctemplate${name:     mref$make_val(0),
+					       uptype:   comp.unknown_type,
+					       parms:    0,
+					       owns:     0,
+					       names:    mref$make_val(0),
+					       routines: av$predict(1, 10)},
+		       rtemplate:   rtemplate${name:    mref$make_val(0),
+					       sname:   mref$make_val(0),
+					       is_iter: false,
+					       parms:   0,
+					       args:    0,
+					       anames:  mref$make_val(0),
+					       vars:    0,
+					       vnames:  mref$make_val(0),
+					       onames:  mref$make_val(0),
+					       result:  mref$make_val(0),
+					       results: 0,
+					       owns:    0},
+		       loops:	    lplist$predict(1, 10),
+		       exits:       exittab$create(tabsize, hash, str$equal),
+		       fixups:      ai$create(0)}
+	e.empty_vec := g_tenv$store_vec(e.tenv, qv$[])
+	e.cell2 := g_tenv$oneof2(e.tenv)
+	return(e)
+	end create
+
+reset = proc (e: cvt, comp: CE, errst: stream, binfn: file_name)
+	e.comp := comp
+	tagcase e.vcons
+	   tag op (cop: clusterop):
+		vect: typespec, vecold: bool := CE$get_type(comp, cop.type_.abs)
+		cop.type_ := vect
+	   others:
+	   end
+	g_tenv$reset(e.tenv, comp, errst, binfn)
+	g_menv$reset(e.menv, errst, binfn)
+	e.empty_vec := g_tenv$store_vec(e.tenv, qv$[])
+	e.cell2 := g_tenv$oneof2(e.tenv)
+	e.signal_ := false
+	if ~e.reset
+	   then e.reset := true
+		e.in_type := false
+		av$trim(e.templates, 1, 0)
+		av$trim(e.ctemplate.routines, 1, 0)
+		e.ctemplate.parms := 0
+		e.ctemplate.owns := 0
+		lplist$trim(e.loops, 1, 0)
+		exittab$flush(e.exits)
+		ai$trim(e.fixups, 0, 0)
+	   end
+	end reset
+
+end_all = proc (e: cvt)
+	g_menv$end_all(e.menv, e.tenv)
+	end end_all
+
+get_err = proc (e: cvt) returns (int)
+	if g_tenv$is_err(e.tenv)  cor  g_menv$is_err(e.menv)
+	   then return(serious)
+	   else return(none)
+	   end
+	end get_err
+
+reset_err = proc (e: cvt)
+	g_tenv$reset_err(e.tenv)
+	g_menv$reset_err(e.menv)
+	end reset_err
+
+set_line = proc (e: cvt, i: int)
+	e.tenv.line := i
+	end set_line
+
+err = proc (e: cvt, s: str)
+	g_tenv$err(e.tenv, s)
+	end err
+
+get_space = proc (e: cvt) returns (bool)
+	return(e.space)
+	end get_space
+
+set_space = proc (e: cvt, b: bool)
+	e.space := b
+	e.either := b  cor  e.time
+	end set_space
+
+get_time = proc (e: cvt) returns (bool)
+	return(e.time)
+	end get_time
+
+set_time = proc (e: cvt, b: bool)
+	e.time := b
+	e.either := b  cor  e.space
+	end set_time
+
+get_either = proc (e: cvt) returns (bool)
+	return(e.either)
+	end get_either
+
+force_signal = proc (e: cvt)
+	e.signal_ := true
+	end force_signal
+
+get_tenv = proc (e: cvt) returns (g_tenv)
+	return(e.tenv)
+	end get_tenv
+
+get_menv = proc (e: cvt) returns (g_menv)
+	return(e.menv)
+	end get_menv
+
+begin_routine = proc (e: cvt, nval, sval: mref, isiter: bool)
+	e.reset := false
+	g_tenv$start(e.tenv, e.in_type)
+	e.rtemplate.name := nval
+	e.rtemplate.sname := sval
+	e.rtemplate.is_iter := isiter
+	end begin_routine
+
+set_rparm_count = proc (e: cvt, parms: int)
+	e.rtemplate.parms := parms
+	end set_rparm_count
+
+set_arg_count = proc (e: cvt, args: int)
+	e.rtemplate.args := args
+	end set_arg_count
+
+get_arg_count = proc (e: cvt) returns (int)
+	return(e.rtemplate.args)
+	end get_arg_count
+
+set_arg_names = proc (e: cvt, val: mref)
+	e.rtemplate.anames := val
+	end set_arg_names
+
+set_var_count = proc (e: cvt, vars: int)
+	e.rtemplate.vars := vars
+	end set_var_count
+
+set_var_names = proc (e: cvt, val: mref)
+	e.rtemplate.vnames := val
+	end set_var_names
+
+set_own_names = proc (e: cvt, val: mref)
+	e.rtemplate.onames := val
+	end set_own_names
+
+set_result = proc (e: cvt, res: mref)
+	e.rtemplate.result := res
+	end set_result
+
+set_res_count = proc (e: cvt, cnt: int)
+	e.rtemplate.results := cnt
+	end set_res_count
+
+set_rown_count = proc (e: cvt, rowns: int)
+	e.rtemplate.owns := rowns
+	end set_rown_count
+
+is_iter = proc (e: cvt) returns (bool)
+	return(e.rtemplate.is_iter)
+	end is_iter
+
+end_routine = proc (e: cvt)
+	codoff, codsiz: int := g_menv$end_routine(e.menv)
+	te: g_tenv := e.tenv
+	puses, uses: mref := g_tenv$end_routine(te)
+	temp: rtemplate := e.rtemplate
+	results: mref
+	if temp.is_iter
+	   then results := mref$make_val(-(temp.results + 1))
+	   else results := mref$make_val(temp.results)
+	   end
+	val: mref := g_tenv$store_vec(te,
+				qv$[temp.name,
+				    mref$make_val(temp.parms),
+				    temp.anames,
+				    temp.result,
+				    mref$make_val(temp.owns),
+				    puses,
+				    uses,
+				    mref$make_val(codoff),
+				    mref$make_val(codsiz),
+				    temp.vnames,
+				    temp.onames,
+				    results,
+				    mref$make_val(temp.args),
+				    mref$make_val(temp.vars),
+				    temp.sname,
+				    e.cell2,
+				    e.empty_vec,
+				    mref$make_val(0)])
+	if e.in_type
+	   then av$addh(e.ctemplate.routines, val)
+	   else val := g_tenv$store_cell(te, _temp_routine, val)
+		g_tenv$add_template(te, val)
+	   end
+	end end_routine
+
+begin_type = proc (e: cvt, nval: mref, up_: typespec)
+	e.reset := false
+	g_tenv$start(e.tenv, false)
+	e.in_type := true
+	e.ctemplate.name := nval
+	e.ctemplate.uptype := up_
+	end begin_type
+
+set_cparm_count = proc (e: cvt, parms: int)
+	e.ctemplate.parms := parms
+	end set_cparm_count
+
+get_cparm_count = proc (e: cvt) returns (int)
+	return(e.ctemplate.parms)
+	end get_cparm_count
+
+set_cown_count = proc (e: cvt, cowns: int)
+	e.ctemplate.owns := cowns
+	end set_cown_count
+
+get_cown_count = proc (e: cvt) returns (int)
+	return(e.ctemplate.owns)
+	end get_cown_count
+
+set_cown_names = proc (e: cvt, val: mref)
+	e.ctemplate.names := val
+	end set_cown_names
+
+get_uptype = proc (e: cvt) returns (typespec)
+	return(e.ctemplate.uptype)
+	end get_uptype
+
+end_type = proc (e: cvt)
+	e.in_type := false
+	temp: ctemplate := e.ctemplate
+	ops: mref := g_tenv$store_avec(e.tenv, temp.routines)
+	av$trim(temp.routines, 1, 0)
+	val: mref := g_tenv$store_vec(e.tenv,
+				     qv$[temp.name,
+					 mref$make_val(temp.parms),
+					 mref$make_val(temp.owns),
+					 temp.names,
+					 ops,
+					 e.empty_vec])
+	val := g_tenv$store_cell(e.tenv, _temp_cluster, val)
+	g_tenv$add_template(e.tenv, val)
+	temp.uptype := e.comp.unknown_type
+	temp.parms := 0
+	temp.owns := 0
+	temp.names := e.empty_vec
+	end end_type
+
+get_vcons = proc (e: cvt) returns (exprabs)
+	return(e.vcons)
+	end get_vcons
+
+get_ocause = proc (e: cvt) returns (expr)
+	return(e.ocause)
+	end get_ocause
+
+get_bcause = proc (e: cvt) returns (expr)
+	return(e.bcause)
+	end get_bcause
+
+get_wcause = proc (e: cvt) returns (expr)
+	return(e.wcause)
+	end get_wcause
+
+get_tcause = proc (e: cvt) returns (expr)
+	return(e.tcause)
+	end get_tcause
+
+get_icause = proc (e: cvt) returns (expr)
+	return(e.icause)
+	end get_icause
+
+get_type_of_ = proc (e: cvt) returns (expr)
+	return(e.type_of_)
+	end get_type_of_
+
+get_anyize_ = proc (e: cvt) returns (DU)
+	return(e.anyize)
+	end get_anyize_
+
+get_force_ = proc (e: cvt) returns (DU)
+	return(e.force_)
+	end get_force_
+
+begin_while = proc (e: cvt) returns (int)
+	loc: int := g_menv$next_loc(e.menv)
+	lplist$addh(e.loops, lpent$make_while_(whilerec${start:  loc,
+							 breaks: qi$new()}))
+	return(loc)
+	end begin_while
+
+begin_for = proc (e: cvt) returns (int, int)
+	fenv: int := g_menv$alloc_var(e.menv)
+	ienv: int := g_menv$alloc_var(e.menv)
+	lplist$addh(e.loops, lpent$make_for_(forrec${iter_env: ienv,
+						     for_env:  fenv,
+						     breaks:   qi$new()}))
+	return(ienv, fenv)
+	end begin_for
+
+in_for = proc (e: cvt) returns (bool)
+	return(lpent$is_for_(lplist$top(e.loops)))
+	end in_for
+
+for_env = proc (e: cvt, skip: int) returns (int)
+	loops: lplist := e.loops
+	for i: int in int$from_to_by(lplist$size(loops) - skip, 1, -1) do
+		tagcase loops[i]
+		   tag for_ (rec: forrec):
+			return(rec.for_env)
+		   others:
+		   end
+		end
+	return(0)
+	end for_env
+
+get_iter_env = proc (e: cvt) returns (int)
+	return(lpent$value_for_(lplist$top(e.loops)).iter_env)
+	end get_iter_env
+
+add_break = proc (e: cvt, disp: int)
+	tagcase lplist$top(e.loops)
+	   tag while_ (rec: whilerec):
+		rec.breaks := qi$addh(rec.breaks, disp)
+	   tag for_ (rec: forrec):
+		rec.breaks := qi$addh(rec.breaks, disp)
+	   end
+	end add_break
+
+get_loop_disp = proc (e: cvt) returns (int)
+	return(lpent$value_while_(lplist$top(e.loops)).start)
+	end get_loop_disp
+
+end_loop = proc (e: cvt) returns (qi)
+	tagcase lplist$remh(e.loops)
+	   tag while_ (rec: whilerec):
+		return(rec.breaks)
+	   tag for_ (rec: forrec):
+		return(rec.breaks)
+	   end
+	end end_loop
+
+begin_except = proc (e: cvt, arms: handlerlist) returns (int)
+	tab: exittab := e.exits
+	for arm: handler in handlerlist$elements(arms) do
+		for n: name in namelist$elements(arm.names) do
+			recs: aai := exittab$lookup(tab, n)
+			    except when not_found:
+					 recs := aai$new()
+					 exittab$bind(tab, n, recs)
+				   end
+			aai$addh(recs, ai$new())
+			end
+		end
+	return(g_menv$next_loc(e.menv))
+	end begin_except
+
+push_handler = proc (e: cvt, sig: str, kind: int)
+	recs: aai := exittab$lookup(e.exits, sig)
+	    except when not_found:
+			 recs := aai$new()
+			 exittab$bind(e.exits, sig, recs)
+		   end
+	aai$addh(recs, ai$create(kind))
+	end push_handler
+
+add_exit = proc (e: cvt, sig: str, disp: int)
+	ai$addh(aai$top(exittab$lookup(e.exits, sig)), disp)
+	end add_exit
+
+is_exit = proc (e: cvt, sig: str) returns (int)
+	if ~e.signal_
+	   then return(ai$low(aai$top(exittab$lookup(e.exits, sig)))) end
+	   except when not_found, bounds: end
+	return(_cause)
+	end is_exit
+
+pop_handler = proc (e: cvt, sig: str) returns (ai)
+	return(aai$remh(exittab$lookup(e.exits, sig)))
+	end pop_handler
+
+end_except = proc (e: cvt, arms: handlerlist) returns (aai)
+	exits: exittab := e.exits
+	disps: aai := aai$predict(1, handlerlist$size(arms))
+	for arm: handler in handlerlist$elements(arms) do
+		first: bool := true
+		locs: ai
+		for n: name in namelist$elements(arm.names) do
+			nlocs: ai := aai$remh(exittab$lookup(exits, n))
+			if first
+			   then locs := nlocs
+				first := false
+			   else for loc: int in ai$elements(nlocs) do
+					ai$addh(locs, loc)
+					end
+			   end
+			end
+		aai$addh(disps, locs)
+		end
+	return(disps)
+	end end_except
+
+add_fixup = proc (e: cvt, loc: int)
+	ai$addh(e.fixups, loc)
+	end add_fixup
+
+pop_fixups = proc (e: cvt) returns (ai)
+	fixups: ai := e.fixups
+	e.fixups := ai$create(0)
+	return(fixups)
+	end pop_fixups
+
+end g_env

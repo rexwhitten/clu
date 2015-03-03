@@ -1,0 +1,52 @@
+;; Copyright Massachusetts Institute of Technology 1985, 1989
+
+st%acc_h = 20				;; Time of last access, high word
+st%acc_l = 22				;; "", low word
+st%wrt_h = 28				;; Time of last modification, high word
+st%wrt_l = 30				;; "", low word
+
+file_date = proc (fn: file_name, read: bool) returns (date)
+						signals (not_possible(string))
+	wvec	buf	{16}
+
+	file_name_fill(fn, "")		;; Fill in dir part.
+	file_name$unparse(rr)
+	ifeq	moveq	6, n1
+		and	(rr), n1
+	then	string$append(rr, '\000')	;; Append a null if necessary.
+		end
+	pea	buf			;; Push buffer address.
+	pea	4(rr)			;; Push file name string addr.
+	clr	-(sp)			;; Hack pc.
+	moveq	%stat, n0
+	move	n0, -(sp)
+	trap	0			;; Do the call.
+	scc	n1			;; Remember state of carry.
+	addq	4, sp			;; Pop pc.
+	clr	(sp)+			;; Pop args.
+	clr	(sp)+
+	ifne	tstb	n1
+	then	moveq	1, n0		;; Restore n0.
+		clr	n1
+		movea	n0, rr
+		lea	buf, r1
+		ifne	tst	read
+		then	movew	st%acc_h(r1), n1	;; Last access.
+			moveaw	st%acc_l(r1), rr
+		else	movew	st%wrt_h(r1), n1	;; Last modification.
+			moveaw	st%wrt_l(r1), rr
+			end
+		movea	n0, r1		;; Make r1 valid ref.
+		add	n1, n1
+		addqb	1, n1		;; Integerize high word of date.
+		move	n1, -(sp)	;; Push it on the stack.
+		lea	1(rr, rr), rr	;; Integerize low word of date.
+		_local_time (*, rr)	;; Convert.
+		return (rr)
+		end
+	movea	n0, rr
+	lea	1(rr, rr), rr		;; Save and integerize error code.
+	moveq	1, n0			;; Restore n0.
+	_erstr(rr)
+	signal	not_possible(rr)
+	end file_date

@@ -1,0 +1,100 @@
+
+%	PERM	DEFS
+%	Copyright    Barbara Liskov    1980, 1986
+%	MC68000 Assembler: permanent equates
+
+;; HP-UX version (SEP/Aug 17 1986)
+
+# extend
+
+lowbeg		= 03000		; start of low area
+
+%cell		= 0060000	; LH of _tagcells
+%adv		= 0020000	; LH of _advs
+%advb		= 040		; upper byte of _adv
+
+advbit		= 29
+
+%pstrt		= 0360		; address of procedure name
+%istrt		= 0370		; address of iterator name
+
+dv%prede	= 0		; %advb + predict exponent
+dv%predm	= 1		; predict = dv%predm * 2**(dv%prede-%advb)
+dv%hcnt		= 2		; free high + 1 (in long words mod 2**16)
+dv%max		= 4		; 2 * (size - 1)
+dv%low		= 8		; low bound (as CLU integer)
+dv%rel		= 12		; ref + dv%lcnt
+dv%lcnt		= 16		; 4 * free low + 3 (in long words)
+
+dv%blen		= 20		; size in bytes of array dope vector
+
+; segmap offsets
+
+concnt		=  0		; constants
+conseg		=  4
+codcnt		=  8		; code
+codseg		= 12
+sigcnt		= 16		; signals
+sigseg		= 20
+exccnt		= 24		; exception blocks
+excseg		= 28
+symcnt		= 32		; symbol tables
+symseg		= 36
+segcnt		= 40		; segment map
+segseg		= 44
+entcnt		= 48		; debug entry block
+entseg		= 52
+ptrcnt		= 56		; pointers
+ptrseg		= 60
+owncnt		= 64		; owns
+ownseg		= 68
+wvccnt		= 72		; wvecs
+wvcseg		= 76
+nxtcnt		= 80		; next segment map
+nxtmap		= 84
+
+%exit  	        = 1
+%fork  	        = 2
+%read		= 3
+%write		= 4
+%open		= 5
+%close		= 6
+%wait		= 7
+%link           = 9
+%unlink		= 10
+%chdir		= 12
+%chmod		= 15
+%brk            = 17
+%lseek		= 19
+%getpid		= 20
+%getuid		= 24
+%access		= 33
+%nice           = 34
+%kill		= 37
+%stat		= 38
+%getpgrp        = 39
+%setpgrp        = 39
+%pipe		= 42
+%times          = 43
+%getgid		= 47
+%ioctl		= 54
+%uname          = 57
+%execve		= 59
+%umask          = 60
+%fcntl		= 62
+%vfork		= 66
+%getgroups      = 79
+%setitimer	= 83
+%fstat		= 92
+%select		= 93
+%fsync		= 95
+%sigvec		= 108
+%sigblock	= 109
+%sigsetmask	= 110
+%sigpause	= 111
+%sigstack	= 112
+%gettimeofday	= 116
+%ftruncate	= 130
+%mkdir		= 136
+%rmdir		= 137
+%sigcleanup	= 139

@@ -1,0 +1,6 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+Output_Word = proc (Env: lnk_env, W: word);
+    WH, WL: int := word$W_to_Is(W);
+    out_link_chan$Write_Word_Pair(Env.Output, WH, WL);
+    end Output_Word;

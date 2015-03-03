@@ -1,0 +1,48 @@
+; Copyright Massachusetts Institute of Technology 1985, 1989
+
+gc_read = proc [t: type] (fname: file_name) returns (t)
+					    signals (not_possible(string))
+	var	why, fd
+	file_name_fill(rr, "")
+	file_name$unparse(rr)
+	moveq	6,n1
+	ifeq	and	(rr),n1
+	then	string$append(rr, '\000')
+	end
+	clr	-(sp)					; mode
+	clr	-(sp)					; read
+	pea	4(rr)					; name
+	clr	-(sp)
+	moveq	%open,n0				; open
+	move	n0,-(sp)
+	trap	0
+	lea	16(sp),sp				; pop stack
+	movea	n0,rr
+	lea	1(rr,rr),rr
+	ifcc
+	then	move	n0,fd
+		moveq	1,n0				; restore 0
+		clr	-8(sp)
+		_gc_read[t](rr)				; read obj
+		move	fd,-(sp)
+		clr	-(sp)
+		moveq	%close,n0			; close
+		move	n0,-(sp)
+		trap	0
+		addq	8,sp				; pop stack
+		moveq	1,n0				; restore 0
+		return(rr)
+	end except when not_possible (why):
+			move	fd,-(sp)
+			clr	-(sp)
+			moveq	%close,n0		; close
+			move	n0,-(sp)
+			trap	0
+			addq	8,sp			; pop stack
+			moveq	1,n0			; restore 0
+			signal	not_possible(why)
+		   end
+	moveq	1,n0					; restore 0
+	_erstr(rr)
+	signal	not_possible(rr)
+	end gc_read

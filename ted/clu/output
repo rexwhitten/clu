@@ -1,0 +1,235 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+output = cluster is outc,		% output a character
+		    outi,		% output an integer
+		    outs,		% output a string
+		    outn,		% output literal form of an integer
+		    pad,		% output nulls
+		    outa,		% output part of an array
+		    outb,		% output part of a _bytevec
+		    bell,		% output a ding
+		    flush,		% flush buffered output
+		    force_out,		% wait for output to go out
+		    speed,		% get output speed
+		    set_speed,		% set default output speed
+		    set_image,		% set output mode
+		    reset
+
+    rep = null
+
+    nulsiz = 20
+    size = 15
+
+    own done: bool := false
+    own buf: _bytevec
+    own str: string
+    own idx: int
+    own cpo: _chan
+    own nuls: _bytevec
+    own dspeed: int
+    own lspeed: int
+    own image: bool
+
+    outc = proc (c: char)
+	idx := idx + 1
+	buf[idx] := c
+	if idx = size
+	   then _chan$puts(cpo, str, false)
+		idx := 0
+	   end
+	end outc
+
+    outi = proc (i: int)
+	idx := idx + 1
+	begin
+	buf[idx] := i2c(i)
+	if idx = size
+	   then _chan$puts(cpo, str, false)
+		idx := 0
+	   end
+	return
+	end except when illegal_char: end
+	_chan$putb(cpo, buf, 1, idx - 1, false)
+	idx := 0
+	_chan$puti(cpo, i, false)
+	end outi
+
+    outs = proc (s: string)
+	mbvec = _cvt[string, _bytevec]
+	z: int := string$size(s)
+	if z = 0
+	   then return end
+	if z = 1
+	   then idx := idx + 1
+		buf[idx] := s[1]
+		if idx = size
+		   then _chan$puts(cpo, str, false)
+			idx := 0
+		   end
+		return
+	   end
+	m: int := size - idx
+	i: int := 1
+	if z >= m
+	   then _bytevec$move_lr(mbvec(s), 1, buf, idx + 1, m)
+		_chan$puts(cpo, str, false)
+		idx := 0
+		z :=  z - m
+		i := m + 1
+		if z >= size
+		   then zz: int := z // size
+			z := i + z - zz
+			_chan$putb(cpo, mbvec(s), i, z - 1, false)
+			i := z
+			z := zz
+		   end
+		if z = 0
+		   then return end
+	   end
+	_bytevec$move_lr(mbvec(s), i, buf, idx + 1, z)
+	idx := idx + z
+	end outs
+
+    outn = proc (n: int)
+	if n > 9
+	   then idx := idx + 1
+		buf[idx] := i2c(n / 10 + 48)
+		if idx = size
+		   then _chan$puts(cpo, str, false)
+			idx := 0
+		   end
+		n := n // 10
+	   end
+	idx := idx + 1
+	buf[idx] := i2c(n + 48)
+	if idx = size
+	   then _chan$puts(cpo, str, false)
+		idx := 0
+	   end
+	end outn
+
+    pad = proc (n: int)
+	while n > nulsiz do
+	    outb(nuls, 1, nulsiz)
+	    n := n - nulsiz
+	    end
+	if n > 0
+	   then outb(nuls, 1, n) end
+	end pad
+
+    outa = proc (a: act, i, z: int) signals (bounds, negative_size)
+	dc = _adv[char]
+	vc = _vec[char]
+	i := i - act$low(a)
+	zz: int := act$size(a) - i
+	if i < 0  cor  zz < 0
+	   then signal bounds
+	 elseif z < 0
+	   then signal negative_size
+	 elseif z > zz
+	   then z := zz end
+	_event$defer()
+	d: dc := _cvt[act, dc](a)
+	v: vc := d.vector
+	i := d.start + i
+	m: int := size - idx
+	while m <= z do
+		_bytevec$move_v(v, i, buf, idx + 1, m)
+		_chan$puts(cpo, str, false)
+		z := z - m
+		i := i + m
+		idx := 0
+		if z = 0
+		   then _event$undefer()
+			return
+		   end
+		m := size
+	   end
+	_bytevec$move_v(v, i, buf, idx + 1, z)
+	idx := idx + z
+	_event$undefer()
+	end outa
+
+    outb = proc (bvec: _bytevec, i, z: int) signals (bounds, negative_size)
+	zz: int := _bytevec$size(bvec) - i + 1
+	if i <= 0  cor  zz < 0
+	   then signal bounds
+	 elseif z <= 0
+	   then if z = 0
+		   then return end
+		signal negative_size
+	 elseif z > zz
+	   then z := zz end
+	m: int := size - idx
+	if m <= z
+	   then _bytevec$move_lr(bvec, i, buf, idx + 1, m)
+		_chan$puts(cpo, str, false)
+		z := z - m
+		i := i + m
+		idx := 0
+		if z >= size
+		   then zz := z // size
+			z := i + z - zz
+			_chan$putb(cpo, bvec, i, z - 1, false)
+			i := z
+			z := zz
+		   end
+		if z = 0
+		   then return end
+	   end
+	_bytevec$move_lr(bvec, i, buf, idx + 1, z)
+	idx := idx + z
+	end outb
+
+    bell = proc ()
+	outc(ctrlg)
+	_chan$putb(cpo, buf, 1, idx, false)
+	idx := 0
+	end bell
+
+    flush = proc ()
+	_chan$putb(cpo, buf, 1, idx, false)
+	idx := 0
+	end flush
+
+    force_out = proc ()
+	_chan$putb(cpo, buf, 1, idx, false)
+	idx := 0
+	end force_out
+
+    speed = proc () returns (int)
+	return(lspeed)
+	end speed
+
+    set_speed = proc (i: int)
+	if i <= 0
+	   then dspeed := 9600
+	   else dspeed := int$min(i, 38400)
+	   end
+	lspeed := line_speed()
+	end set_speed
+
+    set_image = proc (b: bool)
+	image := b
+	end set_image
+
+    reset = proc ()
+	if ~done
+	   then buf := _bytevec$create(size)
+		str := _cvt[_bytevec, string](buf)
+		cpo := _chan$primary_output()
+		nuls := _bytevec$create(nulsiz)
+		dspeed := 9600
+		image := true
+		done := true
+	   end
+	idx := 0
+	lspeed := line_speed()
+	end reset
+
+    line_speed = proc () returns (int)
+	ispeed, ospeed: int := _chan$get_speeds(cpo)
+	   except when not_possible (*): return(dspeed) end
+	return(ospeed)
+	end line_speed
+
+    end output

@@ -1,0 +1,7 @@
+; Copyright Massachusetts Institute of Technology 1985, 1989
+
+_get_version = qproc () returns (int)
+	movea	version,rr
+	lea	1(rr,rr), rr		;; Integerize.
+	return(rr)
+	end _get_version

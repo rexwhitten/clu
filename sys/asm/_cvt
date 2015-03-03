@@ -1,0 +1,5 @@
+; Copyright Massachusetts Institute of Technology 1980, 1989
+
+_cvt = qproc [from, to: type] (x: from) returns (to)
+	return(rr)
+	end _cvt

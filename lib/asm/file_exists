@@ -1,0 +1,35 @@
+; Copyright Massachusetts Institute of Technology 1985, 1989
+
+file_exists = proc (fn: file_name) returns (bool)
+				   signals (not_possible(string))
+	file_name_fill(rr, "")			; fill in dir part
+	file_name$unparse(rr)
+	moveq	6,n1
+	ifeq	and	(rr),n1
+	then	string$append(rr, '\000')	; ASCIZ
+	end
+	clr	-(sp)				; mode 0
+	pea	4(rr)				; name
+	clr	-(sp)
+	moveq	%access,n0			; check access
+	move	n0,-(sp)
+	trap	0
+	lea	12(sp),sp			; pop stack
+	ifcc
+	then	clr	-8(sp)
+		moveq	1,n0			; restore 0
+		return(true)
+	end
+	ifeq	cmpib	2,n0			; ENOENT?
+		beq	this
+		cmpib	20,n0			; ENOTDIR?
+	then	clr	-8(sp)
+		moveq	1,n0			; restore 0
+		return(false)
+	end
+	movea	n0,rr
+	moveq	1,n0				; restore 0
+	lea	1(rr,rr),rr
+	_erstr(rr)
+	signal	not_possible(rr)
+	end file_exists

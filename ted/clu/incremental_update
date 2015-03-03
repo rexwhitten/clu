@@ -1,0 +1,342 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+% The following routine supports incremental updating of the
+% buffer.  The user is required to supply a default search
+% object, and a default replace object. Then the user is given
+% a chance to either update or not at each occurrence of the
+% search object. There are, of course, many more options.
+% Buffer saving is turned off while in this routine.
+
+incremental_update = proc (e: env, c: char)
+		       signals (errmsg(string), stop(env, string))
+
+    help_msg = "A: go to start of update region\n" ||
+	       "C: replace with new string and go to next match\n" ||
+	       "D: change default replace string (#~=1: from search string)\n" ||
+	       "E: replace with default string and stop\n" ||
+	       "I: #=0: don't ignore case, #~=0: ignore case\n" ||
+	       "K: kill the line containing the match\n" ||
+	       "M: kill lines between previous and current match\n" ||
+	       "N: go to next match\n" ||
+	       "P: go to previous match\n" ||
+	       "Q: quit the update\n" ||
+	       "R: kill the rest of the line after the match\n" ||
+	       "S: change search string\n" ||
+	       "U: update rest of the buffer without pause\n" ||
+	       "W: kill lines not containing match to end of region\n" ||
+	       "X: kill rest of line after each match to end of region\n" ||
+	       "Y: replace with default string and go to next match\n" ||
+	       "Z: kill lines containing match to end of region\n" ||
+	       "#: count number of occurrences to end of region"
+
+    prompt = "Update"
+    valid = "ACDEIKMNPQRSUWXYZ#"
+    mutating = "CEKMRUWXYZ"
+
+    own list1: ast := ast$new()
+    own list2: ast := ast$new()
+
+    b: buf := e.buffer
+    arg: int := e.this_arg
+    changed: bool := false
+    obj: string := env$fetch_str(e, "search", "")
+    obj := get_string_arg(e, "Search for string", obj)
+       resignal errmsg
+    if string$empty(obj) then signal errmsg("Empty pattern!") end
+    replace: string := ""
+    for i: int in ast$indexes(list1) do
+	if list1[i] = obj
+	   then replace := list2[i]
+		break
+	 elseif list2[i] = obj
+	   then replace := list1[i]
+		break
+	 end
+	end
+    replace := get_string_arg(e, "Default replace string", replace)
+       resignal errmsg
+    case: bool := env$fetch_num(e, "ignore_case", 0) = 0
+    backup, dellen, skip: int, realrep: string, lnfix: int :=
+	determine_update(obj, replace, case)
+    ccount: int := e.change_count
+    climit: int := e.change_limit
+    e.change_limit := 0
+    env$store_str(e, "search", obj)
+    remember_update(obj, replace, list1, list2)
+    mline, mpos: int := buf$get_mark(b)
+    oline, opos: int := buf$get_cursor(b)
+    ochanged: bool := b.changed
+    aline, zline: int
+    partial: bool := arg <= 1  cand  ~string$empty(b.name)
+    if partial
+       then aline, zline := buf$get_frame(b)
+       else aline := 1
+	    zline := buf$size(b)
+       end
+    old_buf: buf
+    get_next: bool := true
+    need_opt: bool := true
+    redisplay: bool := false
+    lline: int := oline
+    cnt: int := 0
+    first: bool := true
+    while true do
+	line, pos: int := buf$get_cursor(b)
+	if get_next
+	   then if ~string_search(b, obj, 1, case)
+		   then break end
+		xline, xpos: int := buf$get_cursor(b)
+		if xline > zline
+		   then buf$set_cursor(b, line, pos)
+			break
+		   end
+		line := xline
+		pos := xpos
+	   end
+	get_next := true
+	if need_opt
+	   then % get next sub-command
+		arg, c := get_option(e, prompt, valid, help_msg, true)
+		   except when errmsg (why: string):
+			       c := ctrlg
+			       if why = quit_msg then break end
+			       _bell()
+			       get_next := false
+			       continue
+			  end
+		redisplay := ~env$any_changed(e)
+		if first  cand  string$indexc(c, mutating) > 0
+		   then if partial
+			   then buf$set_cursor(b, aline, 1)
+				old_buf := buf$sub_buf(b, zline, max_int)
+				buf$set_cursor(b, line, pos)
+			   else old_buf := buf$copy(b)
+			   end
+			first := false
+		   end
+	 elseif check_for_interrupt()
+	   then % stop it!
+		need_opt := true
+		get_next := false
+		cnt := 0
+		continue
+	 end
+	if c = 'U'
+	   then % Update for the rest of the buffer
+		c := 'Y'
+		need_opt := false
+	 elseif c = 'Z'
+	   then % Kill matching lines for the rest of the buffer
+		c := 'K'
+		need_opt := false
+	 elseif c = 'X'
+	   then % Kill rests of lines for the rest of the buffer
+		c := 'R'
+		need_opt := false
+	 elseif c = 'W'
+	   then % Kill non-matching lines for the rest of the buffer
+		c := 'M'
+		need_opt := false
+	 elseif c = '#'
+	   then % Count occurrences for the rest of the buffer
+		cnt := cnt + 1
+		need_opt := false
+		continue
+	 end
+	if c = 'Y'  cor  c = 'E'
+	   then % replace with default
+		lline := line + 1
+		if backup < 0 then buf$new_cursor(b, 0, backup) end
+		changed1: bool := true
+		if dellen > 0 then
+		   line, pos := buf$add_cursor(b, 0, dellen)
+		   changed1 := env$delete1(e, line, pos)
+		   if ~changed1 then buf$set_cursor(b, line, pos) end
+		   end
+		if changed1  cand  ~string$empty(realrep) then
+		   changed1 := env$insert1(e, realrep)
+		   end
+		if skip > 0 then buf$new_cursor(b, 0, skip) end
+		if changed1 then
+		   zline := zline + lnfix
+		   changed := true
+		   end
+		if c = 'E' then break end
+		if need_opt cand redisplay
+		   then env$display(e) end
+	 elseif c = 'C'
+	   then % replace with new string
+		nreplace: string := get_string_arg(e, "Replace with", replace)
+		nbackup, ndellen, nskip: int, nrealrep: string, nlnfix: int :=
+		    determine_update(obj, nreplace, case)
+		lline := line + 1
+		if nbackup < 0 then buf$new_cursor(b, 0, nbackup) end
+		changed1: bool := true
+		if ndellen > 0 then
+		   line, pos := buf$add_cursor(b, 0, ndellen)
+		   changed1 := env$delete1(e, line, pos)
+		   if ~changed1 then buf$set_cursor(b, line, pos) end
+		   end
+		if changed1  cand  ~string$empty(nrealrep) then
+		   changed1 := env$insert1(e, nrealrep)
+		   end
+		if nskip > 0 then buf$new_cursor(b, 0, nskip) end
+		if changed1 then
+		   zline := zline + nlnfix
+		   changed := true
+		   end
+		if redisplay then env$display(e) end
+	 elseif c = 'N'
+	   then % skip this one
+		lline := line + 1
+	 elseif c = 'Q' cor c = ctrlg
+	   then % just quit the change
+		break
+	 elseif c = 'D'
+	   then % change the default
+		def: string := replace
+		if arg ~= 1 then def := obj end
+		replace := get_string_arg(e, "Default replace string", def)
+		backup, dellen, skip, realrep, lnfix :=
+		    determine_update(obj, replace, case)
+		remember_update(obj, replace, list1, list2)
+		get_next := false
+	 elseif c = 'I'
+	   then % change case flag
+		if arg ~= 0 then arg := 1 end
+		env$store_num(e, "ignore_case", arg)
+		case := arg = 0
+		backup, dellen, skip, realrep, lnfix :=
+		    determine_update(obj, replace, case)
+		buf$new_cursor(b, 0, -string$size(obj))
+	 elseif c = 'S'
+	   then % change the search object
+		buf$new_cursor(b, 0, -string$size(obj))
+		obj := get_string_arg(e, "Search for string", obj)
+		if string$empty(obj) then exit errmsg("") end
+		backup, dellen, skip, realrep, lnfix :=
+		    determine_update(obj, replace, case)
+		env$store_str(e, "search", obj)
+		remember_update(obj, replace, list1, list2)
+	 elseif c = 'K'
+	   then % kill this line
+		if env$delete(e, line, 1, line + 1, 1)
+		   then zline := zline - 1
+			lline := line
+			changed := true
+			if need_opt cand redisplay
+			   then env$display(e) end
+		   else buf$set_cursor(b, line, pos)
+			lline := line + 1
+		   end
+	 elseif c = 'R'
+	   then % kill rest of this line
+		if env$delete1(e, line, max_int)
+		   then changed := true
+			if need_opt cand redisplay
+			   then env$display(e) end
+		   else buf$set_cursor(b, line, max_int)
+		   end
+		lline := line + 1
+	 elseif c = 'M'
+	   then % kill previous lines
+		if line > lline  cand  env$delete(e, lline, 1, line, 1)
+		   then zline := zline - (line - lline)
+			line := lline
+			changed := true
+			if need_opt cand redisplay
+			   then env$display(e) end
+		   end
+		buf$set_cursor(b, line, pos)
+		lline := line + 1
+	 elseif c = 'A'
+	   then % get to the buffer start
+		buf$set_cursor(b, aline, 1)
+		lline := aline
+	 elseif c = 'P'
+	   then % get to previous match
+		get_next := false
+		buf$new_cursor(b, 0, -string$size(obj))
+		lline := aline
+		if string_search(b, obj, -1, case) then
+		   xline, xpos: int := buf$get_cursor(b)
+		   if xline >= aline then
+		      line, pos := buf$add_cursor(b, 0, string$size(obj))
+		      if string_search(b, obj, -1, case) then
+			 xline, xpos := buf$get_cursor(b)
+			 if xline >= aline
+			    then lline := xline + 1 end
+			 end
+		      buf$set_cursor(b, line, pos)
+		      continue
+		      end
+		   end
+		buf$set_cursor(b, line, pos)
+		_bell()
+	 elseif c = '?'
+	   then % type out the help message
+		type_string(e, help_msg, "---- Update help:")
+		get_next := false
+	 elseif c = ctrll
+	   then % redisplay
+		env$clear(e)
+		get_next := false
+	 else exit errmsg("")
+	 end except when errmsg (why: string):
+			 _bell()
+			 get_next := false
+		    end
+	end
+    if c = 'M' cand zline >= lline cand env$delete(e, lline, 1, zline, max_int)
+       then zline := lline
+	    changed := true
+     elseif c = '#'
+       then top_display(e, int$unparse(cnt) || " occurrences found.")
+     end
+    if changed then % ask for buffer change confirm
+       ok: bool := mconfirm(e, "Change buffer", true)
+	  except when errmsg (*): ok := false end
+       if ~ok
+	  then % replace current buffer with old one
+	       if partial
+		  then buf$set_cursor(b, aline, 1)
+		       env$delete1(e, zline, max_int)
+		       env$insert_buf1(e, old_buf)
+		       b.changed := ochanged
+		  else buf$replace(b, old_buf)
+		       env$change_all(e)
+		  end
+	       buf$set_cursor(b, oline, opos)
+	       buf$set_mark(b, mline, mpos)
+	       changed := false
+	       e.change_count := ccount
+	  end
+       end
+    e.change_limit := climit
+    if changed
+       then top_display(e, "Done.")
+     elseif c ~= '#'
+       then top_display(e, "No change.")
+     end
+    end incremental_update
+
+remember_update = proc (obj, replace: string, list1, list2: ast)
+    for i: int in ast$indexes(list1) do
+	if (list1[i] = obj  cand  list2[i] = replace)  cor
+	   (list1[i] = replace  cand  list2[i] = obj)
+	   then while true do
+		    list1[i] := list1[i - 1]
+		    list2[i] := list2[i - 1]
+		    i := i - 1
+		    end except when bounds: end
+		list1[i] := obj
+		list2[i] := replace
+		return
+	   end
+	end
+    ast$addl(list1, obj)
+    ast$addl(list2, replace)
+    if ast$size(list1) > 25
+       then ast$remh(list1)
+	    ast$remh(list2)
+       end
+    end remember_update

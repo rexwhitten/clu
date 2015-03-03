@@ -1,0 +1,32 @@
+;; Copyright Massachusetts Institute of Technology 1985, 1989
+
+create_directory = proc (fn: file_name, mode: int)
+					signals (not_possible(string))
+	file_name_fill (fn, "")		;; Fill in dir part.
+	file_name$unparse(rr)
+	ifeq	moveq	6, n1
+		and	(rr), n1
+	then	string$append(rr, '\000')	;; Append a null if necessary.
+		end
+	move	rr, n1
+	asr	1, n1			;; De-integerize mode
+	move	n1, -(sp)		;; Push it.
+	pea	4(rr)			;; Push file name.
+	clr	-(sp)			;; Hack pc.
+	move	%mkdir, n0
+	move	n0, -(sp)
+	trap	0			;; Do the call.
+	scc	n1			;; Remember state of carry.
+	addq	4, sp			;; Pop pc.
+	clr	(sp)+			;; Pop args
+	clr	(sp)+
+	ifne	tstb	n1
+	then	moveq	1, n0		;; Restore n0.
+		return
+		end
+	movea	n0, rr
+	lea	1(rr,rr), rr		;; Save and integerize error code
+	moveq	1, n0			;; Restore n0.
+	_erstr(rr)
+	signal	not_possible(rr)
+	end create_directory

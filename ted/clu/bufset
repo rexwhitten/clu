@@ -1,0 +1,191 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+bufset = cluster is init, create_buf, kill_buf, next, fetch, fetch_filename,
+		    store_filename, is_displayed, display, all_buffers
+
+    rep = null
+
+    bufi = record[buf:    buf,
+		  fname:  string,
+		  bname:  string]
+
+    abufi = array[bufi]
+
+    own bufs: abufi
+
+    init = proc ()
+	bufs := abufi$new()
+	end init
+
+    create_buf = proc (name: string, fnm: string, b: buf) returns (string)
+	nname: string := name
+	cnt: int := 0
+	need: bool := true
+	while need do
+	    need := false
+	    for bi: bufi in abufi$elements(bufs) do
+		if bi.bname = nname
+		   then cnt := cnt + 1
+			nname := name || int$unparse(cnt)
+			need := true
+			break
+		   end
+		end
+	    end
+	abufi$addh(bufs, bufi${buf:   b,
+			       fname: fnm,
+			       bname: nname})
+	return(nname)
+	end create_buf
+
+    kill_buf = proc (e: env, name: string) returns (buf)
+		 signals (errmsg(string))
+	if in_use(e, name)
+	   then signal errmsg("Held by another environment!") end
+	index: int := 0
+	for i: int in abufi$indexes(bufs) do
+	    if bufs[i].bname = name
+	       then index := i
+		    break
+	       end
+	    end
+	if index = 0 then signal errmsg("No such buffer!") end
+	b: buf := bufs[index].buf
+	i: int := index
+	while true do
+	    bufs[i] := bufs[i + 1]
+	    i := i + 1
+	    end except when bounds: end
+	abufi$remh(bufs)
+	if e.name ~= name then return(b) end
+	e.name := ""
+	if abufi$empty(bufs)
+	   then abufi$addh(bufs, bufi${buf:   buf$create(),
+				       bname: "Main",
+				       fname: ""})
+		display(e, "Main")
+		return(b)
+	   end
+	if ~in_use(e, e.prev)
+	   then display(e, e.prev)
+		return(b)
+	   end except when bad_name: end
+	i := index - 1
+	while true do
+	    name := bufs[i].bname
+	       except when bounds:
+			   i := abufi$high(bufs)
+			   name := abufi$top(bufs).bname
+			   if i < index then break end
+		      end
+	    if ~in_use(e, name) then break end
+	    if i = index
+	       then name := bufs[index - 1].bname
+		       except when bounds: name := abufi$top(bufs).bname end
+		    break
+	       end
+	    i := i - 1
+	    end
+	display(e, name)
+	return(b)
+	end kill_buf
+
+    in_use = proc (e: env, name: string) returns (bool)
+	for ee: env in winset$all() do
+	    if e ~= ee  cand  ee.name = name then return(true) end
+	    end
+	return(false)
+	end in_use
+
+    next = proc (name: string, cnt: int) returns (string)
+	index: int := 0
+	for i: int in abufi$indexes(bufs) do
+	    if bufs[i].bname = name
+	       then index := i
+		    break
+	       end
+	    end
+	if index = 0 then return(abufi$bottom(bufs).bname) end
+	while cnt > 0 do
+	    if index = abufi$high(bufs)
+	       then index := 1
+	       else index := index + 1
+	       end
+	    cnt := cnt - 1
+	    end
+	while cnt < 0 do
+	    if index = 1
+	       then index := abufi$high(bufs)
+	       else index := index - 1
+	       end
+	    cnt := cnt + 1
+	    end
+	return(bufs[index].bname)
+	end next
+
+    fetch = proc (name: string) returns (buf) signals (bad_name)
+	for bi: bufi in abufi$elements(bufs) do
+	    if bi.bname = name then return(bi.buf) end
+	    end
+	signal bad_name
+	end fetch
+
+    fetch_filename = proc (name: string) returns (string) signals (bad_name)
+	for bi: bufi in abufi$elements(bufs) do
+	    if bi.bname = name then return(bi.fname) end
+	    end
+	signal bad_name
+	end fetch_filename
+
+    store_filename = proc (name: string, fnm: string) signals (bad_name)
+	for bi: bufi in abufi$elements(bufs) do
+	    if bi.bname = name
+	       then bi.fname := fnm
+		    return
+	       end
+	    end
+	signal bad_name
+	end store_filename
+
+    is_displayed = proc (name: string) returns (bool)
+	for e: env in winset$displayed() do
+	    if e.name = name then return(true) end
+	    end
+	return(false)
+	end is_displayed
+
+    display = proc (e: env, name: string) signals (bad_name)
+	bi: bufi
+	found: bool := false
+	for bi in abufi$elements(bufs) do
+	    if bi.bname = name
+	       then found := true
+		    break
+	       end
+	    end
+	if ~found then signal bad_name end
+	if e.name ~= name then e.prev := e.name end
+	e.name := name
+	e.buffer := bi.buf
+	e.fname := bi.fname
+	title: string := "---- Buffer: " || name || " "
+	old_title: string := e.title
+	pos: int := _last_indexc(']', old_title)
+	if pos = 0  cand  string$empty(bi.fname)
+	   then pos := _last_indexc('(', old_title)
+		if pos > 0
+		   then title := title || string$rest(old_title, pos)
+		   else title := title || "[]"
+		   end
+	   else title := title || "[" || bi.fname || "]"
+	   end
+	update_title(e, title)
+	env$change_all(e)
+	end display
+
+    all_buffers = iter () yields (buf, string, string)
+	for bi: bufi in abufi$elements(bufs) do
+	    yield(bi.buf, bi.bname, bi.fname)
+	    end
+	end all_buffers
+
+    end bufset

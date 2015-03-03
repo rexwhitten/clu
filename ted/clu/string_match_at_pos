@@ -1,0 +1,21 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+% Checks for exact match of first string at indicated position in
+% second string.  Ignores case difference if last argument false.
+
+string_match_at_pos = proc (obj, pat: string, pos: int, case: bool)
+			returns (bool)
+
+    for c: char in string$chars(obj) do
+	p: char := pat[pos]
+	if c ~= p then
+	    if case then return (false) end
+	    if c > p then c, p := p, c end
+	    if p < 'a' cor p > 'z' cor c2i(p) - c2i(c) ~= 32
+	       then return (false)
+	       end
+	   end
+	pos := pos + 1
+	end
+       except when bounds: return (false) end
+    return (true)
+    end string_match_at_pos

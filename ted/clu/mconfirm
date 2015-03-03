@@ -1,0 +1,30 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+mconfirm = proc (e: env, msg: string, top: bool)
+	     returns (bool) signals (errmsg(string))
+    done: bool := false
+    while true do
+	if ~_pending_chars()
+	   then if ~done
+		   then msg := msg || "? (Y or N) "
+			done := true
+		   end
+		top_display(e, msg)
+		env$display(e)
+		if top
+		   then top_display(e, msg) end
+	   end
+	c: char := _getc()
+	if c = ctrll then
+	   env$clear(e)
+	   continue
+	   end
+	if done cand c ~= ctrlg then top_display(e, string$append(msg, c)) end
+	if c = 'Y' cor c = 'y'
+	   then return (true)
+	 elseif c = 'N' cor c = 'n'
+	   then return (false)
+	 end
+	_bell()
+	if c = ctrlg then signal errmsg(quit_msg) end
+	end
+    end mconfirm

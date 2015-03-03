@@ -1,0 +1,10 @@
+; Copyright	Massachusetts Institute of Technology     1989
+_io_buf = qproc () returns (_bytevec)
+	wvec	buf	{04200}
+	lea	buf,rr
+	move	rr,n1
+	oriw	0774,n1
+	movea	n1,rr
+	movew	040001,2(rr)
+	return(rr)
+	end _io_buf

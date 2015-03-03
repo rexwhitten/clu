@@ -1,0 +1,93 @@
+% Copyright Massachusetts Institute of Technology 1981, 1989
+
+# extend
+
+_printn = proc (x: _obj, ps: pstream)
+	oseq = sequence[_obj]
+	oarr = array[_obj]
+	otag = _tagcell[_obj]
+	tagcase x       % the tagcase ordering is important!
+	   tag uninit:
+		pstream$text(ps, "???")
+           tag compactcell:
+                pstream$text (ps, "<")
+                tg: int := x.reftag
+                x := x.value
+                int$print (tg, ps)
+                if pstream$start (ps, ": ")
+                    then _printn (x, ps) end
+                pstream$stop(ps, ">")
+	   tag int_:
+                int$print(_cvt[_obj, int](x), ps)
+           tag null_or_false:
+                pstream$text (ps, "false")
+           % characters whose rep is even should still print like ints.
+           tag char_:
+                char$print (_cvt[_obj, char](x), ps)
+	   tag vec:
+		for st: stream in stream$_open_streams() do
+			if x = _cvt[stream, _obj](st)
+			   then stream$print(st, ps)
+				return
+			   end
+			end
+		if x = _cvt[pstream, _obj](ps)
+		   then pstream$print(ps, ps)
+			return
+		   end
+		oseq$print(_cvt[_obj, oseq](x), ps)
+	   tag anyize:
+		_tdesc$print(force[_tdesc](_cvt[_obj, any](x)), ps)
+		   except when wrong_type:
+				pstream$text(ps, "<type#")
+				tg: int
+				tg, x := otag$get(_cvt[_obj, otag](x))
+				int$print(tg - _type_base(), ps)
+				if pstream$start(ps, ": ")
+				   then _printn(x, ps) end
+				pstream$stop(ps, ">")
+			  end
+	   tag cell:
+		pstream$text(ps, "<")
+		tg: int
+		tg, x := otag$get(_cvt[_obj, otag](x))
+		int$print(tg, ps)
+		if pstream$start(ps, ": ")
+		   then _printn(x, ps) end
+		pstream$stop(ps, ">")
+	   tag bvec:
+		string$print(_cvt[_obj, string](x), ps)
+	   tag adv:
+		oarr$print(_cvt[_obj, oarr](x), ps)
+	   tag routine:
+		pstream$text(ps, _routine_name(x))
+           tag code_addr:
+                ft: _frm_table := _get_frm_table()
+                lkp_addr: _obj := _obj$get_obj (_cvt[int, _obj](x.addr + 1))
+
+                % use x+1 as the lookup addr to compensate for the funny
+                % handling of boundary conditions in _frm_table$lookup.
+                begin
+                    ri: _rtn_info := _frm_table$lookup (ft, lkp_addr)
+                    offset: int := x.addr - ri.raw_routine.addr
+                    pstream$text (ps, ri.name || "+" || int$unparse(offset))
+                end
+                    except when not_found:
+                        pstream$text (ps, "?")
+                        if x.reftag = 0
+                            then    int$print (x.addr, ps)
+                            else    int$print (x.left, ps)
+                                    pstream$text (ps, ",,")
+                                    int$print (x.right, ps)
+                                    end
+                        end
+      	   others:                  % assume x is an address.
+                pstream$text (ps, "@")
+                if  x.reftag = 0
+                    then    int$print (x.addr, ps)  % Try to print a single int.
+                    else    int$print (x.left, ps)
+                            pstream$text (ps, ",,")
+                            int$print (x.right, ps)
+                            end 
+	   end
+	end _printn

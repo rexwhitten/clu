@@ -1,0 +1,154 @@
+
+%% Copyright Massachusetts Institute of Technology Barbara, 1989
+
+%%%% Native VAX Linker
+
+%%%% Short hand declarations.
+
+ai		= array[int]
+ints		= sequence[int]
+as		= array[string]
+strs		= sequence[string]
+
+word		= mach_word
+
+clust_inst	= cluster_instantiation
+rtn_inst	= routine_instantiation
+
+fname		= file_name
+fnames		= sequence[file_name]
+
+param		= constant
+params		= sequence[constant]
+
+cluster_list	= sequence[c_template]
+clust_tab	= table[string, c_template]
+
+consts		= sequence[constant]
+const_tab	= canon_table[constant, lnk_env]
+
+name_tab	= table[string, string]
+
+pos_ct		= oneof[ None:	 null,
+			 C_Temp: c_template ]
+
+c_and_r		= struct[ C:	pos_ct,
+			  R:	r_template ]
+
+r_lists		= sequence[r_list]
+
+routine_list	= sequence[r_template]
+rtn_tab		= table[string, r_template]
+old_rtns	= table[constant, r_template]
+
+routine_instantiations = sequence[routine_instantiation]
+rtn_insts	= routine_instantiations
+
+cluster_instantiations = sequence[cluster_instantiation]
+clust_insts	= cluster_instantiations
+
+types		= sequence[type_desc]
+type_tab	= canon_table[type_desc, lnk_env]
+
+use_lists	= array[use_list]
+
+dbg_blk_array   = array[dbg_block]
+dbg_blocks	= sequence[dbg_block]
+space_blocks	= array[space_block]
+
+
+%% Input structures.
+
+file		= record[
+		      file_name: file_name,   %%%% Needed to re-open file.
+		      p2_size:	 int,	      %% Size of 2nd pass stuff.
+		      UId:	 int,	      %% Unique Id.
+		      C_Rs:	 c_r_list
+			 ]
+file_list	= array[file]
+vUID_Position	= 24
+
+clust_or_rtn	= oneof[Clust: c_template,
+			Rtn:   r_template]
+c_r_list	= sequence[clust_or_rtn]
+c_rs_size	= record[
+		      C_Rs:	  c_r_list,
+		      Pass2_Size: int,
+		      Unique_Id:  int
+			 ]
+
+%% Exceptions and Signals.
+
+excpt_str = struct [ Const:  constant,	%% Instantiated exception.
+		     Str:    string ];
+inst_excepts = ordered_set[inst_except, string, excpt_str]
+
+range_addr = record [ Range:  range,
+		      Addr:   address ];
+
+sig = record [ Name:	   string,
+	       Num_Args: int ];
+inst_signals = table[sig, inst_signal];
+
+
+%% Symbol table Declarations.
+
+rtn_info     = constant			%% Rtn_Info is a constant struct
+rtn_sym_tab  = sorted_set[rtn_info]	%% Table sorted by address.
+name_sym_tab = sorted_set[rtn_info]	%% Table sorted by name.
+
+rtn_inf_tab	= table[address, rtn_info]
+
+%% Library lookup table.
+
+lib_tab = table[string, string]	%% Module name to string file name.
+
+%% Timing Structures
+
+time_ent = record [ Start: time,
+		    Stop:  time ]
+
+times = record [ Parse: time_ent,
+		 Load:  time_ent,
+		 Link:  time_ent,
+		 Setup: time_ent,
+		 Out:   time_ent,
+		 Outs:	out_times ]
+
+out_times = record [ Consts:  time,
+		     Code:    time,
+		     Sigs:    time,
+		     Excpts:  time,
+		     SymTb:   time,
+		     SegMp:   time,
+		     Data:    time,
+		     BSS:     time,
+		     ReWrts:  time,
+		     FndRtns: time,
+		     RtnChns: time,
+		     Pnts:    time,
+		     Done:    time ];
+
+
+%% Linking Parameters.
+
+Stub_Rtn_Name_String     = "__stub_routine"
+Stub_Cluster_Name_String = "__stub_cluster"
+
+Start_Rtn_Str = "_start"
+Top_Routines = strs$[ Start_Rtn_Str ,"_siggy" ]
+vDebug_Main  = "_debugger"
+
+%% Special Declarations.
+
+vMax_List_Output_Length  = 6	%% Max number of elements in Unparse of lists
+%				%%-before elipsis.
+
+
+vHelp_File_Name_String = "/linker.help"
+
+vJCL_String = "JCL is: Object_File {<sep>Object_File} {#option}  [^output_file]\n" ||
+	      "    or: ?\n" ||
+	      " where: Object_File is either the name of a binary file\n" ||
+	      "        or \"@X_Load_file\"" ||
+	      " and <sep> is \",\", space, or tab."

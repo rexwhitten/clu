@@ -1,0 +1,20 @@
+; Copyright Massachusetts Institute of Technology 1985, 1989
+
+now = proc () returns (date)
+	wvec	buf	{4}
+	lea	buf,rr
+	pea	8(rr)
+	move	rr,-(sp)
+	clr	-(sp)
+	moveq	%gettimeofday,n0
+	move	n0,-(sp)
+	trap	0
+	lea	12(sp),sp
+	moveaw	(rr)+,r1		; get halves
+	pea	1(r1,r1)
+	suba	r1,r1
+	moveaw	(rr)+,rr
+	lea	1(rr,rr),rr
+	_local_time(*, rr)		; convert it
+	return(rr)
+	end now

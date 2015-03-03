@@ -1,0 +1,9 @@
+%% Copyright Massachusetts Institute of Technology 1980, 1989
+
+Open_Input_File = proc (F_N: file_name, Env: lnk_env)
+		    signals (cant_open(file_name, string));
+    in_chan$Open(Env.Input, F_N);
+       except when Not_Possible(S: String):
+		   signal Cant_Open(F_N, S);
+	      end;
+    end Open_Input_File;

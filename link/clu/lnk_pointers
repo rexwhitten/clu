@@ -1,0 +1,158 @@
+%% Copyright Massachusetts Institute of Technology 1984, 1989
+
+lnk_pointers = cluster is
+	create, copy, print, number,
+	output_all,
+	set_name_symbol_table,	get_name_symbol_table,
+	set_rtn_symbol_table,	get_rtn_symbol_table,
+	set_main_rtn_start,	get_main_rtn_start,
+	set_others_entry,	set_failure_entry,
+	set_seg_map,		get_seg_map,
+	set_stack_size,		get_stack_size,
+	set_heap_size,		get_heap_size,
+	set_version_number,	get_version_number,
+	set_jcl_size,		get_jcl_size,
+	prepare_to_dump, _gcd;
+
+    rep = array[a_or_i];
+
+    a_or_i = oneof[ A: address,
+		    I: int ]
+
+    vMn_Rtn_Indx	=  1;
+    vRtn_Sm_Indx	=  2;
+    vNam_Sm_Indx	=  3;
+    vOthers_Indx	=  4;
+    vFailure_Indx	=  5;
+    vSeg_Mp_Indx	=  6;
+    vStack_Size_Indx	=  7;
+    vHeap_Size_Indx	=  8;
+    vVersion_Num_Indx	=  9;
+    vJCL_Size_Indx	= 10;
+    vNum_Pointers	= 10;
+
+    Create = proc () returns (cvt);
+	own Null_Addr: a_or_i := a_or_i$Make_A(address$Make_Null());
+	Pnts: rep := rep$Fill(1, vNum_Pointers, Null_Addr);
+	return (Pnts);
+	end Create;
+
+    Copy = proc (Pnts: cvt) returns (cvt);
+	return (rep$Copy1(Pnts));
+	end Copy;
+
+    Print = proc (Pnts: cvt, S: pstream);
+	rep$Print(Pnts, S);
+	end Print;
+
+    Number = proc () returns (int);
+	return (vNum_Pointers);
+	end Number;
+
+    Output_All = proc (Pnts: cvt, Env: lnk_env)
+	%% Output the ones that really are addresses first.
+	for Pnt: a_or_i in rep$Elements(Pnts) do
+	    tagcase Pnt
+	       tag A (Addr: address):
+		   if (address$Is_Null(Addr))
+		      then Output_Zero_Ref(Env)
+		      else Output_Reference(Addr, Env)
+			      except when Not_Possible:
+					  Output_Zero_Ref(env)
+				     end
+		      end
+	       tag I (Val: int):
+		   out_link_chan$Write_Long_Word(Env.Output, Val)
+	       end
+	    end
+	end Output_All
+
+    Set_Rtn_Symbol_Table = proc (Pnts: cvt, A: address);
+	Pnts[vRtn_Sm_Indx] := a_or_i$Make_A(A);
+	end Set_Rtn_Symbol_Table;
+
+    Get_Rtn_Symbol_Table = proc (Pnts: cvt) returns (address);
+	return (a_or_i$Value_A(Pnts[vRtn_Sm_Indx]));
+	end Get_Rtn_Symbol_Table;
+
+    Set_Name_Symbol_Table = proc (Pnts: cvt, A: address);
+	Pnts[vNam_Sm_Indx] := a_or_i$Make_A(A);
+	end Set_Name_Symbol_Table;
+
+    Get_Name_Symbol_Table = proc (Pnts: cvt) returns (address);
+	return (a_or_i$Value_A(Pnts[vNam_Sm_Indx]));
+	end Get_Name_Symbol_Table;
+
+    Set_Main_Rtn_Start = proc (Pnts: cvt, A: address);
+	Pnts[vMn_Rtn_Indx] := a_or_i$Make_A(A);
+	end Set_Main_Rtn_Start;
+
+    Get_Main_Rtn_Start = proc (Pnts: cvt) returns (address);
+	return (a_or_i$Value_A(Pnts[vMn_Rtn_Indx]));
+	end Get_Main_Rtn_Start;
+
+    Set_Others_Entry = proc (Pnts: cvt, A: address);
+	Pnts[vOthers_Indx] := a_or_i$Make_A(A);
+	end Set_Others_Entry;
+
+    Set_Failure_Entry = proc (Pnts: cvt, A: address);
+	Pnts[vFailure_Indx] := a_or_i$Make_A(A);
+	end Set_Failure_Entry;
+
+    Set_Seg_Map = proc (Pnts: cvt, A: address);
+	Pnts[vSeg_Mp_Indx] := a_or_i$Make_A(A);
+	end Set_Seg_Map;
+
+    Get_Seg_Map = proc (Pnts: cvt) returns (address);
+	return (a_or_i$Value_A(Pnts[vSeg_Mp_Indx]));
+	end Get_Seg_Map;
+
+    Get_Stack_Size = proc (Pnts: cvt) returns (int)
+	return (a_or_i$Value_I(Pnts[vStack_Size_Indx]));
+	end Get_Stack_Size;
+
+    Set_Stack_Size = proc (Pnts: cvt, S: int);
+	Pnts[vStack_Size_Indx] := a_or_i$Make_I(S);
+	end Set_Stack_Size;
+
+    Get_Heap_Size = proc (Pnts: cvt) returns (int);
+	return (a_or_i$Value_I(Pnts[vHeap_Size_Indx]));
+	end Get_Heap_Size;
+
+    Set_Heap_Size = proc (Pnts: cvt, S: int);
+	Pnts[vHeap_Size_Indx] := a_or_i$Make_I(S);
+	end Set_Heap_Size;
+
+    Get_Version_Number = proc (Pnts: cvt) returns (int);
+	return (a_or_i$Value_I(Pnts[vVersion_Num_Indx]));
+	end Get_Version_Number;
+
+    Set_Version_Number = proc (Pnts: cvt, S: int);
+	Pnts[vVersion_Num_Indx] := a_or_i$Make_I(S);
+	end Set_Version_Number;
+
+    Get_JCL_Size = proc (Pnts: cvt) returns (int);
+	return (a_or_i$Value_I(Pnts[vJCL_Size_Indx]));
+	end Get_JCL_Size;
+
+    Set_JCL_Size = proc (Pnts: cvt, S: int);
+	Pnts[vJCL_Size_Indx] := a_or_i$Make_I(S);
+	end Set_JCL_Size;
+
+    Prepare_to_Dump = proc (Pnts: cvt, Locs: locates);
+	for I: int in rep$Indexes(Pnts) do
+	    tagcase Pnts[I]
+	       tag A (Addr: address):
+		   Pnts[I] := a_or_i$Make_A(address$Fix_Address(Addr, Locs));
+		      except when Not_Possible:
+			     end;
+	       tag I:
+	       end;
+	    end;
+	end Prepare_to_Dump;
+
+    _gcd = proc (LP: cvt, Tab: gcd_tab) returns (int);
+	return (rep$_gcd(LP, Tab));
+	end _gcd;
+
+    end lnk_pointers;

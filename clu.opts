@@ -1,0 +1,104 @@
+The following routines are compiled inline:
+
+bool:		not, and, or, equal, similar, copy
+char:		i2c, c2i, lt, le, equal, similar, ge, gt, copy
+int:		add, sub, minus, abs, min, max
+                mul, div, mod   % arg1 cand arg2 constant, mul by 0, mul, div
+                                % and mod by positive powers of 2.
+		lt, le, equal, similar, ge, gt, copy
+real:           <not yet implemented>
+string:		fetch, size, empty, c2s, lt, le, equal, similar, ge, gt, copy
+record:		get_*, set_*, equal
+struct:		get_*
+variant:	is_*, value_*, change_*, v_gets_v, equal
+		similar		% when all component types are SSIMPLE
+		similar1	% when all component types are ESIMPLE
+oneof:		is_*, value_*
+		equal		% when all component types are ESIMPLE
+		                % and no components are oneofs or ints
+		similar		% when all component types are SSIMPLE
+		                % and no components are oneofs or ints
+array:		fetch, store, size, empty, low, high, bottom, top, equal
+sequence:	fetch, new, size, empty, bottom, top
+type:		equal, similar, copy
+proctype:	equal, similar, copy
+itertype:	equal, similar, copy
+
+_bytevec:	fetch, size, store, equal, similar
+_vec:		fetch, size, store, equal, similar
+_adv:		get_low, get_size, get_start, equal
+_tagcell:	equal
+_obj:		lt, le, equal, similar, ge, gt, copy
+
+force
+type_of
+
+ESIMPLE types:	array, bool, char, int, itertype, null, proctype, real, record,
+		type, variant, _adv, _bytevec, _tagcell, _vec
+
+SSIMPLE types:	bool, char, int, itertype, null, proctype, real, type
+
+FOR loops involving the following iterators are compiled inline:
+
+int$from_to
+int$from_to_by
+array$indexes
+array$elements
+sequence$indexes
+sequence$elements
+string$chars
+
+FOR loops of the following form are particularly efficient:
+
+for v1: t1, ..., vN: tN in invocation do
+	yield(v1, ..., vN)
+	end
+
+Routines that simply pass their arguments through unchanged to, return or yield
+all  results  unchanged  from, and resignal all exceptions from another routine
+will be compiled out of existence (unless compiling inline  is  simpler).   Any
+module  calling  such  a  routine  will  in  fact  call the underlying routine.
+Routines must be in one of the following forms (or a sugared equivalent):
+
+R = proc [...] (a1: t1, ..., aN: tN) signals (e1(...), ..., eM(...))
+	prim(a1, ..., aN)
+	    resignal e1, ..., eM
+	end R
+
+R = proc [...] (a1: t1, ..., aN: tN) returns (t)
+				     signals (e1(...), ..., eM(...))
+	return(prim(a1, ..., aN))
+	    resignal e1, ..., eM
+	end R
+
+R = proc [...] (a1: t1, ..., aN: tN) returns (s1, ..., sK)
+				     signals (e1(...), ..., eM(...))
+	v1: s1, ..., vK: sK := prim(a1, ..., aN)
+	    resignal e1, ..., eM
+	return(v1, ..., vK)
+	end R
+
+R = iter [...] (a1: t1, ..., aN: tN) yields (s1, ..., sK)
+				     signals (e1(...), ..., eM(...))
+	for v1: s1, ..., vK: sK in prim(a1, ..., aN) do
+		yield(v1, ..., vK)
+		end
+	    resignal e1, ..., eM
+	end R
+
+
+where prim is of one of the forms:
+
+	idn[...]
+	typespec$name[...]
+
+There is an addition restriction that type_of(R) ~= type_of(prim).
+Parameterization in the routine and the prim is of course optional.
+
+
+Another useful fact to know is that own variable initialization to any  of  the
+following  values,  and  local  variable initialization to any of the following
+values as part of the declaration, when that declaration does not occur  inside
+a  loop  and  when  it is the first textual declaration of a variable with that
+name in the routine, compile into zero code:
+		nil, false, '\000', 0

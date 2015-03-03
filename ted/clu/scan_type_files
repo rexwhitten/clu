@@ -1,0 +1,162 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+scan_type_files = proc (oe: env, afn: afnt, fns: string, opt: char, obj: string)
+    prompt = "Movement option"
+    svalid = c2s(ctrla) || c2s(ctrlb) || c2s(ctrle) || c2s(ctrlf) ||
+	     c2s(ctrln) || c2s(ctrlp) || c2s(ctrlr) || c2s(ctrls) || c2s(ctrlsn)
+    tvalid = c2s(ctrla) || c2s(ctrle) || c2s(ctrln) || c2s(ctrlp) ||
+	     c2s(ctrlr) || c2s(ctrls) || c2s(ctrlsn)
+    pvalid = c2s(ctrla) || c2s(ctrle) || c2s(ctrlf) || c2s(ctrln) ||
+	     c2s(ctrlp) || c2s(ctrlr) || c2s(ctrls) || c2s(ctrlsn)
+    ahelp = "^A: start of file\n"
+    bhelp = "^B: backward # items\n"
+    ehelp = "^E: end of file\n"
+    fhelp = "^F: forward # items\n"
+    zhelp = "^N: forward # pages\n" ||
+	    "^P: backward # pages\n" ||
+	    "^R: recursively edit file\n" ||
+	    "^S: search for string # times\n" ||
+	    "^^: next file (#<0: previous, #=0: quit)"
+
+    xname, valid, help: string
+    if opt = 'S'
+       then xname := "Scan"
+	    valid := svalid
+	    help := ahelp || bhelp || ehelp || fhelp || zhelp
+     elseif opt = 'T'
+       then xname := "Type"
+	    valid := tvalid
+	    help := ahelp || ehelp || zhelp
+     elseif opt = 'P'
+       then xname := "Scan"
+	    valid := pvalid
+	    help := ahelp || ehelp || fhelp || zhelp
+     end
+    e: env
+    name: string
+    case: bool := env$fetch_num(oe, "ignore_case", 0) = 0
+    confirm: bool := env$fetch_num(oe, "pconfirm", 0) ~= 0
+    first: bool := true
+    fni: int := 0
+    sign: int := 1
+    while true do
+	fni := fni + sign
+	fn: fname := afn[fni]
+	cfns: string := fname$unparse(fn)
+	b: buf
+	if first
+	   then first := false
+		e, name := winset$push(oe, xname, cfns)
+		b := e.buffer
+	 elseif check_for_interrupt() cand mconfirm(e, "Quit scanning", true)
+	   then break
+	 else bufset$kill_buf(e, name)
+		 except when errmsg (*): end
+	      b := buf$create()
+	      name := bufset$create_buf(xname, cfns, b)
+	      e.name := name
+	      e.buffer := b
+	 end
+	update_title(e, "---- Buffer: " || name || " []")
+	read_file(e, fn)
+	   except when errmsg (why: string):
+		       if ~mconfirm(e, why || ", continue", true)
+			  then break end
+		  end
+	if ((opt = 'S'  cand  ~string_search(b, obj, 1, case))  cor
+	    (opt = 'P'  cand  ~pattern$search(e, obj, case, false, confirm)))
+	   then continue end
+	   except when errmsg (*):
+		       if mconfirm(e, "Quit scanning", true)
+			  then break end
+		       continue
+		  end
+	sign := 1
+	subobj: string := obj
+	if opt = 'P'
+	   then subobj := env$fetch_str(e, "search", "") end
+	while true do
+	    arg: int, c: char := get_option(e, prompt, valid, help, true)
+	       except when errmsg (why: string):
+			   if why ~= quit_msg
+			      then _bell()
+			    elseif mconfirm(e, "Quit scanning", true)
+			      then exit bounds end
+			   continue
+		      end
+	    if c = ctrlsn then
+	       if arg = 0
+		  then exit bounds
+		elseif arg < 0
+		  then sign := -1 end
+	       break
+	     elseif c = ctrla then
+	       buf$set_cursor(b, 1, 1)
+	     elseif c = ctrle then
+	       buf$set_cursor(b, buf$size(b), max_int)
+	     elseif c = ctrlb then
+	       if ~string_search(b, obj, -arg, case)
+		  then _bell() end
+	     elseif c = ctrlf then
+	       if opt = 'S'
+		  then if ~string_search(b, obj, arg, case)
+			  then _bell() end
+		  else for arg in int$from_to_by(arg, 1, -1) do
+			   if ~pattern$search(e, obj, case, false, confirm)
+			      then _bell()
+				   break
+			      end
+			   end
+			  except when errmsg (*):
+				      if mconfirm(e, "Quit scanning", true)
+					 then exit bounds end
+				 end
+		  end
+	     elseif c = ctrln cor c = ctrlp then
+	       if c = ctrlp then arg := -arg end
+	       env$move_window(e, arg)
+	     elseif c = ctrls then
+	       subobj := get_string_arg(e, "Search for string", subobj)
+		  except when errmsg (*): continue end
+	       if ~string_search(b, subobj, arg, case) then _bell() end
+	     elseif c = ctrlr
+	       then env$store_str(e, "search", subobj)
+		    if opt = 'P' then env$store_str(e, "psearch", obj) end
+		    top_display(e, "")
+		    title: string := e.title
+		    title := string$substr(title, 1, _last_indexc(']', title))
+		    update_title(e, title || " (^^ to exit)")
+		    ted(e)
+		    title := e.title
+		    e.title := ""
+		    update_title(e, string$substr(title, 1, _last_indexc(']', title)))
+		    if name ~= e.name
+		       then bufset$display(e, name)
+			       except when bad_name: end
+		       end
+		    b := e.buffer
+		    case := env$fetch_num(oe, "ignore_case", 0) = 0
+		    confirm := env$fetch_num(oe, "pconfirm", 0) ~= 0
+		    subobj := env$fetch_str(e, "search", "")
+	     end
+	    end
+	while b.changed do
+	    begin
+		fn := get_file_name(e, "Write text to file")
+		write_file(e, fn, false, true)
+		end except when errmsg (why: string):
+				if why = quit_msg
+				   then break end
+				_bell()
+				top_display(e, "Oops: " || why)
+			   end
+	    end
+	end except when bounds:
+		   when errmsg (*):
+		   end
+    if ~first
+       then winset$pop(e)
+	    bufset$kill_buf(oe, name)
+	       except when errmsg (*): end
+       end
+    top_display(e, "")
+    end scan_type_files

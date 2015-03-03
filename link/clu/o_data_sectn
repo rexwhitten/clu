@@ -1,0 +1,18 @@
+%% Copyright Massachusetts Institute of Technology 1985, 1989
+
+Output_Data_Section = proc (Env: lnk_env, Get_Times: bool);
+    if (Get_Times) then Env.Times.Outs.Data := Run_Time(); end;
+    out_link_chan$Start_Data_Section(Env.Output, Env.Locates.Debug_Blocks.Low_Address);
+    if (Env.Options.Debugging)
+       then if (Env.Options.Output_to_File)
+	       then Output_Debug_Blocks(Env);
+		    Output_Exceptions(Env);
+		    Output_Symbol_Tables(Env);
+		    Output_Space_Blocks(Env);
+	       else Output_Debug_Blocks(Env);
+		    Output_Exceptions(Env);
+		    Output_Symbol_Tables(Env);
+	       end;
+       end;
+    out_link_chan$End_Data_Section(Env.Output, Env);
+    end Output_Data_Section;

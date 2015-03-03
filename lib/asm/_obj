@@ -1,0 +1,517 @@
+;; Copyright Massachusetts Institute of Technology 1980, 1989
+
+%uninit_bits = #eeee,,#eeee
+
+
+_obj = cluster is is_ref, is_int_, is_real_, is_raw, is_proc_, is_iter_,
+		  is_vec, is_bvec, is_cell, is_anyize, is_wvec, is_adv,
+                  is_uninit, is_routine, is_compactcell, is_null_or_false, 
+		  is_char_, is_code_addr, get_obj,
+		  is_entry_vector, is_overloaded, get_entered_routine,
+		  get_reftag, set_reftag, get_value,
+		  get_addr, get_left, get_right,
+		  lt, le, ge, gt, equal, similar, copy, print
+
+%typebit = 13				;; Number of type bit (counting from 0)
+					;; in a cell header. If the bit
+ 					;; is on, the object is of type "any".
+%rtnhd = 047271				;; JSR with absolute.L operand.
+db%info = 8				;; Offset in debug block of _rtn_info.
+db%pp = 20				;; Offset in debug block of PP.
+db%code_addr = 24			;; Offset in debug block of code addr.
+
+
+;; Returns true if x = 0 (rep for nil and false).
+is_null_or_false = qproc (x: cvt) returns (bool)
+	ifeq	move	rr, n1
+	then	return (true)
+		end
+	return (false)
+	end is_null_or_false
+
+;; A character is a number <256. (An odd char looks just like an int).
+is_char_ = qproc (x: cvt) returns (bool)
+	moveq	0, n1
+	ifge	move	rr, n2
+	then	cmpi	0377, n2
+		sle	n1
+		end		
+	return  (n1)
+	end is_char_
+
+;; A compact one-of is used when a one-ofs has a value whose ref has a zero
+;; high-byte. The compaction consists of placing the tag number in the high
+;; byte of the ref and the value in the lower 3 bytes. This is as opposed to a
+;; "normal" one-of which is a pointer to a heap object containing the tag and
+;; value. Because the value of a compact one-of may be any CLU ref, these 
+;; one-ofs are not always distinguishable from other CLU objects. In particular
+;; a compact one-of whose value is an int will look like a large integer.
+;; We'll assume that it is more common to have compact one-ofs whose values
+;; are small integers than it is to have very large integers and use the
+;; following heuristic to decide if an object is a compact one-of:
+;; 	1. The high byte must be non-zero for the object to be a compact one-of.
+;; 	2. If the low bit is 0 then it is a compact one-of.
+;; 	3. If the low bit is 1 then it is a compact one-of if:
+;; 		a. The tag (high byte) is a relatively small integer (<16), and
+;; 		b. The value (low 3 bytes) is a relately small integer (<256).
+is_compactcell = qproc (x: cvt) returns (bool)
+	moveq	0,n1
+	move	rr,-(sp)
+	tstb	(sp)
+	beq	rtrn		;; High byte must be non-zero.
+	ifne	btst	0, 3(sp);; Is the value an integer?
+	then	cmpib	017, (sp)	;; Yes, high byte must be <16..
+		bgt	rtrn
+		tstb	1(sp)	;; ..and 3rd byte must be 0 
+		bne	rtrn
+		tstb	2(sp)	;; ..and 2nd byte must be 0 (val < 256)
+		bne	rtrn
+		end
+	st	n1
+rtrn:	tst	(sp)+
+	return(n1)
+
+	end is_compactcell
+
+;; Returns true if x is a pointer into the heap (this routine is poorly named.)
+is_ref = proc (x: cvt) returns (bool)
+	move	rr,-(sp)
+	clrb	(sp)
+	ifeq	_obj$%in_heap(rr)		;; In heap?
+		moveq	0, n1
+		move	(sp)+, n2
+		move	rr, n7
+		beq	next
+		and	n0, n2		;; Check for 0 low bit.
+	then	st	n1
+		end
+	return(n1)
+	end is_ref
+
+;; Returns true if x is an integer (low bit is set).
+is_int_ = qproc (x: cvt) returns (bool)
+	move	rr,n1
+	and	n0,n1		; check low bit
+	sne	n1		; must be on
+	return(n1)
+	end is_int_
+
+;; Reals aren't implemented yet. Return false.
+is_real_ = qproc (x: cvt) returns (bool)
+	return(false)
+	end is_real_
+
+
+;; ??????? This routine is probably no longer needed.
+is_raw = qproc (x: cvt) returns (bool)
+	moveq	0,n1
+	move	rr,-(sp)
+	clrb	(sp)
+	move	(sp)+,n2
+	ifgt	cmpi	lowbeg,n2	; must be < lowbeg
+		blt	this
+		cmp	stkhi,n2	; or > stkhi
+	then	and	n0,n2		; check low bit
+		seq	n1		; must be off
+	end
+	return(n1)
+	end is_raw
+
+;; Returns true if x points to a debug block (entry vector) for a routine.
+is_routine = qproc (x: cvt) returns (bool)
+	if	cmpa	heaplo, rr	;; Has to be below the heap,
+		bge	next
+		cmpa	0377, rr	;; but >8bits worth of data.
+		ble	next
+		move	rr, n1
+		btst	0, n1		;; Even?
+		bne	next
+		lea	start, r1
+		cmpa	r1, rr		;; Addr > start?
+		ble	next
+		cmpiw	%rtnhd, (rr)	;; Jmp absolute long?
+		bne	next
+		lea	_dbg_maybe, r1
+		movea	db%code_addr(r1), r1
+		cmpa	2(rr), r1	;; With addr = _dbg_maybe...
+		beq	this
+		lea	_dbg_tracing, r1
+		movea	db%code_addr(r1), r1
+		cmpa	2(rr), r1	;; or addr = _dbg_tracing...
+		beq	this
+		lea	_dbg_traced, r1
+		movea	db%code_addr(r1), r1
+		cmpa	2(rr), r1	;; or addr = _dbg_traced?
+		bne	next
+	then	return (true)		;; Yes.
+		end
+	return (false)
+	end is_routine
+
+;; Return true if x points to an entry vector for a proc.
+is_proc_ = proc (x: cvt) returns (bool)
+	ifeq	move	rr,n2		;; Quick check for 0.
+	then	return (rr)
+		end
+	;; First find out if x is a routine. If it is, call _rtn_info$is_proc
+	;; to find out if it is a proc.
+	iff	_obj$is_routine (rr)
+	then	return (false)
+		end
+	movea	x, rr
+	movea	db%info(rr), rr
+	_rtn_info$is_proc (rr)
+	return (rr)
+
+	end is_proc_
+
+;; Return true if x points to an entry vector for an iterator.
+is_iter_ = proc (x: cvt) returns (bool)
+	ifeq	move	rr,n2		;; Quick check for 0.
+	then	return (rr)
+		end
+	;; First find out if x is a routine. If it is, call _rtn_info$is_iter
+	;; to find out if it is an iter.
+	iff	_obj$is_routine (rr)
+	then	return (rr)
+		end
+	movea	x, rr
+	movea	db%info(rr), rr
+	_rtn_info$is_iter (rr)
+	return (rr)
+
+	end is_iter_
+
+;; A vector is a heap object or a constant of SIZE + 1 longwords. The first 
+;; longword contains 0 in its top 14 bits and  (4 * SIZE) + 2 in its lower
+;; 18 bits.
+is_vec = proc (x: cvt) returns (bool)
+	moveq	0,n1
+	move	rr,n2
+	beq	rtrn		;; Must be non-zero.
+	moveq	3,n3
+	and	n3,n2		;; Must be long-word ref.
+	bne	rtrn
+	iff	_obj$%in_heap (x)	;; Must be either heap obj or const
+	then	iff	_obj$%in_consts(x)
+		then	return (false)
+			end
+		end
+	moveq	0, n1
+	movea	x, rr
+	tstb	(rr)		;; 1st byte of 1st longword must be 0.
+	bne	rtrn
+	btst	0, 3(rr)	;; Low bit of 1st longword must be 0.
+	seq	n1
+rtrn:
+	return(n1)
+	end is_vec
+
+;; A byte vector is a heap object or constant of 1 + (SIZE+3)/4 longwords. 
+;; The first longword contains the value SIZE*2 + 1 (SIZE as a CLU int).
+is_bvec = proc (x: cvt) returns (bool)
+	moveq	0,n1
+	move	rr,n2
+	beq	rtrn		;; Must be non-zero.
+	moveq	3,n3
+	and	n3,n2		;; Must be a longword ref.
+	bne	rtrn
+	iff	_obj$%in_heap (x)	;; Must be either heap obj or const
+	then	iff	_obj$%in_consts(x)
+		then	return (false)
+			end
+		end
+	moveq	0, n1
+	movea	x, rr
+	tstb	(rr)		;; 1st byte of 1st longword must be 0.
+	bne	rtrn
+	btst	0, 3(rr)	;; Low bit of 1st longword must be 1.
+	sne	n1
+rtrn:
+	return(n1)
+	end is_bvec
+
+;; A cell is a heap object or constant containing 2 longwords. The first 
+;; longword has 011 in its top 3 bits and 0s in the next 15 bits. The lower 
+;; 14 bits may be anything.
+is_cell = proc (x: cvt) returns (bool)
+	moveq	0,n1
+	move	rr,n2
+	beq	rtrn		;; Must be non-zero.
+	moveq	3,n3
+	and	n3,n2		;; Must be a longword ref.
+	bne	rtrn
+	iff	_obj$%in_heap (x)	;; Must be either heap obj or const
+	then	iff	_obj$%in_consts(x)
+		then	return (false)
+			end
+		end
+	moveq	0, n1
+	movea	x, rr
+	cmpiw	%cell,(rr)	;; Top two bytes must be cell id.
+	seq	n1
+rtrn:
+	return(n1)
+	end is_cell
+
+;; An any is a cell whose first longword has its 14th bit = 1.
+is_anyize = proc (x: cvt) returns (bool)
+	moveq	0,n1
+	move	rr,n2
+	beq	rtrn		;; Must be non-zero.
+	moveq	3,n3
+	and	n3,n2		;; Must be a longword ref.
+	bne	rtrn
+	iff	_obj$%in_heap (x)	;; Must be either heap obj or const
+	then	iff	_obj$%in_consts(x)
+		then	return (false)
+			end
+		end
+	moveq	0, n1
+	movea	x, rr
+	move	(rr), n2
+	swap	n2
+	cmpiw	%cell, n2	;; Top two bytes must be cell id.
+	bne	rtrn		
+	btst	%typebit+16, n2 ;; Test type bit. It should be 1.
+	sne	n1
+rtrn:	
+	return(n1)
+	end is_anyize
+
+;; Wvecs are not implemented yet. Return false.
+is_wvec = qproc (x: cvt) returns (bool)
+	return(false)
+	end is_wvec
+
+;; An array dope vector is a heap object containing 4 longwords. The first
+;; longword has its top 3 bits = 010.
+is_adv = proc (x: cvt) returns (bool)
+	moveq	0,n1
+	move	rr,n2
+	beq	rtrn		;; Must be non-zero.
+	moveq	3,n3
+	and	n3,n2		;; Must be long word ref.
+	bne	rtrn
+	_obj$%in_heap (x)		;; Must be a heap object.
+	moveq	0, n1
+	move	rr, n7
+	beq	rtrn
+	movea	x, rr
+	movew	0160000,n2
+	andw	(rr),n2		;; Mask off all but top 3 bits of 1st lword.
+	cmpiw	%adv, n2	;; Must be equal to adv id.
+	seq	n1
+rtrn:
+	return(n1)
+	end is_adv
+
+;; Return true if x contains the "uninitialized" bit pattern.
+is_uninit = qproc (x: cvt) returns (bool)
+	ifeq	cmpa	%uninit_bits, rr
+	then	return (true)
+		end
+	return (false)
+	end is_uninit
+
+;; Returns true if x is inside a code area.
+is_code_addr = proc (x: cvt) returns (bool)
+	_obj$%in_code (rr)
+	return (rr)
+	end is_code_addr
+
+
+;; Return true if x points to the debug block for a parameterized routine.
+is_entry_vector = proc (x: cvt) returns (bool)
+	iff	_obj$is_routine (rr)
+	then	return (rr)		;; rr = false
+		end
+	movea	x, rr
+	ifne	tst	db%pp(rr);; PP (from debug block) must be non-zero.
+	then	return (true)
+		end
+	return(false)
+	end is_entry_vector
+
+;; Overloading is not implemented yet. Return false.
+is_overloaded = qproc (x: cvt) returns (bool)
+	return(false)
+	end is_overloaded
+
+;; If x is an entry vector, return the code address of its routine.
+get_entered_routine = proc (x: cvt) returns (cvt) signals (not_entry_vector)
+	ift	_obj$is_entry_vector (rr)
+	then	movea	db%code_addr(rr), rr
+		return (rr)
+		end
+	signal not_entry_vector
+
+	end get_entered_routine
+
+;; Return high byte of x as an integer.
+get_reftag = qproc (x: cvt) returns (int)
+	move	rr,-(sp)
+	moveq	0,n1
+	moveb	(sp),n1		; get high byte
+	add	n1,n1		; integerize
+	addqb	1,n1
+	tst	(sp)+
+	return(n1)
+	end get_reftag
+
+;; Set reftag (high byte) of x to be tag (de-integerized). Returns x.
+set_reftag = qproc (x: cvt, tag: int) returns (cvt)
+	move	rr,n1
+	asr	1,n1		; de-integerize
+	moveb	n1,x		; set high byte
+	return(x)
+	end set_reftag
+
+;; Returns x with its high byte zeroed.
+get_value = qproc (x: cvt) returns (cvt)
+	move	rr,-(sp)
+	clrb	(sp)		; clear high byte
+	movea	(sp)+,rr
+	return(rr)
+	end get_value
+
+;; Returns the left half of longword x as a sign-extended CLU int.
+get_left = qproc (x: cvt) returns (int)
+	move	rr,n1
+	swap	n1
+	moveaw	n1,rr		; sign extend
+	lea	1(rr,rr),rr	; integerize
+	return(rr)
+	end get_left
+
+;; Returns the right half of longword x as a sign-extended CLU int.
+get_right = qproc (x: cvt) returns (int)
+	moveaw	rr,rr		; sign extend
+	lea	1(rr,rr),rr	; integerize
+	return(rr)
+	end get_right
+
+;; Returns x (presumably an address) as a CLU int.
+get_addr = qproc (x: cvt) returns (int)
+	move	rr,-(sp)
+	clrb	(sp)		; clear high byte
+	movea	(sp)+,rr
+	lea	1(rr,rr),rr	; integerize
+	return(rr)
+	end get_addr
+
+;; If x is an int (presumably obtained from _obj$get_addr) de-integerize and
+;; return it. get_addr and get_obj can be used together to compute with
+;; addresses.
+get_obj = qproc (x: cvt) returns (cvt)
+	move	rr, n1
+	ifne	btst	0, n1
+	then	asr	1, n1
+		end
+	return (n1)
+	end get_obj
+
+lt = qproc (x, y: cvt) returns (bool)
+	moveq	0,n1
+	cmpa	x,rr
+	sgt	n1
+	return(n1)
+	end lt
+
+le = qproc (x, y: cvt) returns (bool)
+	moveq	0,n1
+	cmpa	x,rr
+	sge	n1
+	return(n1)
+	end le
+
+ge = qproc (x, y: cvt) returns (bool)
+	moveq	0,n1
+	cmpa	x,rr
+	sle	n1
+	return(n1)
+	end ge
+
+gt = qproc (x, y: cvt) returns (bool)
+	moveq	0,n1
+	cmpa	x,rr
+	slt	n1
+	return(n1)
+	end gt
+
+equal = qproc (x, y: cvt) returns (bool)
+	moveq	0,n1
+	cmpa	x,rr
+	seq	n1
+	return(n1)
+	end equal
+
+similar = qproc (x, y: cvt) returns (bool)
+	moveq	0,n1
+	cmpa	x,rr
+	seq	n1
+	return(n1)
+	end similar
+
+copy = qproc (x: cvt) returns (cvt)
+	return(rr)
+	end copy
+
+print = proc (x: cvt, ps: pstream)
+	_printn(x, ps)
+	end print
+
+;; Return true if x is a pointer into the heap. n1-n7 preserved.
+%in_heap = qproc (x: cvt) returns (bool)
+	if	cmpa	heaplo, rr
+		blt	next
+		cmpa	heaphi, rr
+		bge	next
+	then	return (true)
+		end
+	return (false)
+	end %in_heap
+
+;; Return true if x is a pointer into the one of the constants areas.
+;; n1-n3 preserved.
+%in_consts = qproc (x: cvt) returns (bool)
+	movea	schain, r1		;; Get segment map
+	qloop	movem	concnt(r1),n4/n5
+		ifle	cmpa	n5,rr		; check low end
+			blt	next
+			asr	1,n4
+			add	n4,n5
+			cmpa	n5,rr		; check high end
+		then	return(true)
+			end
+		movea	nxtmap(r1),r1
+		move	r1,n4
+		bne	this
+		end
+	return(false)
+	end %in_consts
+
+;; Returns true if x is a code address.
+%in_code = qproc (x: cvt) returns (bool)
+	move	rr,n1
+	ifeq	and	n0,n1				; ref?
+	then	movea	schain,r1			; yes, in code?
+		qloop
+			movem	codcnt(r1),n1/n2
+			ifle	cmpa	n2,rr		; check low end
+				blt	next
+				asr	1,n1
+				add	n1,n2
+				cmpa	n2,rr		; check high end
+			then	return(true)
+			end
+			movea	nxtmap(r1),r1
+			move	r1,n1
+			bne	this
+		end
+	end
+	return(false)
+	end %in_code
+
+end _obj
+

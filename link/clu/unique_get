@@ -1,0 +1,15 @@
+%% Copyright Massachusetts Institute of Technology 1980, 1989
+
+Unique_Get = proc [t: type] (Ts: sequence[t], E: t,
+			     Same: proctype (t,t) returns (bool) )
+	       returns (t, bool, sequence[t]);
+
+    for TestE: t in sequence[t]$Elements(Ts) do
+	if (Same(E,TestE))
+	   then return (TestE, false, Ts);	  %% Already in the sequence.
+	   end;                                   %% Return original entry.
+	end;
+    %						 %% New entry.
+    Ts := sequence[t]$AddH(Ts,E);		 %% Add it to the sequence.
+    return (E, true, Ts);			 %% Return it.
+    end Unique_Get;

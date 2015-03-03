@@ -1,0 +1,16 @@
+%% Copyright Massachusetts Institute of Technology 1984, 1989
+
+Output_Debug_Blocks = proc (Env: lnk_env);
+    DBs: dbg_blk_array := Env.Debug_Blocks;
+    Ovld_DBs: dbg_blk_array := dbg_blk_array$New();
+    while (true) do
+	DB: dbg_block := dbg_blk_array$RemL(DBs);	%% Output them in normal order;
+	dbg_block$Output(DB, Env);
+	if (dbg_block$Is_Overloaded(DB))
+	   then dbg_blk_array$AddH(Ovld_DBs, DB);
+	   end;
+	end;
+       except when Bounds:
+	      end;
+    Env.Debug_Blocks := Ovld_DBs;
+    end Output_Debug_Blocks;

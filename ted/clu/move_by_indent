@@ -1,0 +1,90 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+move_by_indent = proc (e: env, c: char)
+		   signals (errmsg(string), stop(env, string))
+    prompt = "Move by indentation"
+    legal = c2s(ctrlb) || c2s(ctrld) || c2s(ctrle) || c2s(ctrlf) ||
+	    c2s(ctrlh) || c2s(ctrln) || c2s(ctrlp) || c2s(ctrlu) ||
+	    c2s(ctrls) || c2s(ctrlsn)
+    help = "^B: move backward # levels\n" ||
+	   "^D: move down and in # levels\n" ||
+	   "^E: move down and out # levels\n" ||
+	   "^F: move forward # levels\n" ||
+	   "^H: move up and in # levels\n" ||
+	   "^N: move to # next line at same level\n" ||
+	   "^P: move to # previous line at same level\n" ||
+	   "^U: move up and out # levels\n" ||
+	   "^S: move forward to line indented # spaces\n" ||
+	   "^^: move backward to line indented # spaces"
+    arg: int, opt: char := get_option(e, prompt, legal, help, false)
+       resignal errmsg
+    sign: int := 1
+    if arg < 0
+       then arg := -arg
+	    sign := -sign
+       end
+    if opt = ctrlb
+       then opt := ctrlf
+	    sign := -sign
+     elseif opt = ctrlh
+       then opt := ctrld
+	    sign := -sign
+     elseif opt = ctrlp
+       then opt := ctrln
+	    sign := -sign
+     elseif opt = ctrlu
+       then opt := ctrle
+	    sign := -sign
+     elseif opt = ctrlsn
+       then opt := ctrls
+	    sign := -sign
+     end
+    b: buf := e.buffer
+    line, pos: int := buf$get_cursor(b)
+    aline, zline: int := buf$get_frame(b)
+    if opt = ctrls then line := line + sign end
+    i: int := 0
+    hpos: int
+    changed: bool := false
+    while i <= arg cand line >= aline cand line <= zline do
+	s: string := b[line]
+	pos := 1
+	while true do
+	    c := s[pos]
+	    if ~(c = ' '  cor  c = '\t'  cor  c = '\p')
+	       then break end
+	    pos := pos + 1
+	    end except when bounds: s := "" end
+	nhpos: int := _calc_hpos(s, pos)
+	ok: bool
+	if opt = ctrls
+	   then if nhpos = arg cand ~string$empty(s)
+		   then buf$set_cursor(b, line, pos)
+			return
+		   end
+		ok := false
+	 elseif i = 0
+	   then ok := true
+	 elseif string$empty(s)
+	   then ok := false
+	 elseif opt = ctrld
+	   then if nhpos < hpos
+		   then break end
+		ok := nhpos > hpos
+	 elseif opt = ctrle
+	   then ok := nhpos < hpos
+	 elseif opt = ctrlf
+	   then ok := nhpos ~= hpos
+	 elseif nhpos < hpos
+	   then break
+	 else ok := nhpos = hpos
+	 end
+	if ok
+	   then changed := i > 0
+		i := i + 1
+		hpos := nhpos
+		buf$set_cursor(b, line, pos)
+	   end
+	line := line + sign
+	end
+    if ~changed then _bell() end
+    end move_by_indent

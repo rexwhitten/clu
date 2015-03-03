@@ -1,0 +1,66 @@
+%	CODGEN EQUATE
+% Copyright Massachusetts Institute of Technology 1980, 1989
+%	CLU Compiler Version 3: machine dependent definitions
+
+# extend
+
+locate	= oneof[a:	null,		% nothing (must be first tag!)
+		rparm,			% routine parameter
+		cparm,			% cluster parameter
+		rown,			% routine own
+		cown,			% cluster own
+		prown,			% parameterized routine own
+		pcown:	mref,		% parameterized cluster own
+		var,			% variable
+		dreg,			% data register
+		areg:	int,		% address register
+		disp,			% offset register
+		index:	regdisp,	% offset register indexed
+		tos:	null]		% top of stack
+
+regdisp	= struct[reg:  int,
+		 disp: int]
+
+reglist	= array[locate]
+
+calloc	= oneof[use,			% routine
+		var,			% variable
+		temp,			% temporary variable
+		parm: int]		% parameter
+
+mref	= oneof[ref, val: int]		% reference or integer
+
+qv	= sequence[mref]
+av	= array[mref]
+
+reglocs = sequence[locate]$[
+			locate$make_dreg(_N1),
+			locate$make_dreg(_N2),
+			locate$make_dreg(_N3),
+			locate$make_dreg(_N4),
+			locate$make_dreg(_N5),
+			locate$make_dreg(_N6),
+			locate$make_dreg(_N7),
+			locate$make_areg(_RR),
+			locate$make_areg(_R1),
+			locate$make_areg(_R2),
+			locate$make_areg(_R3),
+			locate$make_areg(_R4),
+			locate$make_areg(_PP),
+			locate$make_areg(_EP),
+			locate$make_areg(_SP)]
+
+_simple	= -1
+_border	= 0
+_medium	= 1
+_hard	= 2
+
+_cause	= 0
+_wexit	= 1
+_cexit	= 2
+_oexit	= 3
+_resig	= 4
+
+want_areg = 1
+want_dreg = 2
+want_any = 3

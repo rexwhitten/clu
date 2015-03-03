@@ -1,0 +1,37 @@
+;; Copyright Massachusetts Institute of Technology 1984, 1989
+
+;; Clear size bytes, starting at first. size is a CLU integer (i.e., #*2 + 1)
+
+_clear_words = qproc (first: _obj, size: int)
+	ifeq	move 	first, n1
+	then	return
+		end
+	movea	0, r2			;; Zero out these registers so they
+ 					;; can be used in a movem instr.
+	movea	0, r3
+	movea	0, r4
+	movea	0, pp
+	clr	n2
+	clr 	n3
+	clr	n4
+	clr	n5
+	clr	n6
+	clr	n7
+
+	movea	n1, r1
+	move	rr, n1			;; (real size * 2) + 1
+	asr	1, n1			;; Get real size.
+	adda	n1, r1			;; Get top end of region to clear.
+
+	loop	cmpi	40, n1		;; Clear out 10 registers' worth at
+					;; a time until there is too little.
+		blt	next
+		sub	40, n1
+		movem	r2-r4/n2-n7/pp, -(r1)
+		end			
+	loop	tst	n1		;; Clear the rest 1 longword at a time.
+		ble	next
+		subq	1, n1
+		move	n2, -(r1)
+		end
+	end _clear_words

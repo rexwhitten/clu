@@ -1,0 +1,280 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+use = cluster is
+	bind, instantiate, print, is_type_constant,
+	get_except_string, value_constant, make_constant,
+	value_equiv_routine,
+	similar, canon_hasher, unparse,
+	get_address, insert_reference, output, _gcd;
+
+    rep = variant[
+	      a_Constant:    constant,
+	      b_Cluster_Own: int,
+	      c_Routine_Own: int,
+	      d_Exception:   string,
+	      e_Signal:	     sig,
+	      f_W_Vec:	     wv,
+	      g_Global:	     int,		%% Offset into global section.
+	      h_Eqv_Rtn:     rtn_desc,
+	      xb_C_Own_Addr: address,
+	      xc_R_Own_Addr: address,
+	      xd_Inst_Excpt: inst_except,
+	      xe_Inst_Sig:   inst_signal
+		  ];
+
+    wv = variant [ a_Size: int,		%% This is what compiler gives.
+		   b_Addr: address ]	%% Instantiated into this.
+
+    Similar = proc (U1, U2: cvt) returns (bool);
+	return (rep$Similar(U1, U2));
+	end Similar;
+
+    Print = proc (U: cvt, S: pstream);
+	rep$Print(U, S);
+	end Print;
+
+    Is_Type_Constant = proc (U: cvt) returns (bool);
+	if (rep$Is_a_Constant(U))
+	   then return (constant$Is_Type_Constant(rep$Value_a_Constant(U)));
+	   else return (false);
+	   end;
+	end Is_Type_Constant;
+
+    Get_Except_String = proc (U: cvt) returns (excpt_str) signals (not_possible);
+	tagcase U
+	   tag xd_Inst_Excpt (I_Ex: inst_except):
+	       return (I_Ex.Except_Str);
+	   others:
+	       signal Not_Possible;
+	   end;
+	end Get_Except_String;
+
+    Value_Constant = proc (U: cvt) returns (constant) signals (wrong_tag);
+	return (rep$Value_a_Constant(U));
+	   resignal Wrong_Tag;
+	end Value_Constant;
+
+    Make_Constant = proc (C: constant) returns (cvt);
+	return (rep$Make_a_Constant(C));
+	end Make_Constant;
+
+    Value_Equiv_Routine = proc (U: cvt) returns (rtn_desc) signals (wrong_tag);
+	return (rep$Value_h_Eqv_Rtn(U));
+	   resignal Wrong_Tag;
+	end Value_Equiv_Routine;
+    
+
+    Bind = proc (U: cvt, R_D: rtn_desc, Env: lnk_env) returns (cvt)
+	     signals (error(string));
+	tagcase U
+	   tag a_Constant (C: constant):
+	       BC: constant := constant$Bind(C, R_D, Env);
+		  resignal Error;
+	       return ( rep$Make_a_Constant(BC) );
+	   tag xb_C_Own_Addr,
+	       xc_R_Own_Addr,
+	       d_Exception,
+	       xd_Inst_Excpt,
+	       e_Signal,
+	       xe_Inst_Sig,
+	       f_W_Vec,
+	       g_Global:
+	       return (U);		%% Already bound or no binding needed.
+	   tag b_Cluster_Own,
+	       c_Routine_Own:
+	       return ( rep$Copy1(U) );
+	   tag h_Eqv_Rtn (RD: rtn_desc):
+	       Should_Never_Happen[rtn_desc](
+		   "Binding use of equivalent routine.", RD);
+	   end;
+	end Bind;
+    
+
+    Instantiate = proc (U: cvt, R_I: rtn_inst, Is_P_Use: bool, Env: lnk_env)
+		    signals (error(string));
+	own Own_Size: int := mach_constants$Own_Size();
+	tagcase U
+	   tag a_Constant (C: constant):
+	       rep$Change_a_Constant(U, constant$Instantiate(C, Is_P_Use, Env));
+		  resignal Error;
+	   tag b_Cluster_Own (I: int):
+	       C_I: clust_inst := R_I.Cluster_Inst;
+		  except when Not_Possible:
+			      signal Error("Instantiating cluster own use for non-cluster rtn: " ||
+					   R_I.R_Template.Name);
+			 end;
+	       Addr: address := address$Advance(C_I.Owns_Address,
+						((I - 1) * Own_Size));
+	       rep$Change_xb_C_Own_Addr(U, Addr);
+	   tag c_Routine_Own (I: int):
+	       Addr: address := address$Advance(R_I.Owns_Address,
+						((I - 1) * Own_Size));
+	       rep$Change_xc_R_Own_Addr(U, Addr);
+	   tag d_Exception (E_Str: string):
+	       Inst_Ex: inst_except := Instantiate_Exception(E_Str, Env);
+	       rep$Change_xd_Inst_Excpt(U, Inst_Ex);
+	   tag e_Signal (Sg: sig):
+	       Inst_Sg: inst_signal := inst_signal$Create(Sg, Env);
+	       rep$Change_xe_Inst_Sig(U, Inst_Sg);
+	   tag f_W_Vec (W_V: wv):
+	       tagcase W_V
+		  tag a_Size (Sz: int):
+		      wv$Change_b_Addr(W_V,
+				       Update_Word_Vec(Sz, Env)
+				       );
+		  tag b_Addr:
+		  end;
+	   tag h_Eqv_Rtn (RD: rtn_desc):
+	       Should_Never_Happen[rtn_desc](
+		   "Instantiating use of equivalent routine.", RD);
+	   tag g_Global,
+	       xb_C_Own_Addr,
+	       xc_R_Own_Addr,
+	       xd_Inst_Excpt,
+	       xe_Inst_Sig:
+	   end;
+	end Instantiate;
+
+
+    Canon_Hasher = proc (U: cvt, Size: int, Env: lnk_env) returns (int);
+	tagcase U
+	   tag a_Constant (C: constant):
+	       return (constant$Canon_Hasher(C, Size, Env));
+	   tag f_W_Vec (W_V: wv):
+	       return (address$Hasher(wv$Value_b_Addr(W_V), Size));
+		  except when Wrong_Tag:
+			      Should_Never_Happen[use](
+				  "Hashing uninstantiated use", up(U));
+			 end;
+	   tag g_Global (Ofst: int):
+	       return ((Ofst + 200) // Size);
+	   tag xb_C_Own_Addr,
+	       xc_R_Own_Addr (A: address):
+	       return (address$Hasher(A, Size));
+	   tag xd_Inst_Excpt (IE: inst_except):
+	       return (Hash(IE.Key, Size));
+	   tag xe_Inst_Sig (ISg: inst_signal):
+	       return (Sig_Hasher(ISg.Sig, Size));
+	   tag b_Cluster_Own,
+	       c_Routine_Own,
+	       d_Exception,
+	       e_Signal,
+	       h_Eqv_Rtn:
+	       Should_Never_Happen[use](
+		   "Hashing uninstantiated use", up(U));
+	   end;
+	end Canon_Hasher;
+
+
+    Get_Address = proc (U: cvt) returns (address)
+		    signals (not_possible, not_fixed_yet(address));
+	tagcase U
+	   tag a_Constant (C: constant):
+	       return (constant$Get_Address(C));
+		  resignal Not_Possible;
+	   tag f_W_Vec (W_V: wv):
+	       signal Not_Fixed_Yet(wv$Value_b_Addr(W_V));
+		  except when Wrong_Tag:
+			      signal Not_Possible;
+			 end;
+	   tag g_Global (Ofst: int):
+	       signal Not_Fixed_Yet(
+			  locates$Make_Global_Address(Ofst));
+	   tag xb_C_Own_Addr (A: address):
+	       signal Not_Fixed_Yet(A);
+	   tag xc_R_Own_Addr (A: address):
+	       signal Not_Fixed_Yet(A);
+	   tag xe_Inst_Sig (I_Sg: inst_signal):
+	       return (I_Sg.Address);
+	   others: signal Not_Possible;
+	   end;
+	end Get_Address;
+
+    Insert_Reference = proc (U: cvt, Input: in_chan, Env: lnk_env)
+		      signals (not_possible, not_fixed_yet(address));
+	tagcase U
+	   tag a_Constant (C: constant):
+	       constant$Insert_Reference(C, Input, Env);
+		  resignal Not_Possible;
+	   tag f_W_Vec (W_V: wv):
+	       signal Not_Fixed_Yet(wv$Value_b_Addr(W_V));
+		  except when Wrong_Tag:
+			      signal Not_Possible;
+			 end;
+	   tag g_Global (Ofst: int):
+	       signal Not_Fixed_Yet(
+			  locates$Make_Global_Address(Ofst));
+	   tag xb_C_Own_Addr (A: address):
+	       signal Not_Fixed_Yet(A);
+	   tag xc_R_Own_Addr (A: address):
+	       signal Not_Fixed_Yet(A);
+	   tag xe_Inst_Sig (I_Sg: inst_signal):
+	       reference$Insert_Address(Input, I_Sg.Address, Env);
+		  resignal Not_Possible;
+	   others: signal Not_Possible;
+	   end;
+	end Insert_Reference;
+
+
+    Unparse = proc (U: cvt) returns (string);
+	tagcase U
+	   tag a_Constant (C: constant):
+	       return (constant$Unparse(C));
+	   tag b_Cluster_Own (Nm: int):
+	       return ("Cluster own #" || int$Unparse(Nm));
+	   tag c_Routine_Own (Nm: int):
+	       return ("Routine own #" || int$Unparse(Nm));
+	   tag d_Exception (Str: string):
+	       return ("Exception " || Str);
+	   tag e_Signal (Sg: sig):
+	       return ("Signal " || Sg.Name || " with " ||
+		       int$Unparse(Sg.Num_Args) || " args");
+	   tag f_W_Vec (W_V: wv):
+	       tagcase W_V
+		  tag a_Size (Sz: int):
+		      return ("Word vec of size " || int$Unparse(Sz));
+		  tag b_Addr(Addr: address):
+		      return ("Word vec at " || address$OUnparse(Addr));
+		  end;
+	   tag g_Global (I: int):
+	       return ("Global at " || int$Unparse(I));
+	   tag h_Eqv_Rtn (RD: rtn_desc):
+	       return ("Equivalent rtn " || rtn_desc$Unparse(RD));
+	   tag xb_C_Own_Addr (A: address):
+	       return ("Cluster own at " || address$Unparse(A));
+	   tag xc_R_Own_Addr (A: address):
+	       return ("Routine at " || address$Unparse(A));
+	   tag xd_Inst_Excpt (IE: inst_except):
+	       return ("Exception " || IE.Key);
+	   tag xe_Inst_Sig (ISg: inst_signal):
+	       return ("Signal " || ISg.Sig.Name || " at " ||
+		       address$Unparse(ISg.Address));
+	   end;
+	end Unparse;
+
+    Output = proc (U: cvt, Env: lnk_env)
+	       signals (not_possible);
+	Addr: address;
+	tagcase U
+	   tag a_Constant (C: constant):
+	       constant$Output_Ref(C, Env);
+	   tag f_W_Vec (W_V: wv):
+	       Output_Data_Ref(wv$Value_b_Addr(W_V), Env);
+		  except when Wrong_Tag:
+			      signal Not_Possible;
+			 end;
+	   tag xb_C_Own_Addr (A: address):
+	       Output_Data_Ref(A, Env);
+	   tag xc_R_Own_Addr (A: address):
+	       Output_Data_Ref(A, Env);
+	   tag xe_Inst_Sig (I_Sg: inst_signal):
+	       Output_Reference(I_Sg.Address, Env);
+	   others: signal Not_Possible;
+	   end;
+	end Output;
+
+    _gcd = proc (U: cvt, Tab: gcd_tab) returns (int);
+	return (rep$_gcd(U, Tab));
+	end _gcd;
+
+    end use;

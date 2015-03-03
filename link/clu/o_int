@@ -1,0 +1,14 @@
+%% Copyright Massachusetts Institute of Technology 1984, 1989
+
+Output_Int = proc (I: int, Env: lnk_env);
+    %% Rep is 2*I + 1
+    out_link_chan$Write_Long_Word(Env.Output, (I + I + 1))
+       except when Overflow:
+		   %% Have to do it the hard way.
+                   Low: int := I // (2 ** 15)
+		   High: int := I / (2 ** 15)
+		   out_link_chan$Write_Word_Pair(Env.Output,
+                                                 High,
+                                                 (Low + Low + 1))
+	      end
+    end Output_Int;

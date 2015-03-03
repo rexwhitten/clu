@@ -1,0 +1,242 @@
+; Copyright Massachusetts Institute of Technology 1984, 1989
+
+; elements in signal info
+;	number of signal arguments
+;	string name of signal
+;	vector of ranges of exception handlers (for debugger, first longword is
+;		#size of vec * 4 + 2, next is a chain pointer for tables
+;		added in during overloads, and the following size-1 longwords
+;		are the range triples.)
+
+; elements in range vector
+;	start of range
+;	end of range
+;	handler address (0 implies resignal)
+
+;; offsets in signal info
+nmargs = 0				;; Number of signal arguments.
+strnam = 4				;; String name of signal.
+rngchn = 8				;; Vector of exception handler ranges.
+
+;; offsets in range vector
+begadr = 0				;; Start of range.
+endadr = 4				;; End of range.
+handlr = 8				;; Handler address (0 implies resignal).
+
+;; offsets of fake EP
+realra = 16				;; Real return address
+realep = 20				;; Real EP
+tracef = 8				;; Trace flags
+
+tn%break = 1				;; This frame should cause break.
+tn%sstep = 2				;; This frame being single stepped.
+tn%lv_trc = 4				;; Trace flag to be set when leaving
+ 					;; this frame.
+
+prefix = "unhandled exception: "	; prefix for failure string argument
+
+_siggy = proc ()
+	;; If signal is "failure", the first thing we do is enter
+	;; the debugger.
+	move	rngchn(pp), n5
+	ifeq	cmp	fchain, n5	;; Failure?
+	then	move	pp, -(sp)	;; Yes, save arg.
+		movea	8(ep), rr	;; Get string argument.
+		string$concat ("failure: ", rr)
+		_enter_debugger (rr)	;; Enter the debugger.
+		movea	(sp)+, pp	;; Restore arg.
+		end
+	ifne	move	sigtab, n1	;; Any traced signals?
+	then	movea	n1, r1		;; Yes.
+		move	(r1)+, n1	;; Get how many.
+		asr	2, n1		;; Sigtab is a seq. so n1 was size*4 + 2. Get size.
+		;; n1 will be non-zero at the termination of this loop iff
+		;; the signal is traced.
+		qloop
+			cmpa	(r1)+, pp	;; Check for match.
+			beq	next	;; Found one.
+			subq	1, n1
+			bgt	this	;; Loop through table.
+			end
+		end
+	movea	(ep), r1		;; Use r1 as search EP.
+
+	;; Find address of caller of signaller. Try twice per frame, once on
+	;; given chain, once on OTHERS chain.
+	qloop
+		movea	(r1), r2	;; Get (possibly fake) old ep in r2.
+		ifne	tst	n1	;; Is signal traced?
+		then	movem	pp/r2/r1/n1, -(sp)	;; Save regs. on stack.
+			cmpa	heaphi, r2	;; Already have fake frame?
+			blt	dobreak	;; if r2 < heaphi, then yes.
+			tst	trcflg	;; Don't have fake frame. Is trace flag set?
+			beq	setup	;; If no don't trap on this frame.
+			clr	trcflg
+			move	r1, -(sp)	;; Push the frame.
+			_get_frm_table() 	;; Get the frame table.
+			move	rr, -(sp)	;; Push it.
+			movea	4(ep), rr
+			_frm_table$lookup (*, rr)	;; Find the _rtn_info.
+			_break_info$create (*, rr, false, false)
+			move	true, trcflg
+			movea	rr, r2	 	;; Fake frame in r2.
+			move	r2, 8(sp)
+			movea	12(sp), pp	;; Reget pp.
+			bra	dobreak  	;; Go do break.
+			end
+
+		;; If here, then signal was not traced. Check to see if
+		;; signaller has a fake ep and, if so, whether the user
+		;; wanted to see exits from the routine.
+		cmpa	heaphi, r2	;; if r2 <= heaphi then the ep is fake.
+		bge	setup		;; No fake ep. Continue.
+		btst	tn%break, tracef(r2)	;; Fake ep. break must be set...
+		beq	setup
+
+		;; ************************************************************
+		;; Undoubtedly, this test for sstep being set was put here
+		;; for a reason - probably to fix some bug in single-stepping.
+		;; Nobody can seem to remember why exactly it is here (it
+		;; doesn't exist in the VAX version).
+		;; Since it's presence incorrectly prevents breaks from
+		;; happening when traced routines signal, it was obviously
+		;; not the correct fix and is thus being commented out.
+		;; ************************************************************
+		;; btst	tn%sstep, tracef(r2)	;; along with sstep,
+		;; beq	setup
+
+		btst	tn%lv_trc, tracef(r2)	;; and lv_trc for a break.
+		beq	setup
+		movem	pp/r2/r1/n1, -(sp)	;; Ok. Going to break. Save regs.
+
+dobreak:	lea	8(ep), rr	;; Address of last signal arg, if any.
+		_signals (r2, pp, rr)	;; _signals is the debugger rtn which does the break.
+		movem	(sp)+, n1/r1/r2/pp	;; Restore registers.
+
+		;; We're ready to start doing a binary search on the
+		;; range table for a handler for the signal.
+setup:		iflt	cmpa	heaphi, r2	;; Fake ep?
+		then	move	realra(r2), n2	;; Yes.
+			subq	3, n2		;; Get adjusted return pc.
+		else	move	4(r1), n2	;; No.
+			subq	3, n2	 	;; Get adjusted return pc.
+			end
+
+		movea	rngchn(pp), r3	;; Start chain.
+		moveq	1, n3		;; Try twice (n3 0 or 1)
+
+repeat:		move	(r3)+, n4	;; (Size of chain table * 4) + 2.
+ 		move	(r3)+, n7	;; Save and skip over chain pointer
+		subq	6, n4		;; (Size - 1) * 4
+		beq	endvec
+		lea	-12(r3, n4), r4	;; Get address of high end.
+
+search:		move	r3, n4		;; Get middle
+		add	r4, n4
+		asr	1, n4
+		ifne	btst	n0, n4
+		then	subq	6, n4
+			end
+
+		movea	n4, rr
+		ifgt	cmp	endadr(rr), n2	;; Check end against adj. ret. pc.
+		then	lea	12(rr), r3	;; Must be higher up.
+			cmpa	rr, r4	;; Done with search?
+			bne	search
+			bra	endvec
+			end
+		iflt	cmp	begadr(rr), n2	;; Check start
+		then	lea	-12(rr), r4	;; Must be lower down
+			cmpa	rr, r3
+			bne	search
+			bra	endvec
+			end
+
+		;; Found a handler. Addr of triple is in rr.
+		move	handlr(rr), n4	;; Get handler address.
+		beq	resig		;; If handler addr = 0 then resignal.
+		iflt	cmpa 	heaphi, r2	;; No. Fake ep?
+		then	movea	realep(r2), r2	;; Yes. Get real ep.
+			end
+
+		move	rngchn(pp), n5
+		movea	strnam(pp), rr	;; String name of signal.
+		move	(pp), n7	;; Number of signal arguments. (have to use n7!)
+		ifeq	cmp	fchain, n5	;; Failure?
+		then	movea	8(ep), rr	;; Yes. Get string argument.
+			end
+		move	r2, (ep)	;; Fix our frame. Store handler's ep,
+		move	n4, 4(ep)	;; and handler address.
+		return			;; Return to handler.
+
+endvec:		ifne	tst	n7	;; Was there another chained table?
+		then	movea	n7, r3
+			bra	repeat	;; Yes. Go try it.
+			end
+		movea	ochain, r3	;; Now try the OTHERS chain...
+		subqw	1, n3
+		bge	repeat		;; ...if we haven't yet.
+
+		;; Failed to find handler in this frame.
+		move	rngchn(pp), n5
+		cmp	fchain, n5	;; Is this already failure?
+		beq	resig
+
+		;; Not already failure. Enter the debugger with an "unhandled
+		;; exception" error.
+		movem	r2/r1/n2, -(sp)	;; Save registers.
+		move	strnam(pp), -(sp)	;; Save exception name.
+		move	ep, -(sp)	;; Frame, 1st arg to _print_bad_signal.
+		move	strnam(pp), -(sp)	;; 2nd arg.
+		movea	(pp), rr	;; Number of signal arguments as CLU int.
+		_vec[_obj]$create (rr)	;; Create empty arg vector.
+		movea	rr, r4
+		move	(r4)+, n6	;; Get back number of args out of seq header
+		ifgt	subq	2, n6
+		then	lea	8(ep, n6), r1	;; Get addr (+ 4) of first arg.
+			asr	2, n6
+			qloop	move	-(r1), (r4)+	;; Move in args.
+				subq	1, n6
+				bgt	this
+				end
+			end
+		_print_bad_signal (*, *, rr)	;; Print out signal.
+		movea	(sp), rr	;; Get exception name again.
+		string$concat (prefix, rr)	;; Create failure arg.
+		move	rr, (sp)	;; Save it.
+		_enter_debugger (rr)	;; Enter debugger.
+		move	(sp)+, 8(ep)
+		movem	(sp)+, n2/r1/r2	;; Restore registers.
+		lea	fail, pp	;; Now use failure chain (hack!)
+		movea	2(pp), pp
+		lea	12(pp), pp
+		move	trcflg, n7	;; Tracing?
+		beq	resig
+		ifne	move	sigtab, n7	;; Yes. Any traced signals?
+		then	movea	n7, r4		;; Yes.
+			move	(r4)+, n7	;; Get how many.
+			asr	2, n7
+			qloop	cmpa	(r4)+, pp	;; Check for match.
+				beq	resig	;; Found one.
+				subq	1, n7
+				bgt	this	;; Loop through sigtab.
+				end
+			end
+resig:		movea	r2, r1		;; Chain back ep.
+		iflt	cmpa	heaphi, r1	;; Fake ep?
+		then	movea	realep(r1), r1	;; Yes. Get real EP.
+			end
+		move	n2, 4(ep)	;; Bypass a frame. Put in adj. ret. pc,
+		move	r1, (ep)	;; and new "old ep".
+		bne	this		;; Loop back to major "qloop", until
+ 					;; end of stack.
+		end
+	loop
+		_enter_debugger ("completely unhandled exception!")
+		end
+
+fail:	signal	failure (*)		;; Hack to get failure block.
+
+	end _siggy
+
+		

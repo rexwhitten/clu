@@ -1,0 +1,54 @@
+%%% Copyright Massachusetts Institute of Technology 1984, 1989
+
+#extend
+
+_for_loops_ = iter (rtn: _rtn_info) yields (int, int, int)
+    bsr         =   0141     % high byte of bsr instruction
+    move_pp_ep  =   0025615  % move pp, d(ep)
+    movem_ep    =   0044356  % movem pp/sp, d(ep)
+    movea_ep_r4 =   0024156  % movea d(ep), r4
+
+    ep_offset: int
+    rtn_obj: _obj := rtn.raw_routine
+   
+    for instr: int, addr, next_addr: _obj in _get_next_instr (rtn, 0, rtn.code_size - 1) do
+        ea: _obj
+        low_byte: int := _get_low_byte (instr)
+        high_byte: int := _get_high_byte (instr)
+
+        if high_byte = bsr
+        then
+            if low_byte = 0 % 16 bit displacement if low byte is 0.
+            then    ea := _get_addr (addr, 2 + _get_word (addr, 2))
+            else    ea := _get_addr (addr, low_byte + 2)
+                    end
+            if ~ is_invocation (ea) % Make sure the bsr is to an invocation.
+            then    continue
+                    end
+
+            % Found a for loop.
+            next: int := _get_word (next_addr, 0)
+            if next = move_pp_ep
+            then    ep_offset := _get_xword (next_addr, 2)
+            elseif  next = movem_ep
+            then    ep_offset := _get_xword (next_addr, 4)
+            elseif  low_byte = 8 cand _get_word (next_addr, 0) = movea_ep_r4
+            then    ep_offset := 0         % Optimized iterator.
+            else    continue
+                    end
+            yield (_get_disp (rtn_obj, next_addr), _get_disp (rtn_obj, ea), ep_offset)
+            end
+        end
+    end _for_loops_
+
+_call_slots_ = iter (x: _obj, rtn: _rtn_info) yields (_obj, _obj)
+    jsr_long = 0047271          % Jump to proc: jsr rtn
+
+    for instr: int, addr, next_addr: _obj in _get_next_instr(rtn, 0, rtn.code_size - 1) do
+        if (instr = jsr_long)
+        then    yield   (_get_long (addr, 2), next_addr)
+                end
+        end
+    end _call_slots_
+
+            

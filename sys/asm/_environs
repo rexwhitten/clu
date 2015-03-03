@@ -1,0 +1,50 @@
+; Copyright Massachusetts Institute of Technology 1985, 1989
+
+_environs = iter () yields (string)
+	var	envp
+	movea	environ,r1
+	clr	n1
+	movew	2(r1),n1
+	asl	2,n1
+	lea	8(r1, n1),r1
+	beq	none
+	movea	(r1)+,r2
+	qloop
+		move	r1,envp
+		movea	r2,r4
+		qloop
+			cmpib	'\000',(r2)+
+			bne this
+		end
+		move	r2,n2
+		sub	r4,n2
+		move	n2,n1
+		move	n2,n3
+		add	n1,n1
+		addqb	1,n1
+		addq	7,n2
+		andi	-4,n2
+		movea	heaphi,rr
+		iflt	sub	n2,freecnt
+		then	jsr	memout
+		end
+		add	n2,heaphi
+		movea	rr,r3
+		move	n1,(r3)+
+		loop
+			moveb	(r4)+,(r3)+
+			dbra	n3,this
+			swap	n3
+			subqw	1,n3
+			blt	next
+			swap	n3
+		end
+		yield(rr)
+		movea	envp,r1
+		tst	(r1)
+		beq	next
+		movea	(r1)+,r2
+		bra	this
+	end
+none:	return
+	end _environs

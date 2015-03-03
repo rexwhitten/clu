@@ -1,0 +1,29 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+change_default = proc (e: env, c: char)
+		   signals (errmsg(string), stop(env, string))
+    def_marker = "default: '"
+    default: string := env$fetch_str(e, "default", "")
+    b: buf := e.buffer
+    arg: int := e.this_arg
+    line, pos: int := buf$get_cursor(b)
+    if c = ctrlr
+       then % read the default
+	    if arg = 1 then
+	       % kill the buffer first
+	       env$delete(e, 1, 1, buf$size(b), max_int)
+	       line, pos := 1, 1
+	       end
+	    env$insert(e, line, pos, default)
+	    if arg < 1 then buf$set_cursor(b, line, pos) end
+       else % write buffer to default
+	    buf$set_cursor(b, 1, 1)
+	    default := buf$b2s(b, buf$size(b), max_int)
+	    buf$set_cursor(b, line, pos)
+	    env$store_str(e, "default", default)
+	    prompt: string := e.title
+	    dpos: int := string$indexs(def_marker, prompt)
+			   + string$size(def_marker)
+	    e.title := string$substr(prompt, 1, dpos-1)
+			 || default || "')"
+       end
+    end change_default

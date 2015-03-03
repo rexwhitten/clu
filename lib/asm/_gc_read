@@ -1,0 +1,188 @@
+; Copyright Massachusetts Institute of Technology 1985, 1989
+
+brkchunk = 010,,0
+brkmask  = -8,,0
+
+_gc_read = proc [t: type] (fdesc: int) returns (t)
+				       signals (not_possible(string))
+	wvec	buf	{3}
+	lea	buf,r1
+	move	rr,n7
+	asr	1,n7
+	moveq	12,n1
+	move	n1,-(sp)				; count
+	move	r1,-(sp)				; buffer
+	move	n7,-(sp)				; file desc
+	clr	-(sp)
+	qloop
+		moveq	%read,n0
+		move	n0,-(sp)
+		trap	0				; get header,obj,size
+		bcc	next
+		cmpi	4,n0				; EINTR?
+		beq	this
+badfmt:		lea	16(sp),sp			; pop stack
+		moveq	1,n0				; restore 0
+		signal	not_possible("bad format file")
+	end
+	cmp	n1,n0
+	bne	badfmt
+	cmpi	#c046,,#c938,(r1)			; check header
+	bne	badfmt
+	move	4(r1),n2
+	moveq	3,n3
+	andb	n2,n3					; longword size?
+	bne	badfmt
+	cmp	#400,,0,n2				; reasonable size?
+	bhi	badfmt
+	tst	n2					; that all?
+	beq	done
+	movea	heaphi,rr
+
+	;; Note: the following code should approximately match the code
+	;; at Memlab in _start.
+	iflt	sub	n2,freecnt
+	then	add	n2,freecnt			; not enough room
+	        ifge	move	heaphi, n1
+			add	n2, n1
+			cmp	gcpoint, n1	;; supposed to gc yet?
+		then	jsr	_gc$gc		;; yes. see if that helps.
+			end
+		lea	buf,r1			;; get back n2.
+		move	4(r1),n2
+		ifgt	move	heaphi,n1	;; need to extend the brk?
+			add	n2, n1
+			cmp	brkaddr, n1
+		then	add	brkchunk, n1
+			and	brkmask, n1	;; compute new brk addr.
+			ifgt	cmp	heapmx, n1
+			then	move	heapmx, n1
+				end
+			move	n1, -(sp)
+			clr	-(sp)
+			moveq	%brk, n0
+			move	n0, -(sp)
+			ifcs	trap	0
+			then	signal not_possible("insufficient memory")
+				end
+			addq	4, sp
+			move	(sp)+, brkaddr	;; record new brk addr.
+			ifgt	cmp	gcpoint, n1
+			then	move	gcpoint, n1
+				end
+			sub	heaphi, n1
+			move	n1, freecnt
+			end
+		movea	heaphi, rr
+		iflt	sub	n2,freecnt 		;; room yet?
+		then	adda	n2, rr			;; no, really room?
+			ifle	cmpa	heapmx, rr	;; yes.
+			then	suba	n2, rr
+				clr	freecnt
+			else	add	n2, freecnt	;; not enough.
+				signal	not_possible("insufficient memory")
+				end
+			end
+		end
+	add	n2,heaphi
+	move	rr,8(sp)				; address
+	move	n2,12(sp)				; count
+	qloop
+		moveq	%read,n0			; read it all
+		move	n0,-(sp)
+		ifcs	trap	0
+		then	cmpi	4,n0			; EINTR?
+			beq	this
+			bra	oops
+		end
+		tst	n0
+		beq	oops
+		add	n0,8(sp)
+		sub	n0,12(sp)			; got it all?
+		bne	this
+	end
+	add	rr,n2					; get end addr
+	move	#2000,n4				; get base addr
+	move	rr,n5					; get delta
+	sub	n4,n5
+	move	#ff,,#ffff,n7				; ref mask
+again:	cmp	rr,n2					; done?
+	ble	done
+	move	(rr)+,n1				; no, get header
+	ifeq	btst	29,n1				; VEC or BVEC?
+	then	ifne	btst	0,n1			; yes, BVEC?
+		then	asr	1,n1			; yes, get size
+			addq	3,n1
+			andib	-4,n1
+			adda	n1,rr			; bump to next obj
+			bra	again
+		end
+		lea	-2(rr,n1),rr			; get past end
+		asr	2,n1				; empty?
+		beq	again
+		subq	1,n1
+		movea	rr,r2
+		loop
+			move	-(r2),n6
+			moveq	3,n3
+			ifge	andb	n6,n3		; ref?
+				bne	next
+				move	n7,n3		; maybe
+				and	n6,n3
+				cmp	n4,n3		; big enough?
+			then	add	n5,(r2)		; yes, adjust it
+			end
+			dbra	n1,this
+			swap	n1
+			subqw	1,n1
+			blt	again
+			swap	n1
+		end
+	end
+	ifne	btst	30,n1				; CELL?
+	then	move	(rr)+,n6			; yes
+		moveq	3,n3
+		andb	n6,n3				; ref?
+		bne	again
+		move	n7,n3				; maybe
+		and	n6,n3
+		cmp	n4,n3				; big enough?
+		blt	again
+		add	n5,-4(rr)			; yes, adjust it
+		bra	again
+	end
+	add	n5,dv%rel+-4(rr)			; ADV, fix rel
+	lea	dv%blen+-4(rr),rr
+	bra	again
+done:	clr	8(sp)
+	lea	16(sp),sp				; pop stack
+	suba	r2,r2
+	moveq	1,n0					; restore 0
+	move	8(r1),n6				; get obj
+	moveq	3,n3
+	ifge	andb	n6,n3				; ref?
+		bne	next
+		move	n7,n3				; maybe
+		and	n6,n3
+		cmp	n4,n3				; big enough?
+	then	add	n5,n6				; yes, adjust it
+	end
+	return(n6)
+oops:	clr	8(sp)
+	clr	12(sp)
+	lea	16(sp),sp				; pop stack
+	moveq	1,n0					; restore 0
+	sub	n2,freecnt				; restore heap
+	sub	n2,heaphi
+	asr	2,n2
+	subq	1,n2
+	loop
+		clr	(rr)+				; zero garbage
+		dbra	n2,this
+		swap	n2
+		subqw	1,n2
+		blt	next
+		swap	n2
+	end
+	signal	not_possible("bad format file")
+	end _gc_read

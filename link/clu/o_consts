@@ -1,0 +1,21 @@
+%% Copyright Massachusetts Institute of Technology 1980, 1989
+
+Output_Constants = proc (Env: lnk_env);
+    Type_It: bool := Env.Options.Do_Type_Consts;
+    if (Type_It)
+       then stream$PutL(Env.Options.List_Stream,
+			"\nConstants:");
+	       except when Not_Possible(*): end;
+       end;
+    Start_Constants(Env);
+    for C: constant in All_Constants(Env) do
+	if (Type_It)
+	   then stream$PutL(Env.Options.List_Stream,
+			    out_link_chan$Cur_Addr_to_String(Env.Output) ||
+			    ": " ||
+			    constant$Unparse(C));
+		   except when Not_Possible(*): end;
+	   end;
+	constant$Output_Block(C, false, Env);
+	end;
+    end Output_Constants;

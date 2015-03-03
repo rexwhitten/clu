@@ -1,0 +1,7 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+Update_Clust_Addresses = proc (C: c_template, Env: lnk_env);
+    for R: r_template in routine_list$Elements(C.Routines) do
+	Update_Rtn_Addresses(R, Env);
+	end;
+    end Update_Clust_Addresses;

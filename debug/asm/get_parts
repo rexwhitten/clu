@@ -1,0 +1,83 @@
+;copyright Barbara Massachusetts Institute of Technology , 1989
+
+_get_word = qproc(x:_obj, disp: int) returns (int)
+	move	rr, n1
+	asr	1, n1			;; De-CLU-integerize
+	movea	x, r1
+	;; Must use move here (and not movea) because we don't want the
+	;; word moved to be sign-extended.
+	movew	(r1, n1), n1		;; Get word in n1
+	add	n1, n1
+	add	n0, n1			;; CLU-integerize result
+	return (n1)
+	end _get_word
+
+_get_addr = qproc( x:_obj, disp: int) returns(_obj)
+	move	rr, n1
+	movea	x, rr
+	asr	1, n1			;; De-CLU-integerize
+	adda	n1, rr
+	return	(rr)
+	end _get_addr
+
+_get_disp = qproc(x: _obj, addr: _obj) returns (int) signals (overflow)
+	move 	rr, n1
+	ifvc	sub	x, n1
+	then	ifvc	add	n1, n1
+			addq	1, n1
+		then	return (n1)
+		end
+	end
+	signal	overflow
+	end _get_disp
+
+_get_long = qproc(x:_obj, disp: int) returns (_obj)
+	move	rr, n1
+	asr	1, n1			;; De-CLU-integerize
+	movea	x, r1
+	movea	(r1, n1), rr
+	return	(rr)
+	end _get_long
+
+_get_byte = qproc(x:_obj, disp:int) returns (int)
+	move	rr, n1
+	asr	1, n1			;; De-CLU-integerize
+	movea	x, rr
+	moveb	(rr, n1), n1		;; Get byte in n1
+	add	n1, n1
+	add	n0, n1			;; CLU-integerize
+	return(n1)
+	end _get_byte
+
+; _get_xword returns a sign-extended longword
+_get_xword = qproc(x:_obj, disp: int) returns (int)
+	move	rr, n1
+	asr	1, n1			;; De-CLU-integerize
+	movea	x, r1
+	movew	(r1, n1), n2
+ 	ext	n2
+	add	n2, n2
+	add	n0, n2
+	return	(n2)
+	end _get_xword
+
+_get_low_byte = qproc (word: int) returns (int)
+	move	rr, n1
+	asr	1, n1			;; De-CLU-integerize
+	andi	0377, n1		;; Mask off top byte
+	movea	n1, rr
+	lea	1(rr, rr), rr		;; CLU-integerize
+	return (rr)
+	end _get_low_byte
+
+_get_high_byte = qproc (word: int) returns (int)
+	move	rr, n1
+	asr	8, n1			;; Move the second byte into the first.
+	add	n0, n1			;; CLU-integerize. It was already
+ 					;; shifted left 1.
+	return (n1)
+	end _get_high_byte
+
+
+
+	

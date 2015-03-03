@@ -1,0 +1,5 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+Output_Zero_Ref = proc (Env: lnk_env);
+    out_link_chan$Write_Long_Word(Env.Output, 0);
+    end Output_Zero_Ref;

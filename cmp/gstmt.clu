@@ -1,0 +1,1082 @@
+%	GSTMT CLU
+% Copyright Massachusetts Institute of Technology 1980,, 1989
+%	CLU Compiler Version 3: statement generator
+
+# extend
+
+g_stmt = proc (e: g_env, s: stmt) returns (bool)
+	e.line := s.line
+	cont: bool := true
+	gotos: qi
+	tagcase s.abs
+	   tag decl (sa: decl):
+		g_decl(e, sa)
+	   tag declinit (sa: declinit):
+		g_declinit(e, sa)
+	   tag assn (sa: assn):
+		g_assn(e, sa)
+	   tag invoke (sa: invoke):
+		g_sinvoke(e, sa)
+	   tag while_ (sa: whilestmt):
+		cont, gotos := g_while(e, sa, false)
+	   tag for_ (sa: forstmt):
+		gotos := g_for(e, sa, false)
+	   tag if_ (sa: ifstmt):
+		cont, gotos := g_if(e, sa, false)
+	   tag tag_ (sa: tagstmt):
+		cont, gotos := g_tagcase(e, sa, false)
+	   tag return_ (sa: exprlist):
+		g_return(e, sa)
+		cont := false
+	   tag yield_ (sa: exprlist):
+		g_yield(e, sa)
+	   tag signal_ (sa: condition):
+		g_signal(e, sa)
+		cont := false
+	   tag exit_ (sa: condition):
+		g_exit(e, sa)
+		cont := false
+	   tag break_:
+		g_break(e)
+		cont := false
+	   tag continue_:
+		g_continue(e)
+		cont := false
+	   tag body (sa: body):
+		g_menv$begin_vars(e.menv)
+		cont := g_body(e, sa)
+		g_menv$end_vars(e.menv)
+	   tag except_ (sa: exceptstmt):
+		cont, gotos := g_except(e, sa, false)
+	   tag resignal_ (sa: resignalstmt):
+		cont, gotos := g_resignal(e, sa, false)
+	   tag force_ (sa: forcestmt):
+		g_env$err(e, "force stmt not yet implemented")
+	   others:
+	   end
+	return(cont)
+	end g_stmt
+
+g_decl = proc (e: g_env, d: decl)
+	me: g_menv := e.menv
+	for i: idn in idnlist$elements(d.idns) do
+		g_menv$init_var(me, i)
+		end
+	end g_decl
+
+g_declinit = proc (e: g_env, di: declinit)
+	x: expr := di.expr
+	decls: decllist := di.decls
+	idns: idnlist := decllist$bottom(decls).idns
+	me: g_menv := e.menv
+	if decllist$size(decls) = 1  cand  idnlist$size(idns) = 1
+	   then id: idn := idnlist$bottom(idns)
+		g_expr(e, x, g_menv$init_var(me, id))
+	   else g_expr(e, x, locate$make_areg(_RR))
+		src: int := _addrd_RR
+		for i: int in int$from_to_by(decllist$size(decls), 1, -1) do
+			il: idnlist := decls[i].idns
+			for n: int in int$from_to_by(idnlist$size(il), 1, -1) do
+				id: idn := il[n]
+				dest: locate := g_menv$init_var(me, id)
+				g_move_src(e, dest, src, 0)
+				src := _pincr_SP
+				end
+			end
+	   end
+	g_anys(e, di.anys)
+	end g_declinit
+
+g_anys = proc (e: g_env, d: decllist)
+	for dec: decl in decllist$elements(d) do
+		at: typespec := e.tenv.any_type
+		t: typespec := dec.type_
+		for id: idn in idnlist$elements(dec.idns) do
+			x: expr := expr$create(exprabs$make_idn(id), t)
+			x := expr$create(exprabs$make_any_(x), at)
+			g_expr(e, x, id.val)
+			end
+		end
+	end g_anys
+
+g_assn = proc (e: g_env, s: assn)
+	xl: exprlist := s.right
+	il: idnlist := s.left
+	iz: int := idnlist$size(il)
+	if iz = 1
+	   then g_expr(e, exprlist$bottom(xl), idnlist$bottom(il).val)
+		g_anys(e, s.anys)
+		return
+	   end
+	ez: int := exprlist$size(xl)
+	if ez = 2
+	   then x1: expr := exprlist$bottom(xl)
+		tagcase x1.abs
+		   tag idn (id1: idn):
+			if id1 = idnlist$top(il)
+			   then x2: expr := exprlist$top(xl)
+				tagcase x2.abs
+				   tag idn (id2: idn):
+					if id2 = idnlist$bottom(il)
+					   then g_swap(e, id1, x1, id2, x2)
+						g_anys(e, s.anys)
+						return
+					   end
+				   others:
+				   end
+			   end
+		   others:
+		   end
+	   end
+	if ez = 1
+	   then g_expr(e, exprlist$bottom(xl), locate$make_areg(_RR))
+	   else for i: int in int$from_to(1, ez - 1) do
+			g_expr(e, xl[i], locate$make_tos(nil))
+			end
+		g_expr(e, exprlist$top(xl), locate$make_areg(_RR))
+	   end
+	for i: int in int$from_to_by(iz - 1, 1, -1) do
+		dest: locate := il[i].val
+		g_move_src(e, dest, _pincr_SP, 0)
+		end
+	dest: locate := idnlist$top(il).val
+	g_move_src(e, dest, _addrd_RR, 0)
+	g_anys(e, s.anys)
+	end g_assn
+
+g_swap = proc (e: g_env, id1: idn, x1: expr, id2: idn, x2: expr)
+	me: g_menv := e.menv
+	regs: reglist := me.state
+	v1: locate := id1.val
+	v2: locate := id2.val
+	lose: bool := false
+	tagcase v1
+	   tag prown, pcown:
+		tagcase v2
+		   tag prown, pcown:
+			lose := true
+		   others:
+		   end
+	   others:
+	   end
+	found: bool, reg: int := g_find_idn(regs, v1)
+	if found  cand  ~(lose  cand  reg = _addrd_R3)
+	   then g_move_idn(e, v1, id2, x2)
+		g_move_src(e, v2, reg, 0)
+	   else found, reg := g_find_idn(regs, v2)
+		if found  cand  ~(lose  cand  reg = _addrd_R3)
+		   then g_move_idn(e, v2, id1, x1)
+			g_move_src(e, v1, reg, 0)
+		   else if lose  cand  reg = _addrd_R3
+			   then reg := _addrd_RR end
+			g_move_idn(e, locate$make_areg(reg - _addrd), id1, x1)
+			g_move_idn(e, v1, id2, x2)
+			g_move_src(e, v2, reg, 0)
+		   end
+	   end
+	end g_swap
+
+g_pp_set = proc (me: g_menv, disp: int, loc: locate) returns (int)
+	regs: reglist := me.state
+	if ~locate$is_a(loc)
+	   then if regs[_addrd_R4] = loc
+		   then return(_indir_R4) end
+		if regs[_addrd_R3] = loc
+		   then return(_indir_R3) end
+	   end
+	if locate$is_a(regs[_addrd_PP])
+	   then ainst(me, MOVEA, _PP, _idisp_EP)
+		immed(me, -4)
+		regs[_addrd_PP] := locate$make_tos(nil)
+	   end
+	if disp < 0
+	   then return(disp)
+	elseif disp = 0
+	   then ainst(me, MOVEA, _R4, _indir_PP)
+	else ainst(me, MOVEA, _R4, _idisp_PP)
+	     immed(me, disp * 4)
+	end
+	regs[_addrd_R4] := loc
+	return(_indir_R4)
+	end g_pp_set
+
+g_sinvoke = proc (e: g_env, inv: invoke)
+	if e.time
+	   then tagcase inv.apply.abs
+		   tag op (cop: clusterop):
+			if g_op_invoke(e, cop, inv.args, locate$make_areg(_RR))
+			   then return end
+		   tag force_ (t: typespec):
+			g_force_op(e, t, inv.args, locate$make_areg(_RR))
+			return
+		   others:
+		   end
+	   end
+	g_invoke2(e, g_invoke1(e, inv))
+	tagcase inv.apply.typespec.abs
+	   tag apply (ta: appletype):
+		if typelist$size(ta.vals) > 1
+		   then cnt: int := 4 * (typelist$size(ta.vals) - 1)
+			if cnt > 8
+			   then ainst(e.menv, LEA, _SP, _idisp_SP)
+				immed(e.menv, cnt)
+			   else ainst(e.menv, ADDQ, cnt // 010, _addrd_SP)
+			   end
+		end
+	   others:
+	   end
+	end g_sinvoke
+
+g_while = proc (e: g_env, s: whilestmt, last: bool) returns (bool, qi)
+	me: g_menv := e.menv
+	g_reset_state(me.state)
+	g_menv$begin_vars(me)
+	test_begin: int := g_env$begin_while(e)
+	locs: qi := g_test(e, s.test, false)
+	for loc: int in qi$elements(g_lpbody(e, s.body, last)) do
+		g_menv$store_offset(me, loc, test_begin)
+		end
+	g_menv$end_vars(me)
+	g_reset_state(me.state)
+	nlocs: qi := g_env$end_loop(e)
+	if last
+	   then return(false, locs || nlocs) end
+	for loc: int in qi$elements(locs) do
+		g_menv$goto(me, loc)
+		end
+	for loc: int in qi$elements(nlocs) do
+		g_menv$goto(me, loc)
+		end
+	return(~qi$empty(locs)  cor  ~qi$empty(nlocs)  cor
+	       (~stmtlist$empty(s.body.stmts)  cand
+		stmtabs$is_break_(stmtlist$top(s.body.stmts).abs)),
+	       qi$new())
+	end g_while
+
+g_for = proc (e: g_env, s: forstmt, last: bool) returns (qi)
+	if e.time
+	   then ok: bool, locs: qi := g_for1(e, s, last)
+		if ok
+		   then return(locs) end
+	   end
+	me: g_menv := e.menv
+	val: calloc := g_invoke1(e, s.call)
+	xloc: int := binst(me, BSR)
+	g_menv$begin_vars(me)
+	g_menv$begin_state(me, true)
+	iter_env, for_env: int := g_env$begin_for(e)
+	g_forvars(e, s.vars, iter_env, for_env)
+	g_anys(e, s.anys)
+	if g_body(e, s.body)
+	   then xinst(me, MOVEM, _idisp_EP)
+		immed(me, 0140000)
+		immed(me, iter_env)
+		immed(me, RTS)
+	   end
+	g_menv$goto(me, xloc)
+	g_menv$end_state(me)
+	g_menv$end_vars(me)
+	g_invoke2(e, val)
+	locs: qi := g_env$end_loop(e)
+	if last
+	   then return(qi$addh(locs, binst(me, BRA))) end
+	for loc: int in qi$elements(locs) do
+		g_menv$goto(me, loc)
+		end
+	return(qi$new())
+	end g_for
+
+g_forvars = proc (e: g_env, vars: forvars, iter_env, for_env: int)
+	me: g_menv := e.menv
+	mult: bool := false
+	tagcase vars
+	   tag new (decls: decllist):
+		z: int := decllist$size(decls)
+		if z = 0  cor
+		   (z = 1  cand  idnlist$size(decllist$bottom(decls).idns) = 1)
+		   then xinst(me, MOVEMM, _idisp_EP)
+			immed(me, 0120000)
+			immed(me, iter_env)
+		   else minst(me, MOVE, idisp_EP_, _addrd_PP)
+			immed(me, iter_env)
+			mult := true
+		   end
+		src: int := _addrd_RR
+		for i: int in int$from_to_by(z, 1, -1) do
+			idns: idnlist := decls[i].idns
+			for j: int in int$from_to_by(idnlist$size(idns), 1, -1) do
+				id: idn := idns[j]
+				dest: locate := g_menv$init_var(me, id)
+				g_move_src(e, dest, src, 0)
+				src := _pincr_SP
+				end
+			end
+	   tag old (idns: idnlist):
+		z: int := idnlist$size(idns)
+		if z < 2
+		   then xinst(me, MOVEMM, _idisp_EP)
+			immed(me, 0120000)
+			immed(me, iter_env)
+		   else minst(me, MOVE, idisp_EP_, _addrd_PP)
+			immed(me, iter_env)
+			mult := true
+		   end
+		src: int := _addrd_RR
+		for i: int in int$from_to_by(z, 1, -1) do
+			g_move_src(e, idns[i].val, src, 0)
+			src := _pincr_SP
+			end
+	   end
+	if mult
+	   then minst(me, MOVE, idisp_EP_, _addrd_SP)
+		immed(me, for_env)
+	   end
+	end g_forvars
+
+g_test = proc (e: g_env, x: expr, comp: bool) returns (qi)
+	if e.time
+	   then return(g_test_expr(e, qi$new(), x, comp)) end
+	me: g_menv := e.menv
+	loc: int
+	tagcase x.abs
+	   tag bool_ (b: bool):
+		if (b  cand  ~comp)  cor  (~b  cand  comp)
+		   then return(qi$new()) end
+		loc := binst(me, BRA)
+	   others:
+		g_expr(e, x, locate$make_dreg(_N7))
+		if comp
+		   then loc := binst(me, BNE)
+		   else loc := binst(me, BEQ)
+		   end
+	   end
+	return(qi$e2s(loc))
+	end g_test
+
+g_if = proc (e: g_env, s: ifstmt, last: bool) returns (bool, qi)
+	me: g_menv := e.menv
+	cont: bool := false
+	oregs: reglist := me.state
+	tregs: reglist := g_menv$begin_state(me, false)
+	arm_ends: qi := qi$new()
+	arms: ifarmlist := s.arms
+	high: int := ifarmlist$size(arms)
+	is_real_else: bool := false
+	ecomp: bool := false
+	else_: body
+	tagcase s.else_
+	   tag body (b: body):
+		else_ := b
+		is_real_else, ecomp := g_is_quick_arm(e, b)
+	   others:
+	   end
+	for i: int in ifarmlist$indexes(arms) do
+		arm: ifarm := arms[i]
+		e.line := arm.line
+		b: body := arm.body
+		is_real_body, comp: bool := g_is_quick_arm(e, b)
+		locs: qi
+		if (comp  cor  ~is_real_body)  cand
+		   (i < high  cor  is_real_else  cor  (~last  cand  ~ecomp))
+		   then locs := g_test(e, arm.test, true)
+			if comp
+			   then g_quick_arm(e, b, locs)
+			   else arm_ends := arm_ends || locs
+				cont := g_merge_state(oregs, tregs, cont)
+			   end
+			continue
+		   end
+		locs := g_test(e, arm.test, false)
+		g_menv$begin_vars(me)
+		bregs: reglist := g_menv$begin_state(me, false)
+		if i < high  cor  last  cor  is_real_else
+		   then nlocs: qi := g_lbody(e, b)
+			if ~qi$empty(nlocs)
+			   then arm_ends := arm_ends || nlocs
+				cont := g_merge_state(oregs, bregs, cont)
+			   end
+		elseif g_body(e, b)
+		   then cont := g_merge_state(oregs, bregs, cont) end
+		g_menv$end_state(me)
+		g_menv$end_vars(me)
+		if i = high  cand  ~is_real_else
+		   then if ecomp
+			   then g_quick_arm(e, else_, locs)
+				break
+			elseif last
+			   then arm_ends := arm_ends || locs
+				break
+			end
+		   end
+		for loc: int in qi$elements(locs) do
+			g_menv$goto(me, loc)
+			end
+		end
+	g_menv$begin_vars(me)
+	if ~is_real_else
+	   then if ~ecomp
+		   then cont := g_merge_state(oregs, tregs, cont) end
+	elseif last
+	   then locs: qi := g_lbody(e, else_)
+		if ~qi$empty(locs)
+		   then arm_ends := arm_ends || locs
+			cont := g_merge_state(oregs, tregs, cont)
+		   end
+	elseif g_body(e, else_)
+	   then cont := g_merge_state(oregs, tregs, cont) end
+	g_menv$end_vars(me)
+	g_menv$end_state(me)
+	if last
+	   then return(false, arm_ends) end
+	for loc: int in qi$elements(arm_ends) do
+		g_menv$goto(me, loc)
+		end
+	return(cont, qi$new())
+	end g_if
+
+g_is_quick_arm = proc (e: g_env, b: body) returns (bool, bool)
+	comp: bool := false
+	if stmtlist$size(b.stmts) = 1
+	   then tagcase stmtlist$bottom(b.stmts).abs
+		   tag break_, continue_:
+			comp := ~g_env$in_for(e)
+		   tag exit_ (cond: condition):
+			comp := exprlist$empty(cond.args)
+		   others:
+		   end
+	   end
+	return(~comp  cand  ~stmtlist$empty(b.stmts), comp)
+	end g_is_quick_arm
+
+g_quick_arm = proc (e: g_env, b: body, locs: qi)
+	tagcase stmtlist$bottom(b.stmts).abs
+	   tag break_:
+		for loc: int in qi$elements(locs) do
+			g_env$add_break(e, loc)
+			end
+	   tag continue_:
+		for loc: int in qi$elements(locs) do
+			g_menv$store_offset(e.menv, loc, e.loop_disp)
+			end
+	   tag exit_ (cond: condition):
+		for loc: int in qi$elements(locs) do
+			g_env$add_exit(e, cond.name, loc)
+			end
+	   others:
+	   end
+	end g_quick_arm
+
+g_tagcase = proc (e: g_env, s: tagstmt, last: bool) returns (bool, qi)
+	obj: expr := s.obj
+	if e.either
+	   then tagcase obj.typespec.abs
+		   tag select (ta: seltype):
+			cont: bool, arm_ends: qi :=
+					g_tagcase1(e, s, ta.parms,
+						   ta.gen.unique = "variant",
+						   last)
+			return(cont, arm_ends)
+		   others:
+		   end
+	   end
+	me: g_menv := e.menv
+	disp: int
+	is_temp: bool := true
+	tagcase obj.abs
+	   tag idn (xa: idn):
+		tagcase xa.val
+		   tag var (num: int):
+			disp := num
+			is_temp := false
+		   others:
+		   end
+	   others:
+	   end
+	if is_temp
+	   then g_menv$begin_vars(me)
+		disp := g_menv$alloc_var(me)
+		g_expr(e, obj, locate$make_var(disp))
+	   end
+	arm_ends: qi := qi$new()
+	at: typespec := obj.typespec
+	cont: bool := false
+	oregs: reglist := me.state
+	bregs: reglist := g_menv$begin_state(me, false)
+	arms: tagarmlist := s.arms
+	high: int := tagarmlist$size(arms)
+	is_real_others: bool := true
+	ocomp: bool := false
+	others_: body
+	tagcase s.others_
+	   tag body (b: body):
+		others_ := b
+		is_real_others, ocomp := g_is_quick_arm(e, b)
+	   others:
+	   end
+	for j: int in tagarmlist$indexes(arms) do
+		arm: tagarm := arms[j]
+		e.line := arm.line
+		g_menv$begin_vars(me)
+		need_val: bool := false
+		offset: int
+		tagcase arm.var
+		   tag decl (md: decl):
+			need_val := true
+			offset := locate$value_var(
+					g_menv$init_var(me,
+							idnlist$bottom(md.idns)))
+		   others:
+		   end
+		b: body := arm.body
+		is_real_body, comp: bool := g_is_quick_arm(e, b)
+		switch: bool := (comp  cor  ~is_real_body)  cand
+				(j < high  cor  is_real_others  cor
+					(~last  cand  ~ocomp))
+		tags: namelist := arm.tags
+		z: int := namelist$size(tags)
+		locs: qi := qi$new()
+		loc: int
+		for i: int in int$from_to(1, z) do
+			sel: name := tags[i]
+			cop: clusterop := clusterop${type_: at,
+						     name:  "is_" || sel,
+						     parms: exprlist$new()}
+			ainst(me, MOVEA, _RR, _idisp_EP)
+			immed(me, disp)
+			g_call(e, exprabs$make_op(cop), 1)
+			minst(me, MOVE, datad_N7_, _addrd_RR)
+			if need_val
+			   then loc := binst(me, BEQ)
+				cop := clusterop${type_: at,
+						  name:  "value_" || sel,
+						  parms: exprlist$new()}
+				ainst(me, MOVEA, _RR, _idisp_EP)
+				immed(me, disp)
+				g_call(e, exprabs$make_op(cop), 1)
+			   end
+			if i < z  cor  switch
+			   then if need_val
+				   then locs := qi$addh(locs, binst(me, BRA))
+					g_menv$goto(me, loc)
+				   else locs := qi$addh(locs, binst(me, BNE))
+				   end
+			elseif need_val
+			   then for nloc: int in qi$elements(locs) do
+					g_menv$goto(me, nloc)
+					end
+				minst(me, MOVE, idisp_EP_, _addrd_RR)
+				immed(me, offset)
+			else loc := binst(me, BEQ)
+			     for nloc: int in qi$elements(locs) do
+				     g_menv$goto(me, nloc)
+				     end
+			end
+			end
+		if switch
+		   then if comp
+			   then g_quick_arm(e, b, locs)
+			   else arm_ends := arm_ends || locs
+				cont := g_merge_state(oregs, bregs, cont)
+			   end
+			g_menv$end_vars(me)
+			g_reset_state(bregs)
+			continue
+		   end
+		if j < high  cor  last  cor  is_real_others
+		   then locs := g_lbody(e, b)
+			if ~qi$empty(locs)
+			   then arm_ends := arm_ends || locs
+				cont := g_merge_state(oregs, bregs, cont)
+			   end
+		elseif g_body(e, b)
+		   then cont := g_merge_state(oregs, bregs, cont) end
+		g_menv$end_vars(me)
+		g_reset_state(bregs)
+		if j = high  cand  ~is_real_others
+		   then if ocomp
+			   then g_quick_arm(e, others_, qi$e2s(loc))
+				continue
+			elseif last
+			   then arm_ends := qi$addh(arm_ends, loc)
+				continue
+			end
+		   end
+		g_menv$goto(me, loc)
+		end
+	tagcase s.others_
+	   tag body (b: body):
+		g_menv$begin_vars(me)
+		if ~is_real_others
+		   then if ~ocomp
+			   then cont := g_merge_state(oregs, bregs, cont) end
+		elseif last
+		   then locs: qi := g_lbody(e, b)
+			if ~qi$empty(locs)
+			   then arm_ends := arm_ends || locs
+				cont := g_merge_state(oregs, bregs, cont)
+			   end
+		elseif g_body(e, b)
+		   then cont := g_merge_state(oregs, bregs, cont) end
+		g_menv$end_vars(me)
+	   others:
+		x: expr := expr$create(exprabs$make_str("no matching tag"),
+				       e.tenv.str_type)
+		g_signal(e, condition${name: "failure",
+				       args: exprlist$[x]})
+	   end
+	if is_temp
+	   then g_menv$end_vars(me) end
+	g_menv$end_state(me)
+	if last
+	   then return(false, arm_ends) end
+	for loc: int in qi$elements(arm_ends) do
+		g_menv$goto(me, loc)
+		end
+	return(cont, arm_ends)
+	end g_tagcase
+
+g_call = proc (e: g_env, abs: exprabs, nargs: int)
+	te: g_tenv := e.tenv
+	me: g_menv := e.menv
+	x: expr := expr$create(abs, te.unknown_type)
+	val: mref, pflag: int := g_tenv$store_rconst(te, x, nargs)
+	if pflag ~= _plain
+	   then disp: int := g_tenv$add_puse(te, _use_const, val)
+		xinst(me, JSR, g_pp_set(me, disp, locate$make_a(nil)))
+	   else disp: int := g_tenv$add_use(te, _use_const, val)
+		xinst(me, JSR, _long)
+		udesc(me, disp)
+	   end
+	g_reset_state(me.state)
+	end g_call
+
+g_return = proc (e: g_env, exprs: exprlist)
+	me: g_menv := e.menv
+	z: int := exprlist$size(exprs)
+	if z > 0
+	   then for i: int in int$from_to(1, z - 1) do
+			g_expr(e, exprs[i], locate$make_tos(nil))
+			end
+		g_expr(e, exprlist$top(exprs), locate$make_areg(_RR))
+	   end
+	spargs: int := e.arg_count
+	if g_env$is_iter(e)
+	   then if spargs = 0
+		   then spargs := 1 end
+	elseif spargs > 0
+	   then spargs := spargs - 1 end
+	if z < 2
+	   then xinst(me, UNLK, _EP)
+		if spargs = 0
+		   then immed(me, RTS)
+		   else immed(me, RTD)
+			immed(me, 4 * spargs)
+		   end
+		% 68000
+		%if spargs = 0
+		%   then xinst(me, UNLK, _EP)
+		%	immed(me, RTS)
+		%elseif spargs = 1
+		%   then xinst(me, UNLK, _EP)
+		%	minst(me, MOVE, indir_SP_, _pincr_SP)
+		%	immed(me, RTS)
+		%else xinst(me, UNLK, _EP)
+		%     ainst(me, MOVEA, _PP, _pincr_SP)
+		%     if spargs = 2
+		%	then ainst(me, ADDQ, 0, _addrd_SP)
+		%	else ainst(me, LEA, _SP, _idisp_SP)
+		%	     immed(me, 4 * spargs)
+		%	end
+		%     xinst(me, JMP, _indir_PP)
+		%end
+	elseif z = 2
+	   then if spargs = 0
+		   then ainst(me, MOVEA, _R4, _indir_SP)
+			xinst(me, UNLK, _EP)
+			ainst(me, MOVEA, _PP, _indir_SP)
+			minst(me, MOVE, indir_SP_, _addrd_R4)
+			xinst(me, JMP, _indir_PP)
+		   else minst(me, MOVE, idisp_EP_, _indir_SP)
+			immed(me, 4 * (spargs + 1))
+			xinst(me, UNLK, _EP)
+			if spargs = 1
+			   then immed(me, RTS)
+			   else immed(me, RTD)
+				immed(me, 4 * (spargs - 1))
+			   end
+		   end
+		% 68000
+		%if spargs = 0
+		%   then ainst(me, MOVEA, _R4, _indir_SP)
+		%	xinst(me, UNLK, _EP)
+		%	ainst(me, MOVEA, _PP, _indir_SP)
+		%	minst(me, MOVE, indir_SP_, _addrd_R4)
+		%	xinst(me, JMP, _indir_PP)
+		%elseif spargs = 1
+		%   then minst(me, MOVE, idisp_EP_, _indir_SP)
+		%	immed(me, 8)
+		%	xinst(me, UNLK, _EP)
+		%	immed(me, RTS)
+		%else ainst(me, MOVEA, _R4, _indir_SP)
+		%     xinst(me, UNLK, _EP)
+		%     ainst(me, MOVEA, _PP, _pincr_SP)
+		%     i: int := 4 * (spargs - 1)
+		%     if i <= 8
+		%	then ainst(me, ADDQ, i // 010, _addrd_SP)
+		%	else ainst(me, LEA, _SP, _idisp_SP)
+		%	     immed(me, i)
+		%	end
+		%     minst(me, MOVE, indir_SP_, _addrd_R4)
+		%     xinst(me, JMP, _indir_PP)
+		%end
+	elseif z <= 5
+	   then xinst(me, MOVEM, _pincr_SP)
+		if z = 3
+		   then immed(me, 0003000)
+		elseif z = 4
+		   then immed(me, 0007000)
+		else immed(me, 0017000) end
+		xinst(me, UNLK, _EP)
+		ainst(me, MOVEA, _PP, _pincr_SP)
+		if spargs > 0
+		   then i: int := 4 * spargs
+			if i <= 8
+			   then ainst(me, ADDQ, i // 010, _addrd_SP)
+			   else ainst(me, LEA, _SP, _idisp_SP)
+				immed(me, i)
+			   end
+		   end
+		xinst(me, MOVEMM, _pdecr_SP)
+		if z = 3
+		   then immed(me, 0000140)
+		elseif z = 4
+		   then immed(me, 0000160)
+		else immed(me, 0000170) end
+		xinst(me, JMP, _indir_PP)
+	else xinst(me, MOVEM, _indir_EP)
+	     immed(me, 0014000)
+	     ainst(me, LEA, _PP, _idisp_SP)
+	     immed(me, 4 * (z - 1))
+	     if spargs = 0
+		then ainst(me, ADDQ, 0, _addrd_EP)
+		else ainst(me, LEA, _EP, _idisp_EP)
+		     immed(me, 4 * (spargs + 2))
+		end
+	     ainst(me, MOVEQ, _N1, z - 1)
+	     minst(me, MOVE, pdecr_EP_, _pdecr_PP)
+	     ainst(me, SUBQB, 1, _datad_N1)
+	     xinst(me, BNE, 0372)
+	     ainst(me, MOVEA, _SP, _addrd_EP)
+	     ainst(me, MOVEA, _EP, _addrd_R3)
+	     xinst(me, JMP, _indir_R4)
+	end
+	end g_return
+
+g_yield = proc (e: g_env, exprs: exprlist)
+	me: g_menv := e.menv
+	z: int := exprlist$size(exprs)
+	loc: int
+	if z > 1
+	   then xinst(me, PEA, _pcdsp)
+		loc := pcrel(me)
+		for i: int in int$from_to(1, z - 1) do
+			g_expr(e, exprs[i], locate$make_tos(nil))
+			end
+		g_expr(e, exprlist$top(exprs), locate$make_areg(_RR))
+	elseif z = 1
+	   then g_expr(e, exprlist$top(exprs), locate$make_areg(_RR)) end
+	ainst(me, MOVEA, _R4, _idisp_EP)
+	immed(me, 8)
+	ainst(me, MOVEA, _PP, _addrd_EP)
+	ainst(me, MOVEA, _EP, _indir_EP)
+	if z > 1
+	   then xinst(me, JMP, _indir_R4)
+		g_menv$goto(me, loc)
+	   else xinst(me, JSR, _indir_R4)
+	   end
+	g_reset_state(me.state)
+	end g_yield
+
+g_signal = proc (e: g_env, sig: condition)
+	for x: expr in exprlist$elements(sig.args) do
+		g_expr(e, x, locate$make_tos(nil))
+		end
+	te: g_tenv := e.tenv
+	xinst(e.menv, JSR, _long)
+	udesc(e.menv,
+	      g_tenv$add_use(te, _use_signal, g_tenv$store_signal(te, sig)))
+	end g_signal
+
+g_exit = proc (e: g_env, cond: condition)
+	me: g_menv := e.menv
+	for x: expr in exprlist$elements(cond.args) do
+		g_expr(e, x, locate$make_tos(nil))
+		end
+	g_env$add_exit(e, cond.name, binst(me, BRA))
+	end g_exit
+
+g_break = proc (e: g_env)
+	me: g_menv := e.menv
+	if g_env$in_for(e)
+	   then restore: int := g_env$for_env(e, 1)
+		if restore = 0
+		   then ainst(me, LEA, _SP, _idisp_EP)
+			g_env$add_fixup(e, g_menv$next_loc(me))
+			immed(me, me.var_pos)
+		   else ainst(me, MOVEA, _SP, _idisp_EP)
+			immed(me, restore)
+		   end
+	   end
+	g_env$add_break(e, binst(me, BRA))
+	end g_break
+
+g_continue = proc (e: g_env)
+	me: g_menv := e.menv
+	if g_env$in_for(e)
+	   then xinst(me, MOVEM, _idisp_EP)
+		immed(me, 0140000)
+		immed(me, e.iter_env)
+		immed(me, RTS)
+	   else g_menv$store_offset(me, binst(me, BRA), e.loop_disp)
+	   end
+	end g_continue
+
+g_body = proc (e: g_env, b: body) returns (bool)
+	for s: stmt in stmtlist$elements(b.stmts) do
+		if ~g_stmt(e, s)
+		   then return(false) end
+		end
+	return(true)
+	end g_body
+
+g_lbody = proc (e: g_env, b: body) returns (qi)
+	stmts: stmtlist := b.stmts
+	high: int := stmtlist$size(stmts)
+	for i: int in stmtlist$indexes(stmts) do
+		if i = high
+		   then return(g_lstmt(e, stmtlist$top(stmts)))
+		elseif ~g_stmt(e, stmts[i])
+		   then return(qi$new()) end
+		end
+	return(qi$e2s(binst(e.menv, BRA)))
+	end g_lbody
+
+g_lpbody = proc (e: g_env, b: body, last: bool) returns (qi)
+	stmts: stmtlist := b.stmts
+	high: int := stmtlist$size(stmts)
+	for i: int in stmtlist$indexes(stmts) do
+		if i = high
+		   then if ~last  cand
+			   stmtabs$is_break_(stmtlist$top(stmts).abs)
+			   then return(qi$new()) end
+			return(g_lstmt(e, stmtlist$top(stmts)))
+		elseif ~g_stmt(e, stmts[i])
+		   then return(qi$new()) end
+		end
+	return(qi$e2s(binst(e.menv, BRA)))
+	end g_lpbody
+
+g_lstmt = proc (e: g_env, s: stmt) returns (qi)
+	cont: bool
+	gotos: qi
+	tagcase s.abs
+	   tag while_ (sa: whilestmt):
+		cont, gotos := g_while(e, sa, true)
+	   tag for_ (sa: forstmt):
+		gotos := g_for(e, sa, true)
+	   tag if_ (sa: ifstmt):
+		cont, gotos := g_if(e, sa, true)
+	   tag tag_ (sa: tagstmt):
+		cont, gotos := g_tagcase(e, sa, true)
+	   tag body (sa: body):
+		g_menv$begin_vars(e.menv)
+		gotos := g_lbody(e, sa)
+		g_menv$end_vars(e.menv)
+	   tag except_ (sa: exceptstmt):
+		cont, gotos := g_except(e, sa, true)
+	   tag resignal_ (sa: resignalstmt):
+		cont, gotos := g_resignal(e, sa, true)
+	   others:
+		if g_stmt(e, s)
+		   then gotos := qi$e2s(binst(e.menv, BRA))
+		   else gotos := qi$new()
+		   end
+	   end
+	return(gotos)
+	end g_lstmt
+
+g_resignal = proc (e: g_env, x: resignalstmt, last: bool) returns (bool, qi)
+	exval = g_menv$add_except_val
+	some: bool := false
+	if e.either
+	   then for n: name in namelist$elements(x.resigs) do
+			if n = "bounds"  cor  n = "overflow"  cor
+			   n = "wrong_tag"  cor  n = "wrong_type"  cor
+			   n = "illegal_char"
+			   then some := true
+				g_env$push_handler(e, n, _resig)
+			   end
+			end
+	   end
+	me: g_menv := e.menv
+	start: int := g_menv$next_loc(me)
+	cont: bool
+	gotos: qi
+	if last
+	   then gotos := g_lstmt(e, x.stmt)
+		cont := ~qi$empty(gotos)
+	   else cont := g_stmt(e, x.stmt)
+		gotos := qi$new()
+	   end
+	if some
+	   then for n: name in namelist$elements(x.resigs) do
+			if n = "bounds"  cor  n = "overflow"  cor
+			   n = "wrong_tag"  cor  n = "wrong_type"  cor
+			   n = "illegal_char"
+			   then g_env$pop_handler(e, n) end
+			end
+	   end
+	g_menv$add_handler(me)
+	exval(me, start)
+	exval(me, g_menv$next_loc(me) - start)
+	exval(me, 0)
+	exval(me, namelist$size(x.resigs))
+	te: g_tenv := e.tenv
+	for sig: name in namelist$elements(x.resigs) do
+		exval(me, g_tenv$add_use(te, _use_exception,
+					 g_tenv$store_str(te, sig)))
+		end
+	return(cont, gotos)
+	end g_resignal
+
+g_except = proc (e: g_env, x: exceptstmt, last: bool) returns (bool, qi)
+	exval = g_menv$add_except_val
+	optsigs = namelist$["bounds", "overflow", "illegal_char",
+			    "wrong_tag", "wrong_type"]
+	te: g_tenv := e.tenv
+	me: g_menv := e.menv
+	tagcase x.others_
+	   tag arm (arm: othersarm):
+		kind: int := _wexit
+		if mdecl$is_decl(arm.decl)
+		   then kind := _oexit end
+		for sig: name in namelist$elements(optsigs) do
+			g_env$push_handler(e, sig, kind)
+			end
+	   others:
+	   end
+	arms: handlerlist := x.arms
+	start: int := g_env$begin_except(e, arms)
+	arm_ends: qi := g_lstmt(e, x.stmt)
+	cont: bool := ~qi$empty(arm_ends)
+	oregs: reglist := me.state
+	if ~cont
+	   then g_reset_state(oregs) end
+	bregs: reglist := g_menv$begin_state(me, true)
+	len: int := g_menv$next_loc(me) - start
+	high: int := handlerlist$size(arms)
+	restore: int := g_env$for_env(e, 0)
+	exits: aai := g_env$end_except(e, arms)
+	for i: int in handlerlist$indexes(arms) do
+		arm: handler := arms[i]
+		for loc: int in ai$elements(exits[i]) do
+			g_menv$goto(me, loc)
+			end
+		g_menv$add_handler(me)
+		exval(me, start)
+		exval(me, len)
+		exval(me, g_menv$next_loc(me))
+		exval(me, namelist$size(arm.names))
+		for sig: name in namelist$elements(arm.names) do
+			desc: mref := g_tenv$store_str(te, sig)
+			exval(me, g_tenv$add_use(te, _use_exception, desc))
+			end
+		g_menv$begin_vars(me)
+		g_when_decl(e, arm.vars)
+		if restore = 0
+		   then ainst(me, LEA, _SP, _idisp_EP)
+			g_env$add_fixup(e, g_menv$next_loc(me))
+			immed(me, me.var_pos)
+		   else ainst(me, MOVEA, _SP, _idisp_EP)
+			immed(me, restore)
+		   end
+		if i < high  cor  last  cor  mothersarm$is_arm(x.others_)
+		   then locs: qi := g_lbody(e, arm.body)
+			if ~qi$empty(locs)
+			   then arm_ends := arm_ends || locs
+				cont := g_merge_state(oregs, bregs, cont)
+			   end
+		elseif g_body(e, arm.body)
+		   then cont := g_merge_state(oregs, bregs, cont) end
+		g_menv$end_vars(me)
+		g_reset_state(bregs)
+		end
+	tagcase x.others_
+	   tag arm (arm: othersarm):
+		e.line := arm.line
+		if e.either
+		   then for sig: name in namelist$elements(optsigs) do
+				for loc: int in ai$elements
+						    (g_env$pop_handler(e, sig))
+				    do
+					g_menv$goto(me, loc)
+					end
+				end
+		   end
+		g_menv$add_handler(me)
+		exval(me, start)
+		exval(me, len)
+		exval(me, g_menv$next_loc(me))
+		exval(me, 0)
+		g_menv$begin_vars(me)
+		tagcase arm.decl
+		   tag decl (dec: decl):
+			dest: locate := g_menv$init_var(me,
+							idnlist$bottom(dec.idns))
+			g_move_src(e, dest, _addrd_RR, 0)
+		   others:
+		   end
+		if restore = 0
+		   then ainst(me, LEA, _SP, _idisp_EP)
+			g_env$add_fixup(e, g_menv$next_loc(me))
+			immed(me, me.var_pos)
+		   else ainst(me, MOVEA, _SP, _idisp_EP)
+			immed(me, restore)
+		   end
+		if last
+		   then locs: qi := g_lbody(e, arm.body)
+			if ~qi$empty(locs)
+			   then arm_ends := arm_ends || locs
+				cont := g_merge_state(oregs, bregs, cont)
+			   end
+		elseif g_body(e, arm.body)
+		   then cont := g_merge_state(oregs, bregs, cont) end
+		g_menv$end_vars(me)
+	   others:
+	   end
+	g_menv$end_state(me)
+	if last
+	   then return(false, arm_ends) end
+	for loc: int in qi$elements(arm_ends) do
+		g_menv$goto(me, loc)
+		end
+	return(cont, qi$new())
+	end g_except
+
+g_when_decl = proc (e: g_env, vars: whendecl)
+	tagcase vars
+	   tag decls (decls: decllist):
+		for j: int in int$from_to_by(decllist$size(decls), 1, -1) do
+			idns: idnlist := decls[j].idns
+			for i: int in int$from_to_by(idnlist$size(idns), 1, -1) do
+				dest: locate := g_menv$init_var(e.menv, idns[i])
+				g_move_src(e, dest, _pincr_SP, 0)
+				end
+			end
+	   others:
+	   end
+	end g_when_decl
+
+g_force = proc (e: g_env, s: forcestmt)
+	g_env$err(e, "force statement not implemented")
+	end g_force

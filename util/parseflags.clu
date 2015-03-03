@@ -1,0 +1,163 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+ai = array [ int ]
+as = array [ string ]
+ab = array [ bool ]
+ss = sequence [ string ]
+
+quote = '\\'
+
+flag_info = record [ bflags:	ab,
+		     nflags:	ab,
+		     nvals:	ai,
+		     sflags:	ab,
+		     svals:	as ]
+fi = flag_info
+
+% This routine parses "line", looking for flags as indicated by the
+% lists of flags in "bflags" (boolean flags), "nflags" (numeric flags),
+% and "sflags" (string flags).  The results are:
+% 	the part of the input that is before any flag
+%	a description of the flags encountered
+%	a list of fields that do not match the given flag lists
+%
+% It is assumed that each flag is preceded by a '@' character, and this
+% character is used to split the line into pieces.  \ may be used as a
+% quoting character, and it may quote @, to prevent a bad parse, etc.  A
+% boolean flag is merely present or absent, as indicated by the bflags
+% part of the result.  A numeric flag is present or absent, but if
+% present, must always be followed by a colon and then an integer.
+% There may be any number of spaces or tabs on either side of a ':' or
+% '@'.  A string flag may be absent, or may be present, but include no
+% data (in which case it is NOT followed by a ':'), or may be present
+% with data (in which case it IS followed by a ':').  More on this in a
+% moment.
+% 
+% The flags lists must present the flag names in upper case, without
+% leading or trailing spaces, etc.  In the input, the shortest unique
+% prefix of a flag may be used.  However, if one flag is a prefix of
+% another (e.g., F and FOO), then the shorter one will be recognized
+% when input exactly (i.e., @F will not be ambiguous).  If flag names
+% are not unique, flags without a ':' are matched against the boolean
+% flags first, and then the string flags.  Flags with a ':' are matched
+% against the numeric flags first, and then the string flags.  It is not
+% clear how useful it is to have flags of the same name in different
+% categories.  There are two kinds of string flags: those that take the
+% rest of the line are their argument, and those that take only up to
+% the next flag.  The former kind is indicated by appending the
+% character '#' to the end of the flag name in the sflags array.  (The
+% # should NOT be present in the input.)  The rest of the line will be
+% gobbled ONLY if such a flag is followed by a ':'; if it is not
+% followed by a ':', then the value of the flag will be the null string,
+% as usual for string flags.
+
+parse_flags = proc (line: string, bflags, nflags, sflags: ss)
+		returns (string, flag_info, as)
+
+    own all_flags: as := as$new ()
+
+    for s: string in ss$elements (bflags) do
+	if string$empty (s) then continue end
+	as$addh (all_flags, s)
+	end
+    for s: string in ss$elements (nflags) do
+	if string$empty (s) then continue end
+	as$addh (all_flags, s)
+	end
+    for s: string in ss$elements (sflags) do
+	if string$empty (s) then continue end
+	len: int := string$size (s)
+	if s[len] = '#' then s := string$substr (s, 1, len - 1) end
+	as$addh (all_flags, s)
+	end
+
+    parts: as := split_line (line, '@', quote)
+    line := as$reml (parts)
+       except when bounds: line := "" end
+
+    % initial settings:
+    nbflags: int := ss$size (bflags)
+    nnflags: int := ss$size (nflags)
+    nsflags: int := ss$size (sflags)
+    flags: fi := fi${ bflags:	ab$fill (1, nbflags, false),
+		      nflags:	ab$fill (1, nnflags, false),
+		      nvals:	ai$fill (1, nnflags, -1),
+		      sflags:	ab$fill (1, nsflags, false),
+		      svals:	as$fill (1, nsflags, "") }
+    extras: as := as$new ()
+
+    % do each one
+    for i: int in as$indexes (parts) do
+	s: string := parts[i]
+	s1: string := s
+	pos: int := string$indexc (':', s)
+	colon: bool := (pos ~= 0)
+	s2: string := ""
+	if colon then
+	   s2 := trim_both (string$rest (s1, pos+1))
+	   s1 := string$substr (s1, 1, pos-1)
+	   end
+	s1 := upper_case (trim_both (s1))
+	match: string := ""
+	len: int := string$size (s1)
+	partial: bool := false
+	ambig: bool := false
+	for m: string in as$elements (all_flags) do
+	    if string$substr (m, 1, len) = s1 then
+	       match := m
+	       if len >= string$size (m)
+		  then ambig := false
+		       break
+		  else ambig := partial
+		       partial := true
+		  end
+	       end
+	    end
+	if ambig cor string$empty (match) then
+	   as$addh (extras, s)
+	   continue
+	   end
+	s1 := match
+	if colon
+	   then	for idx: int in ss$indexes (nflags) do
+		    if s1 = nflags[idx] then
+		       num: int := int$parse (s2)
+			  except others: exit bad end
+		       flags.nflags[idx] := true
+		       flags.nvals[idx] := num
+		       exit ok
+		       end
+		    end
+	   else	for idx: int in ss$indexes (bflags) do
+		    if s1 = bflags[idx] then
+		       flags.bflags[idx] := true
+		       exit ok
+		       end
+		    end
+	   end
+	   except when ok: continue
+		  when bad:
+		  end
+	s3: string := string$append (s1, '#')	% for "rest of line" flags
+	for idx: int in ss$indexes (sflags) do
+	    try: string := sflags[idx]
+	    if try = s1 then
+	       flags.sflags[idx] := true
+	       flags.svals[idx] := s2
+	       exit ok
+	     elseif colon cand try = s3 then
+	       flags.sflags[idx] := true
+	       s2 := string$rest (s, pos + 1)
+	       for j: int in int$from_to (i + 1, as$high (parts)) do
+		   s2 := s2 || "@" || parts[j]
+		   end
+	       flags.svals[idx] := s2
+	       exit done
+	     end
+	    end
+	   except when ok: continue end
+	as$addh (extras, s)
+	end
+       except when done: end
+    as$trim (all_flags, 1, 0)
+    return (line, flags, extras)
+    end parse_flags

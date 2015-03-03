@@ -1,0 +1,5 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+_death = proc ()
+    save_buffers(winset$reset(), false)
+    quit_()
+    end _death

@@ -1,0 +1,23 @@
+; Copyright Massachusetts Institute of Technology 1980, 1989
+
+proctype = cluster is equal, similar, copy
+
+equal = qproc (x1, x2: cvt) returns (bool)
+	moveq	0,n1
+	cmpa	x1,rr
+	seq	n1
+	return(n1)
+	end equal
+
+similar = qproc (x1, x2: cvt) returns (bool)
+	moveq	0,n1
+	cmpa	x1,rr
+	seq	n1
+	return(n1)
+	end similar
+
+copy = qproc (x: cvt) returns (cvt)
+	return(rr)
+	end copy
+
+end proctype

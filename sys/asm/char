@@ -1,0 +1,147 @@
+; Copyright Massachusetts Institute of Technology 1980, 1989
+
+char = cluster is i2c, c2i, lt, le, ge, gt, equal, similar, copy, print, 
+			encode, decode, _gcd
+
+i2c = qproc (i: int) returns (cvt) signals (illegal_char)
+	ifle	move	rr,n1
+		blt	next
+		cmpaw	0777,rr
+	then	asr	1,n1
+		return(n1)
+	end
+	signal	illegal_char
+	end i2c
+
+c2i = qproc (c: cvt) returns (int)
+	lea	1(rr,rr),rr
+	return(rr)
+	end c2i
+
+lt = qproc (c1, c2: cvt) returns (bool)
+	moveq	0,n1
+	cmpa	c1,rr
+	sgt	n1
+	return(n1)
+	end lt
+
+le = qproc (c1, c2: cvt) returns (bool)
+	moveq	0,n1
+	cmpa	c1,rr
+	sge	n1
+	return(n1)
+	end le
+
+ge = qproc (c1, c2: cvt) returns (bool)
+	moveq	0,n1
+	cmpa	c1,rr
+	sle	n1
+	return(n1)
+	end ge
+
+gt = qproc (c1, c2: cvt) returns (bool)
+	moveq	0,n1
+	cmpa	c1,rr
+	slt	n1
+	return(n1)
+	end gt
+
+equal = qproc (c1, c2: cvt) returns (bool)
+	moveq	0,n1
+	cmpa	c1,rr
+	seq	n1
+	return(n1)
+	end equal
+
+similar = qproc (c1, c2: cvt) returns (bool)
+	moveq	0,n1
+	cmpa	c1,rr
+	seq	n1
+	return(n1)
+	end similar
+
+copy = qproc (c: cvt) returns (cvt)
+	return(rr)
+	end copy
+
+print = proc (c: cvt, pst: pstream)
+	moveq	0177,n1
+	and	c,n1
+	ifeq	cmpib	'\177',n1
+	then	lea	"'\\^",rr
+		ifne	cmp	c,n1
+		then	lea	"'\\!",rr
+		end
+		moveq	'?',n1
+	elfeq	cmpib	'\'',n1
+		beq	this
+		cmpib	'\\',n1
+	then	lea	"'\\",rr
+		ifne	cmp	c,n1
+		then	lea	"'\\&",rr
+		end
+	elfge	cmpib	' ',n1
+	then	lea	"'",rr
+		ifne	cmp	c,n1
+		then	lea	"'\\&",rr
+		end
+	elfne	cmp	c,n1
+	then	lea	"'\\!",rr
+		addib	64,n1
+	elfeq	cmpib	'\n',n1
+	then	lea	"'\\",rr
+		moveq	'n',n1
+	elfeq	cmpib	'\t',n1
+	then	lea	"'\\",rr
+		moveq	't',n1
+	elfeq	cmpib	'\p',n1
+	then	lea	"'\\",rr
+		moveq	'p',n1
+	elfeq	cmpib	'\b',n1
+	then	lea	"'\\",rr
+		moveq	'b',n1
+	elfeq	cmpib	'\r',n1
+	then	lea	"'\\",rr
+		moveq	'r',n1
+	elfeq	cmpib	'\v',n1
+	then	lea	"'\\",rr
+		moveq	'v',n1
+	else	lea	"'\\^",rr
+		addib	64,n1
+	end
+	move	n1,c
+	pstream$text(pst, rr)
+	move	c,n1
+	aslw	2,n1
+	movea	strtab,rr
+	movea	4(rr,n1),rr
+	pstream$text(pst, rr)
+	pstream$text(pst, "'")
+	end print
+
+encode = proc (c: cvt, ist: istream) signals (not_possible(string))
+	move	c, n1
+	add	n1, n1
+	addqb	1, n1			;; Integerize the character.
+	istream$%puti(rr, n1)		;; And write it out as an integer.
+		resignal not_possible
+	end encode
+
+decode = proc (ist: istream) returns (cvt)
+				signals (end_of_file, not_possible(string))
+	istream$%geti(rr)
+		resignal end_of_file, not_possible
+	move	rr, n1
+	ifge	asr	1, n1
+	then	iflt	cmpi	0400, n1
+		then	return (n1)
+			end
+		end
+	signal	not_possible("bad format")
+	end decode
+
+_gcd = qproc (c: cvt, tab: gcd_tab) returns (int)
+	return(0)
+	end _gcd
+
+end char

@@ -1,0 +1,44 @@
+; Copyright Massachusetts Institute of Technology 1985, 1989
+
+_get_xjname = qproc () returns (string)
+	movea	environ,rr
+	movea	4(rr),r1			; get addr
+	ifeq	move	8(rr),n3		; get next addr
+	then	move	12(rr),n3
+	end
+	movea	n3,r2
+	move	n3,n4
+	sub	r1,n4				; get count
+	moveq	'/',n1
+	subq	1,n4
+	qloop
+		cmpb	-(r2),n1		; find last /
+		dbeq	n4,this
+		bne	next
+		lea	1(r2),r1
+	end
+	sub	r1,n3				; get count
+	ifeq	subq	1,n3
+	then	return("")
+	end
+	move	n3,n2
+	addq	7,n2
+	andib	-4,n2
+	movea	heaphi,rr			; alloc
+	iflt	sub	n2,freecnt
+	then	jsr	memout
+	end
+	add	n2,heaphi
+	move	n3,n2
+	add	n2,n2
+	addq	1,n2
+	move	n2,(rr)				; store header
+	lea	4(rr),r2
+	subq	1,n3
+	qloop
+		moveb	(r1)+,(r2)+		; copy bytes
+		dbra	n3,this
+	end
+	suba	r2,r2
+	return(rr)
+	end _get_xjname

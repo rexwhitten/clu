@@ -1,0 +1,25 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+Load_File = proc (F_N: file_name, Env: lnk_env) signals (cant_load(file_name));
+    CRL_Sz: c_rs_size := GC_Read[c_rs_size](F_N);
+       except when Not_Possible(*):
+		   signal Cant_Load(F_N);
+	      end;
+    C_Rs: c_r_list := CRL_Sz.C_Rs;
+    F: file := file${
+		   File_Name:     F_N,
+		   P2_Size:       CRL_Sz.Pass2_Size,
+		   UId:		  CRL_Sz.Unique_Id,
+		   C_Rs:          C_Rs
+		     };
+    file_list$AddH(Env.Files, F);
+
+    for C_R: clust_or_rtn in c_r_list$Elements(C_Rs) do
+	tagcase C_R
+	   tag Clust (C: c_template):
+	       c_template$Add_New(C, Env);
+	   tag Rtn  (R: r_template):
+	       r_template$Add_New(R, Env);
+	   end;
+	end;
+    end Load_File;

@@ -1,0 +1,6 @@
+;; Copyright Massachusetts Institute of Technology Liskov, 1989
+
+hash_int = qproc (i, j: int) returns (int)
+	int$mod	(i, rr)
+	return (rr)
+	end hash_int

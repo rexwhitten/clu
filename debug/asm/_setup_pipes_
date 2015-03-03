@@ -1,0 +1,16 @@
+;; Copyright Massachusetts Institute of Technology 1984, 1989
+
+;; Set the values of rdpipe and wrpipe if they haven't already been set.
+;; Returns false if they were already set, else true.
+_setup_pipes_ = qproc (rd, wr: int) returns (bool)
+	ifgt	tst	rdpipe		;; First time?
+	then	return (false)
+		end
+	move	rd, n1			;; Yes. Store them (but first
+	asr	1, n1			;; de-CLU-int-ize them).
+	move	n1, rdpipe
+	move	rr, n1
+	asr	1, n1
+	move	n1, wrpipe
+	return (true)
+	end _setup_pipes_

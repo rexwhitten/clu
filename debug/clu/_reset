@@ -1,0 +1,16 @@
+%% Copyright Massachusetts Institute of Technology 1981, 1989
+
+%%% Clear the stack, owns and heap and restart program. This allows the user to
+%%% reset the state of the world from the interactive debugger. [user-interface
+%%% routine]
+%%% (SEP/Nov  6 1984)
+
+_Reset = proc ()
+    _Enter_System();
+    _Untrace_All();		%% Untrace everything.
+    stream$_Close_All();	%% Close all open streams.
+    _chan$Close_All();		%% Close all remaining file descriptors.
+    _chan$_Save_TTY();		%% Restore TTY mode.
+    _Clear_Owns_and_WVecs(1);	%% Clear out the OWNs and WVecs areas.
+    __Reset();			%% Unmap stack and heap and restart.
+    end _Reset;

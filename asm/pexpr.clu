@@ -1,0 +1,188 @@
+%	PEXPR	CLU
+% Copyright Massachusetts Institute of Technology 1980, 1989
+%	MC68000 Assembler: Parsing routines for expressions
+
+p_expr1 = proc (e: p_env, what: str) returns (expr)
+	return(p_expr(e))
+	   except when none: p_env$assume(e, what)
+		  when bad:
+		  end
+	return(e.bad_expr)
+	end p_expr1
+
+% expr => prim1 | prim1 ,, prim1
+
+p_expr = proc (e: p_env) returns (expr) signals (none, bad)
+	left: expr := p_prim1(e)
+	    resignal none
+	tagcase e.peek1
+	   tag comma2:
+		p_env$next_token(e)
+		right: expr := p_prim1(e)
+		    except when none:
+				 p_env$assume(e, "expression after ,,")
+				 right := e.bad_expr
+			   end
+		return(expr$create(exprabs$make_pair(exprpair${left:  left,
+							       right: right})))
+	   others:
+		return(left)
+	   end
+	end p_expr
+
+% prim1 => prim | prim + prim1
+
+p_prim1 = proc (e: p_env) returns (expr) signals (none)
+	left: expr := p_prim(e)
+	    resignal none
+	while true do
+		tagcase e.peek1
+		   tag plus:
+			p_env$next_token(e)
+			right: expr := p_prim(e)
+			    except when none:
+					 p_env$assume(e, "expression after +")
+					 right := e.bad_expr
+				   end
+			left := expr$create(exprabs$make_sum(
+					exprpair${left:  left,
+						  right: right}))
+			continue
+		   others:
+			return(left)
+		   end
+		end
+	end p_prim1
+
+% prim => NIL | TRUE | FALSE | * | int | real | char | string | type |
+%	  SELINDEX | SELNAMES | idn | name constlist | [ exprlist ] |
+%	  tagcons | op | SELOPS [ name ] | - prim
+
+p_prim = proc (e: p_env) returns (expr) signals (none)
+	abs: exprabs
+	tagcase e.peek1
+	   tag idn (k: idn):
+		p_env$next_token(e)
+		abs := p_idn_primary(e, k)
+	   tag expr (k: expr):
+		p_env$next_token(e)
+		return(k)
+	   tag type_ (k: typespec):
+		p_env$next_token(e)
+		abs := p_type_primary(e, k)
+	   tag proctype_:
+		p_env$next_token(e)
+		abs := p_type_primary(e, p_applytype(e, "proctype"))
+	   tag itertype_:
+		p_env$next_token(e)
+		abs := p_type_primary(e, p_applytype(e, "itertype"))
+	   tag selops_:
+		p_env$next_token(e)
+		abs := p_selops(e)
+	   tag l_bkt:
+		lst: exprlist
+		tagcase p_env$peek(e, 2)
+		   tag r_bkt:
+			p_env$next_token(e)
+			p_env$next_token(e)
+			lst := exprlist$new()
+		   others:
+			lst := p_blist[expr](e, p_expr, _no_none, "expression")
+		   end
+		abs := exprabs$make_vec(lst)
+	   tag l_angle:
+		p_env$next_token(e)
+		abs := p_tagcons(e)
+	   tag minus:
+		p_env$next_token(e)
+		x: expr := p_prim(e)
+		    except when none:
+				 p_env$assume(e, "expression after -")
+				 x := e.bad_expr
+			   end
+		abs := exprabs$make_minus(x)
+	   others:
+		signal none
+	   end
+	return(expr$create(abs))
+	end p_prim
+
+p_idn_primary = proc (e: p_env, id: idn) returns (exprabs)
+	ta: typeabs
+	tagcase e.peek1
+	   tag l_bkt:
+		if p_is_seltype(e)
+		   then parms: fieldspeclist := p_fieldspeclist(e)
+			ta := typeabs$make_select(seltype${gen:   id.str,
+							   parms: parms})
+		   else parms: exprlist := p_blist[expr](e, p_expr, _none_ok,
+								"constant")
+			clut: clutype := clutype${gen:   id.str,
+						  parms: parms}
+			if exprlist$size(parms) = 1  cand
+			   exprabs$is_star(exprlist$bottom(parms).abs)
+			   then ta := typeabs$make_cluster_(clut)
+			   else tagcase e.peek1
+				   tag dollar:
+					ta := typeabs$make_cluster_(clut)
+				   others:
+					return(exprabs$make_apply(clut))
+				   end
+			   end
+		   end
+	   tag dollar:
+		ta := typeabs$make_idn(id)
+	   others:
+		return(exprabs$make_idn(id))
+	   end
+	return(p_type_primary(e, typespec$create(ta)))
+	end p_idn_primary
+
+% op => type <> $ name constlist
+
+p_type_primary = proc (e: p_env, t: typespec) returns (exprabs) signals (bad)
+	tagcase e.peek1
+	   tag dollar: p_env$next_token(e)
+	   others:     return(exprabs$make_type_(t))
+	   end
+	op: name := p_name(e)
+	parms: exprlist := p_blist[expr](e, p_expr, _none_ok, "constant")
+	return(exprabs$make_op(clusterop${type_: t,
+					  name:  op,
+					  parms: parms}))
+	end p_type_primary
+
+% selops => SELOPS <> [ name ]
+
+p_selops = proc (e: p_env) returns (exprabs) signals (bad)
+	names: namelist := p_blist[name](e, p_name, _no_none, "name")
+	z: int := namelist$size(names)
+	if z = 0
+	   then return(exprabs$make_bad(nil))
+	elseif z > 1
+	   then p_env$err(e, "only one name allowed as SELOPS parameter") end
+	return(exprabs$make_selops(namelist$bottom(names)))
+	end p_selops
+
+% tagcons => < <> expr : expr >
+
+p_tagcons = proc (e: p_env) returns (exprabs)
+	tag_: expr := p_expr1(e, "tag expression")
+	val: expr
+	tagcase e.peek1
+	   tag colon:
+		p_env$next_token(e)
+		val := p_expr1(e, "value expression")
+	   others:
+		p_env$assume(e, ": expression")
+		val := e.bad_expr
+	   end
+	tagcase e.peek1
+	   tag r_angle:
+		p_env$next_token(e)
+	   others:
+		p_env$assume(e, "> of tagcell constructor")
+	   end
+	return(exprabs$make_tagcell(tagcons${tag_: tag_,
+					     val:  val}))
+	end p_tagcons

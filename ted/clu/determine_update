@@ -1,0 +1,35 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+determine_update = proc (obj, replace: string, case: bool)
+	returns (int, int, int, string, int)
+    left: int := 1
+    while obj[left] = replace[left]  cand
+	  (case  cor  ~in_range_(obj[left], "azAZ")) do
+	left := left + 1
+	end except when bounds: end
+    osize: int := string$size(obj)
+    oright: int := osize
+    rright: int := string$size(replace)
+    while obj[oright] = replace[rright]  cand
+	  (case  cor  ~in_range_(obj[oright], "azAZ"))  cand
+	  oright >= left  cand  rright >= left do
+	oright := oright - 1
+	rright := rright - 1
+	end except when bounds: end
+    dellen: int := oright - left + 1
+    obj := string$substr(obj, left, dellen)
+    replace := string$substr(replace, left, rright - left + 1)
+    lnfix: int := 0
+    if string$indexc('\n', obj) > 0  cor  string$indexc('\n', replace) > 0
+       then for c: char in string$chars(obj) do
+		if c = '\n' then lnfix := lnfix - 1 end
+		end
+	    for c: char in string$chars(replace) do
+		if c = '\n' then lnfix := lnfix + 1 end
+		end
+       end
+    return(left - osize - 1,
+	   dellen,
+	   osize - oright,
+	   replace,
+	   lnfix)
+    end determine_update

@@ -1,0 +1,5 @@
+% Copyright Massachusetts Institute of Technology 1981, 1989
+
+_cleanup_ = proc ()
+	stream$_close_all()	% close open streams
+	end _cleanup_

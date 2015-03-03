@@ -1,0 +1,208 @@
+; Copyright Massachusetts Institute of Technology 1980, 1989
+
+i_and = qproc (i, j: int) returns (int) signals (overflow)
+	move	rr, n1
+	and	i, n1
+	return (n1)
+	end i_and
+
+i_or = qproc (i, j: int) returns (int) signals (overflow)
+	move	rr, n1
+	or	i, n1
+	return (n1)
+	end i_or
+
+i_xor = qproc (i, j: int) returns (int) signals (overflow)
+	move	rr, n1
+	move	i, n2
+	eor	n2, n1
+	addqb	1, n1		;; Set the low bit to make result an int.
+	return (n1)
+	end i_xor
+
+i_not = qproc (i: int) returns (int) signals (overflow)
+	move	rr, n1
+	not	n1
+	addqb	1, n1		;; Set the low bit to make result an int.
+	return (n1)
+	end i_not
+
+i_shift = qproc (i, cnt: int) returns (int) signals (overflow)
+	move	i, n1
+	asr	1, n1			;; De-integerize i.
+	iflt	move	rr, n2
+		asr	1, n2		;; De-integerize count.
+	then	neg	n2		;; Cnt is negative => shift right
+		lsr	n2, n1
+	else	lsl	n2, n1		;; Cnt is positive => shift left
+		end
+	ifvc	add	n1, n1
+	then	addqb	1, n1
+		return (n1)
+		end
+	signal overflow
+	end i_shift
+
+i_rotate = qproc (i, cnt: int) returns (int) signals (overflow)
+	move	rr, n1
+	asr	1, n1			;; De-integerize count.
+	move	i, n2
+	asr	1, n2			;; De-integerize i.
+	iflt	tst	n1		;; Negative count?
+	then	neg	n1		;; Yes, rotate right.
+		ror	n1, n2
+	else	rol	n1, n2		;; No, rotate left.
+		end
+	ifvc	add	n2, n2		;; Integerize result.
+	then	addqb	1, n2
+		return	(n2)
+		end
+	signal overflow
+	end i_rotate
+
+i_get = qproc (i, bit, cnt: int) returns (int)
+				 signals (bounds, illegal_size, overflow)
+	;; bit = end bit of bit field (0 = lsb), cnt = size of bit field.
+	move	rr, n1
+	asr	1, n1			;; De-integerize count.
+	ifge	subq	1, n1
+	then	ifge	cmpi	65, bit	;; Check bounds (65 = 32 as a CLU int).
+			bge	next
+			move	bit, n2
+			asr	1, n2	;; De-integerize bit.
+			move	n2, n5	;; Save it.
+			sub	n1, n2	;; (bit-cnt+1) is start bit.
+		then	move	i, n3
+			asr	1, n3	;; De-integerize i.
+			move	31, n4
+			sub	n5, n4	;; # bits to chop off top of i.
+			lsl	n4, n3
+			add	n2, n4
+			lsr	n4, n3
+			ifvc	add	n3, n3	;; Integerize result.
+			then	addqb	1, n3
+				return (n3)
+				end
+			signal overflow
+			end
+		signal bounds
+		end
+	signal illegal_size
+	end i_get	
+
+i_set = qproc (i, bit, cnt, j: int) returns (int)
+				    signals (bounds, illegal_size, overflow)
+	;; bit = end bit of bit field (0 = lsb), cnt = size of bit field.
+	ifgt	move	cnt, n1
+		asr	1, n1			;; De-integerize count.
+	then	ifge	cmpi	65, bit	;; Check bounds (65 = 32 as a CLU int).
+			bge	next
+			move	bit, n2
+			asr	1, n2	;; De-integerize bit.
+			sub	n1, n2	;; (bit-cnt+1) is start bit.
+			addq	1, n2
+		then	move	i, n3
+			asr	1, n3	;; De-integerize i.
+			move	rr, n4
+			asr	1, n4	;; De-integerize j.
+
+			;; Create a mask for the bit field.
+			move	#ffff,,#ffff, n5;; Register full of 1's.
+			lsl	n1, n5	;; Clear out count 0's on bottom.
+			not	n5	;; Complement to get count 1's.
+			lsl	n2, n5	;; Position 1's in bit field.
+
+			;; Make sure all bits outside the bit field in
+			;; the source are 0's.
+			lsl	n2, n4	;; Shift bottom cnt bits into position.
+			and	n5, n4
+
+			;; Zero out the bit field in the destination.
+			not	n5	;; Use reverse of mask used for source.
+			and	n5, n3	;; Zero out bit field.
+
+			;; Or the bits from j into i.
+			or	n4, n3
+			
+			ifvc	add	n3, n3	;; Integerize result.
+			then	addqb	1, n3
+				return (n3)
+				end
+			signal overflow
+			end
+		signal bounds
+		end
+	signal illegal_size
+	end i_set
+
+i_get1 = qproc (i, bit: int) returns (bool) signals (bounds)
+	iflt	move	rr, n1
+		ble	next
+		cmpi	65, n1		;; Check bounds.
+	then	asr	1, n1		;; De-integerize bit
+		move	i, n2
+		asr	1, n2		;; De-integerize i.
+		ifeq	btst	n1, n2	;; Look at bit 'bit' in 'i'.
+		then	return (false)
+			end
+		return (true)
+		end
+	signal bounds
+	end i_get1
+
+i_set1 = qproc (i, bit: int, b: bool) returns (int) signals (bounds, overflow)
+	iflt	tst	bit
+		ble	next
+		cmpi	65, bit		;; Check bounds.
+	then	move	bit, n1
+		asr	1, n1		;; De-integerize bit
+		move	i, n2
+		asr	1, n2		;; De-integerize i.
+		ift
+		then	bset	n1, n2
+		else	bclr	n1, n2
+			end
+		ifvc	add	n2, n2
+		then	addqb	1, n2
+			return (n2)
+			end
+		signal overflow
+		end
+	signal bounds
+	end i_set1
+
+i_first1 = qproc (i: int) returns (int) signals (none)
+	ifgt	move	rr, n1
+		asr	1, n1		;; De-integerize i.
+	then	movea	31, rr
+		qloop	suba	1, rr
+			add	n1, n1	;; Shift left 1.
+			bpl	this
+			end
+		lea	1(rr, rr), rr	;; Integerize result.
+		return (rr)
+		end
+	iflt	
+	then	return (31)
+		end
+	signal none
+	end i_first1
+
+i_last1 = qproc (i: int) returns (int) signals (none)
+	ifeq	move	rr, n1
+		asr	1, n1			;; De-integerize i.
+	then	signal none		;; Quick check for 0.
+		end
+	clr	n2
+	loop
+		ifne	btst	n2, n1
+		then	add	n2, n2
+			addqb	1, n2	;; Integerize result.
+			return (n2)
+			end
+		addq	1, n2
+		ifgt	cmpi	31, n2
+		then	signal none
+			end
+		end
+	end i_last1

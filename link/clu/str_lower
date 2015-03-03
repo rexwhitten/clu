@@ -1,0 +1,20 @@
+%% Copyright Massachusetts Institute of Technology 1980, 1989
+
+Str_lower = proc (s: string) returns (string)
+    ac = array[char]
+    low_adjust = char$c2i('a') - char$c2i('A')
+    own r: ac := ac$predict(0,20)
+    ac$trim(r,0,0)
+    had_upper: bool := false
+    for c: char in string$chars(s) do
+	if ((c >= 'A') cand (c <= 'Z'))
+	   then c := char$i2c( char$c2i(c) + low_adjust )
+		had_upper := true
+	   end
+	ac$addh(r,c)
+	end
+    if had_upper
+       then return (string$ac2s(r))
+       else return (s)
+       end
+    end Str_lower

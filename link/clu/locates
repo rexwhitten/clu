@@ -1,0 +1,386 @@
+%% Copyright Massachusetts Institute of Technology 1985, 1989
+
+%% Cross linker for MC68000
+
+#extend 
+
+locates = cluster is new, debug_new, copy, number, fetch, fix_base,
+		     get_code, get_consts,
+		     get_debug_blocks,
+		     get_entries, get_excepts,
+		     get_pointers,
+		     get_owns, get_globals, get_seg_map,
+		     get_sigs, get_space_blocks,
+		     get_sym_tables, get_uses, get_w_vecs,
+		     make_global_address,
+		     all_seg_info, p0_size, p1_size, p0_top, p1_bottom,
+		     prepare_to_dump, re_init, restart_address, _gcd;
+
+    vIllegal		= -1;
+    vFixed_Area		=  0;
+    vPnts_Area		=  1;	%% Start of text section.
+    vConst_Area		=  2;
+    vCode_Area		=  3;
+    vEntry_Area		=  3;
+    vUse_Area		=  3;
+    vSig_Area		=  4;
+    vExcept_Area	=  5;
+    vSym_Table_Area	=  6;
+    vSeg_Map_Area	=  7;	%% Last in text section.
+    vData_Start		=  8;	%% Must start on vData_Align byte page.
+    vDbg_Blk_Area	=  8;
+    vSpc_Blk_Area	=  9;	%% Blocks of writable space.
+    vBSS_Start		= 10;
+    vGlobal_Area	= 10;	%% Room for pointers and globals.
+    vOwn_Area		= 11;
+    vW_Vec_Area		= 12;
+    vNum_Areas		= 12;
+
+    vP0_Last		= 12;	%% Last in "P0" space
+
+    vNorm_Map  = ints$[			%% Maps loc area into preceeding area.
+		     vFixed_Area,	%% Pointers
+		     vPnts_Area,	%% Constants
+		     vConst_Area,	%% Code
+		     vCode_Area,	%% Signals
+		     vSig_Area,		%% Except blocks
+		     vExcept_Area,	%% Symbol tables
+		     vSym_Table_Area,	%% Segment map.
+		     vSeg_Map_Area,	%% Debug blocks (not allowed).
+		     vIllegal,		%% Space blocks (not allowed).
+		     vDbg_Blk_Area,	%% Globals (start of BSS area)
+		     vGlobal_Area,	%% Owns
+		     vOwn_Area		%% W_Vecs
+		       ];
+
+    vDebug_Map = ints$[
+		     vFixed_Area,	%% Pointers
+		     vPnts_Area,	%% Constants
+		     vConst_Area,	%% Code
+		     vCode_Area,	%% Signals
+		     vDbg_Blk_Area,	%% Except blocks (moved up)
+		     vExcept_Area,	%% Symbol tables (moved up)
+		     vSig_Area,		%% Segment map.
+		     vSeg_Map_Area,	%% Debug blocks
+		     vSym_Table_Area,   %% Space blocks (follow symbol tables)
+		     vSpc_Blk_Area,	%% Globals
+		     vGlobal_Area,	%% Owns
+		     vOwn_Area		%% W_Vecs
+		       ];
+
+    vReInit_Map = ints$[
+		      vFixed_Area,       %% Pointers
+		      vPnts_Area,        %% Constants
+		      vConst_Area,       %% Code
+		      vCode_Area,        %% Signals
+		      vDbg_Blk_Area,     %% Except blocks (moved up)
+		      vExcept_Area,      %% Symbol tables (moved up)
+		      vSig_Area,         %% Segment map.
+		      vSeg_Map_Area,     %% Debug blocks
+		      vSym_Table_Area,   %% Space blocks (follow symbol tables)
+		      vFixed_Area,       %% Globals (same as initial load)
+		      vSpc_Blk_Area,     %% Owns
+		      vOwn_Area          %% W_Vecs
+			];
+
+    rep = record [ Locs: locs,
+		   Map:  ints ];
+    locs = sequence[ locate ];
+    aloc = array[ locate ];
+
+    vPoints_Base_Address = vLow_Address;
+
+
+    New = proc () returns (cvt);
+
+	Loc_Array: aloc := aloc$Predict(1, vNum_Areas);
+
+	Pn_Addr: address := address$Make_Specific(vPoints_Base_Address);
+	Cn_Addr: address := address$Make_Relative(vConst_Area, 0);
+	Cd_Addr: address := address$Make_Relative(vCode_Area, 0);
+	Sg_Addr: address := address$Make_Relative(vSig_Area, 0);
+	Ex_Addr: address := address$Make_Relative(vExcept_Area, 0);
+	Sy_Addr: address := address$Make_Relative(vSym_Table_Area, 0);
+	SM_Addr: address := address$Make_Relative(vSeg_Map_Area, 0);
+	DB_Addr: address := address$Make_Relative(vDbg_Blk_Area, 0);	%% Not used.
+	Sp_Addr: address := address$Make_Relative(vSpc_Blk_Area, 0);	%% Not used.
+	Gl_Addr: address := address$Make_Relative(vGlobal_Area, 0);
+	Ow_Addr: address := address$Make_Relative(vOwn_Area, 0);
+	WV_Addr: address := address$Make_Relative(vW_Vec_Area, 0);
+
+	%% Leave room for pointers.
+	Pnts_Loc: locate := locate$Create(Pn_Addr, vPoints_Unit);
+	locate$Advance(Pnts_Loc,
+		       (vLongs_per_Start_Jump +	%% Leave room for initial jump to start,
+			lnk_pointers$Number())	%% and for pointers.
+		       );
+	%% Leave room for globals.
+	Glob_Loc: locate := locate$Create(Gl_Addr, vGlobal_Unit);
+	locate$Advance(Glob_Loc, vNum_Globals);	%% Leave room for globals.
+
+	aloc$AddH(Loc_Array, Pnts_Loc);					%%  1
+	aloc$AddH(Loc_Array, locate$Create(Cn_Addr, vConst_Unit));	%%  2
+	aloc$AddH(Loc_Array, locate$Create(Cd_Addr, vCode_Unit));	%%  3
+	aloc$AddH(Loc_Array, locate$Create(Sg_Addr, vSignal_Unit));	%%  4
+	aloc$AddH(Loc_Array, locate$Create(Ex_Addr, vExcept_Unit));	%%  5
+	aloc$AddH(Loc_Array, locate$Create(Sy_Addr, vSym_Table_Unit));	%%  6
+	aloc$AddH(Loc_Array, locate$Create(SM_Addr, vSeg_Map_Unit));	%%  7
+	aloc$AddH(Loc_Array, locate$Create(DB_Addr, 0));		%%  8
+	aloc$AddH(Loc_Array, locate$Create(Sp_Addr, 0));		%%  9
+	aloc$AddH(Loc_Array, Glob_Loc);					%% 10
+	aloc$AddH(Loc_Array, locate$Create(Ow_Addr, vOwn_Unit));	%% 11
+	aloc$AddH(Loc_Array, locate$Create(WV_Addr, vWVec_Unit));	%% 12
+
+	return (rep${ Locs: locs$A2S(Loc_Array),
+		      Map:  vNorm_Map });
+	end New;
+
+
+    Debug_New = proc (JCL_Size: int) returns (cvt);
+	%% JCL_Size is in longs.
+
+	Loc_Array: aloc := aloc$Predict(1, vNum_Areas);
+
+	Pn_Addr: address := address$Make_Specific(vPoints_Base_Address);
+	Cn_Addr: address := address$Make_Relative(vConst_Area, 0);
+	Cd_Addr: address := address$Make_Relative(vCode_Area, 0);
+	Sg_Addr: address := address$Make_Relative(vSig_Area, 0);
+	Ex_Addr: address := address$Make_Relative(vExcept_Area, 0);
+	Sy_Addr: address := address$Make_Relative(vSym_Table_Area, 0);
+	SM_Addr: address := address$Make_Relative(vSeg_Map_Area, 0);
+	DB_Addr: address := address$Make_Relative(vDbg_Blk_Area, 0);
+	Sp_Addr: address := address$Make_Relative(vSpc_Blk_Area, 0);
+	Gl_Addr: address := address$Make_Relative(vGlobal_Area, 0);
+	Ow_Addr: address := address$Make_Relative(vOwn_Area, 0);
+	WV_Addr: address := address$Make_Relative(vW_Vec_Area, 0);
+
+	%% Leave room for pointers.
+	Pnts_Loc: locate := locate$Create(Pn_Addr, vPoints_Unit);
+	locate$Advance(Pnts_Loc,
+		       (vLongs_per_Start_Jump +	%% Leave room for initial jump to start,
+			lnk_pointers$Number())	%% and for pointers.
+		       );
+	%% Leave room for globals.
+	Glob_Loc: locate := locate$Create(Gl_Addr, vGlobal_Unit);
+	locate$Advance(Glob_Loc, vNum_Globals);	%% Leave room for globals.
+
+	aloc$AddH(Loc_Array, Pnts_Loc);					%%  1
+	aloc$AddH(Loc_Array, locate$Create(Cn_Addr, vConst_Unit));	%%  2
+	aloc$AddH(Loc_Array, locate$Create(Cd_Addr, vCode_Unit));	%%  3
+	aloc$AddH(Loc_Array, locate$Create(Sg_Addr, vSignal_Unit));	%%  4
+	aloc$AddH(Loc_Array, locate$Create(Ex_Addr, vExcept_Unit));	%%  5
+	aloc$AddH(Loc_Array, locate$Create(Sy_Addr, vSym_Table_Unit));	%%  6
+	aloc$AddH(Loc_Array, locate$Create(SM_Addr, vSeg_Map_Unit));	%%  7
+	aloc$AddH(Loc_Array, locate$Create(DB_Addr,			%%  8
+					   vDebug_Block_Unit));
+	aloc$AddH(Loc_Array, locate$Create(Sp_Addr,			%%  9
+					   vSpace_Block_Unit));
+	aloc$AddH(Loc_Array, Glob_Loc);					%% 10
+	aloc$AddH(Loc_Array, locate$Create(Ow_Addr, vOwn_Unit));	%% 11
+	aloc$AddH(Loc_Array, locate$Create(WV_Addr, vWVec_Unit));	%% 12
+
+	return (rep${ Locs: locs$A2S(Loc_Array),
+		      Map:  vDebug_Map });
+	end Debug_New;
+
+
+    Copy = proc (Ls: cvt) returns (cvt);
+	return (rep${
+		    Locs:   locs$Copy(Ls.Locs),
+		    Map:    Ls.Map
+		     });
+	end Copy;
+
+    Fetch = proc (Ls: cvt, Area_Code: int) returns (locate) signals (bounds);
+	return (Ls.Locs[Area_Code]);
+	   resignal Bounds;
+	end Fetch;
+
+    Fix_Base = proc (Ls: cvt, Area_Code: int) signals (not_possible);
+	Pre_Area: int := Ls.Map[Area_Code];
+	if (Pre_Area = vFixed_Area)
+	   then return;
+	 elseif (Pre_Area = vIllegal)
+	   then signal Not_Possible;
+	 end;
+	Pre_Loc: locate := Ls.Locs[Pre_Area];
+	if (Pre_Loc.Start_Address.Addr_Area ~= vFixed_Area)
+	   then Fix_Base(up(Ls), Pre_Area);
+	   end;
+	Addr: address := Pre_Loc.Cur_Address;
+	if ((Area_Code = vData_Start)
+	    %% cand	%% If start of Data, must be aligned.
+	    %%	    (Ls.Locs[vData_Start].Size ~= 0))	%% Must not be overload (empty stack).
+	    )
+	   then Addr := address$Adjust(Addr, vData_Align);
+	 elseif ((Area_Code = vBSS_Start) cand   %% If start of BSS, must be page aligned.
+		 (Ls.Locs[vBSS_Start].Size ~= 0))    %% Must not be overload (empty stack).
+	   then Addr := address$Adjust(Addr, vPage_Size);
+	 end;
+	locate$Fix_Base(Ls.Locs[Area_Code], Addr);
+	end Fix_Base;
+
+
+    Get_Pointers = proc (Ls: cvt) returns (locate);
+	return (Ls.Locs[vPnts_Area]);
+	end Get_Pointers;
+
+    Get_Code = proc (Ls: cvt) returns (locate);
+	return (Ls.Locs[vCode_Area]);
+	end Get_Code;
+
+    Get_Consts = proc (Ls: cvt) returns (locate);
+	return (Ls.Locs[vConst_Area]);
+	end Get_Consts;
+
+    Get_Debug_Blocks = proc (Ls: cvt) returns (locate);
+	return (Ls.Locs[vDbg_Blk_Area]);
+	end Get_Debug_Blocks;
+
+    Get_Entries = proc (Ls: cvt) returns (locate);
+	return (Ls.Locs[vEntry_Area]);
+	end Get_Entries;
+
+    Get_Excepts = proc (Ls: cvt) returns (locate);
+	return (Ls.Locs[vExcept_Area]);
+	end Get_Excepts;
+
+    Get_Globals = proc (Ls: cvt) returns (locate);
+	return (Ls.Locs[vGlobal_Area]);
+	end Get_Globals;
+
+    Get_Owns = proc (Ls: cvt) returns (locate);
+	return (Ls.Locs[vOwn_Area]);
+	end Get_Owns;
+
+    Get_Seg_Map = proc (Ls: cvt) returns (locate);
+	return (Ls.Locs[vSeg_Map_Area]);
+	end Get_Seg_Map;
+
+    Get_Sigs = proc (Ls: cvt) returns (locate);
+	return (Ls.Locs[vSig_Area]);
+	end Get_Sigs;
+
+    Get_Space_Blocks = proc (Ls: cvt) returns (locate);
+	return (Ls.Locs[vSpc_Blk_Area]);
+	end Get_Space_Blocks;
+
+    Get_Sym_Tables = proc (Ls: cvt) returns (locate);
+	return (Ls.Locs[vSym_Table_Area]);
+	end Get_Sym_Tables;
+
+    Get_Uses = proc (Ls: cvt) returns (locate);
+	return (Ls.Locs[vUse_Area]);
+	end Get_Uses;
+
+    Get_W_Vecs = proc (Ls: cvt) returns (locate);
+	return (Ls.Locs[vW_Vec_Area]);
+	end Get_W_Vecs;
+
+
+    Make_Global_Address = proc (Ofst: int) returns (address);
+	return (address$Make_Relative(vGlobal_Area, Ofst));
+	end Make_Global_Address;
+
+    Number = proc (Ls: cvt) returns (int);
+	%% Don't count pointers, stack, and space locates;
+	return (vNum_Areas - 3);
+	end Number;
+
+    All_Seg_Info = iter (Ls: cvt) yields (address, int, string);
+	ss = sequence[string];
+	own Names: ss := ss$[ "",		%%  1  Pointers not in seg map.
+			      "Constants",	%%  2
+			      "Code",		%%  3
+			      "Signals",	%%  4
+			      "Except tables",	%%  5
+			      "Symbol tables",	%%  6
+			      "Segment Map",	%%  7
+			      "Debug Blocks",	%%  8
+			      "",		%%  9  Space not in seg map.
+			      "Globals",	%% 10
+			      "Owns",		%% 11
+			      "Word Vecs"	%% 12
+			     ];
+	I: int := 1;
+	for Seg: locate in locs$Elements(Ls.Locs) do
+	    if ((I ~= vPnts_Area) cand		%% Don't include pointers or
+		(I ~= vSpc_Blk_Area))		%% space blocks in segment map.
+	       then SA: address := Seg.Start_Address;
+		    if (address$In_P0(SA))
+		       then yield (SA, Seg.Size, Names[I]);
+		       else yield (Seg.Cur_Address, Seg.Size, Names[I]);
+		       end;
+	       end;
+	    I := I + 1;
+	    end;
+	end All_Seg_Info;
+
+    P0_Size = proc (Ls: cvt) returns (int);
+	return (address$Fix_Address(
+		    Ls.Locs[vP0_Last].High_Address, up(Ls)
+				    ).Addr_Offset);
+	end P0_Size;
+
+    P1_Size = proc (Ls: cvt) returns (int);
+	return (0);
+	end P1_Size;
+
+    P0_Top = proc (Ls: cvt) returns (address);
+	return (address$Fix_Address(
+		    Ls.Locs[vP0_Last].High_Address, up(Ls)
+				    ));
+	end P0_Top;
+
+    P1_Bottom = proc (Ls: cvt) returns (address);
+	return (address$Make_Null());
+	end P1_Bottom;
+
+
+    Prepare_to_Dump = proc (Ls: cvt);
+	for I: int in int$From_To(1, vNum_Areas) do
+	    if (Ls.Locs[I].Start_Address.Addr_Area ~= vFixed_Area)
+	       then locates$Fix_Base(up(Ls), I);
+	       end;                         %% Fix all for dumping.
+	    end;
+	end Prepare_to_Dump;
+
+    Re_Init = proc (Ls: cvt);
+	%% This only occurs for debug locates.
+	%% Re-init the locates to follow everything in the previous load.
+
+	%% Start constants at top of "P0" space.
+	Cn_Addr: address := address$Fix_Address(
+				Ls.Locs[vP0_Last].High_Address,
+				up(Ls));
+
+	%% Save constant addresses.
+	Glb_Addr: address := address$Fix_Address(
+				 Ls.Locs[vGlobal_Area].Start_Address,
+				 up(Ls));
+
+	%% Use ReInit map.
+	Ls.Map := vReInit_Map;
+
+	%% Reset all locates.
+	ALs: aloc := locs$S2A(Ls.Locs);
+	for I: int in int$From_To(1, vNum_Areas) do
+	    locate$Reset(ALs[I], I);
+	    end;
+
+	%% Set special locates.
+	ALs[vConst_Area]  := locate$Create(Cn_Addr, vConst_Unit);
+	ALs[vGlobal_Area] := locate$Create(Glb_Addr, vGlobal_Unit);
+
+	Ls.Locs := locs$A2S(ALs);
+	end Re_Init;
+
+    ReStart_Address = proc (Ls: cvt) returns (address);
+	return (Ls.Locs[vCode_Area].Low_Address);
+	end ReStart_Address;
+
+    _gcd = proc (Ls: cvt, Tab: gcd_tab) returns (int);
+	return (rep$_gcd(Ls, Tab));
+	end _gcd;
+
+    end locates;

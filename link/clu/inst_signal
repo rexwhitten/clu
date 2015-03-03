@@ -1,0 +1,83 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+inst_signal = cluster is
+	create, similar, get_sig, set_address, get_address, output, print,
+	is_new, prepare_to_dump, _gcd;
+
+    rep = record [
+	      Sig:	sig,
+	      Inst_Ex:  inst_except,
+	      Addr:	address,
+	      Is_New:	bool
+		  ]
+
+    Create = proc (Sg: sig, Env: lnk_env) returns (cvt);
+	Sg.Name := Name_Instantiate(Sg.Name, Env);
+	return (down( inst_signals$Lookup(Env.Inst_Signals, Sg) ))
+	   except when Not_Found:
+		  end;
+	I_Ex: inst_except;
+	I_Ex := inst_excepts$Lookup(Env.Inst_Excepts, Sg.Name);
+	   except when Not_Found:
+		       I_Ex := Instantiate_Exception(Sg.Name, Env);
+		  end;
+	I_Sg: rep := rep${ Sig:	     Sg,
+			   Inst_Ex:  I_Ex,
+			   Addr:     address$Make_Null(),
+			   Is_New:   true
+			  };
+	inst_signals$Bind(Env.Inst_Signals, Sg, up(I_Sg));
+	return (I_Sg);
+	end Create;
+
+    Similar = proc (I_Sg1, I_Sg2: cvt) returns (bool);
+	return (sig$Similar(I_Sg1.Sig, I_Sg2.Sig));
+	end Similar;
+
+    Get_Sig = proc (I_Sg: cvt) returns (sig);
+	return (I_Sg.Sig);
+	end Get_Sig;
+
+    Set_Address = proc (I_Sg: cvt, Addr: address);
+	I_Sg.Addr := Addr;
+	end Set_Address;
+
+    Get_Address = proc (I_Sg: cvt) returns (address);
+	return (I_Sg.Addr);
+	end Get_Address;
+
+    Output = proc (I_Sg: cvt, Type_It: bool, Env: lnk_env);
+	if (I_Sg.Is_New)
+	   then if (Type_It)
+		   then stream$PutS(Env.Options.List_Stream,
+				    (out_link_chan$Cur_Addr_to_String(Env.Output) ||
+				     ": (" ||
+				     int$Unparse(I_Sg.Sig.Num_Args) ||
+				     " args) "
+				     ));
+			   except when Not_Possible(*): end;
+		   end;
+		Output_Sig_Handler_Call(Env);
+		Output_Int(I_Sg.Sig.Num_Args, Env);
+		inst_except$Output_Entry(I_Sg.Inst_Ex, Type_It, Env);
+	   end;
+	end Output;
+
+    Is_New = proc (I_Sg: cvt) returns (bool);
+	return (I_Sg.Is_New);
+	end Is_New;
+
+    Print = proc (I_Sg: cvt, S: pstream);
+	rep$Print(I_Sg, S);
+	end Print;
+
+    Prepare_to_Dump = proc (I_Sg: cvt, Locs: locates);
+	I_Sg.Addr := address$Fix_Address(I_Sg.Addr, Locs);
+	I_Sg.Is_New := false;
+	end Prepare_to_Dump;
+
+    _gcd = proc (I_Sg: cvt, Tab: gcd_tab) returns (int);
+	return (rep$_gcd(I_Sg, Tab));
+	end _gcd;
+
+    end inst_signal;

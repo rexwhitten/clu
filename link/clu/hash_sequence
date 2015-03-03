@@ -1,0 +1,12 @@
+%% Copyright Massachusetts Institute of Technology 1980, 1989
+
+Hash_Sequence = proc [t: type] (Ts: sequence[t], Size: int,
+				Hasher: hash_proc) returns (int);
+    hash_proc = proctype (t, int) returns (int);
+
+    N: int := sequence[t]$Size(Ts);
+    for V: t in sequence[t]$Elements(Ts) do
+	N := N + Hasher(V, Size);
+	end;
+    return (int$Mod(N, Size));
+    end Hash_Sequence;

@@ -1,0 +1,988 @@
+; Copyright Massachusetts Institute of Technology 1980, 1989
+
+array = cluster [t: type] is	create, new, predict, cons, cons2, empty, low,
+				high, size, set_low, trim, fill, fill_copy,
+				fetch, bottom, top, store, addh, addl, remh,
+				reml, elements, indexes, equal, similar,
+				similar1, copy, copy1, print, 
+				encode, decode, _gcd
+
+; low ~= most negative integer, high ~= most positive integer
+
+create = qproc (low: int) returns (cvt)
+	ifvc	move	rr,n6			; check low bound
+		subq	2,n6
+	then	move	%adv,,1,n1		; get header
+		moveq	dv%blen,n2		; get byte count
+		moveq	-2,n3			; get max
+		move	rr,n4			; get low
+		move	[]+3,n5			; get rel
+		moveq	3,n6			; get lcnt
+		movea	heaphi,rr		; alloc
+		iflt	sub	n2,freecnt
+		then	jsr	memout
+		end
+		add	n2,heaphi
+		movem	n1/n3-n6,(rr)		; initialize
+		return(rr)
+	end
+	signal	failure("array bounds overflow")
+	end create
+
+new = qproc () returns (cvt)
+	move	%adv,,1,n1		; get header
+	moveq	dv%blen,n2		; get byte count
+	moveq	-2,n3			; get max
+	moveq	3,n4			; get low
+	move	[]+3,n5			; get rel
+	moveq	3,n6			; get lcnt
+	movea	heaphi,rr		; alloc
+	iflt	sub	n2,freecnt
+	then	jsr	memout
+	end
+	add	n2,heaphi
+	movem	n1/n3-n6,(rr)		; initialize
+	return(rr)
+	end new
+
+predict = qproc (low, size: int) returns (cvt)
+	move	low,n4
+	ifvc	move	n4,n6			; check low bound
+		subq	2,n6
+	then	move	rr,n1			; get magnitude of predict
+		iflt	asr	1,n1
+		then	neg	n1
+		end
+		ifgt	cmpi	017,,0170000,n1	; truncate
+		then	move	017,,0170000,n1
+		end
+		moveb	%advb,n2
+		loop
+			cmpi	0377,n1		; normalize
+			ble	next
+			addqb	1,n2
+			addq	1,n1
+			asr	1,n1
+		end
+		aslw	8,n2
+		orw	n2,n1
+		swap	n1
+		movew	n0,n1
+		moveq	dv%blen,n2		; get byte count
+		moveq	-2,n3			; get max
+		move	[]+3,n5			; get rel
+		moveq	3,n6			; get lcnt
+		movea	heaphi,rr		; alloc
+		iflt	sub	n2,freecnt
+		then	jsr	memout
+		end
+		add	n2,heaphi
+		movem	n1/n3-n6,(rr)		; initialize
+		return(rr)
+	end
+	signal	failure("array bounds overflow")
+	end predict
+
+cons = qproc (q: sequence[t]) returns (cvt)
+	move	(rr),n3
+	moveq	2,n2
+	ifne	cmp	n3,n2			; empty?
+	then	movea	rr,r1			; no
+		add	n3,n2			; get byte count
+		movea	heaphi,rr		; alloc
+		iflt	sub	n2,freecnt
+		then	jsr	memout
+		end
+		add	n2,heaphi
+		movea	rr,r2
+		asr	2,n2
+		subq	1,n2
+		loop
+			move	(r1)+,(r2)+	; copy
+			dbra	n2,this
+			swap	n2
+			subqw	1,n2
+			blt	next
+			swap	n2
+		end
+		movea	n0,r2
+	end
+	movea	rr,r1
+	move	%adv,,1,n1			; get header
+	moveq	dv%blen,n2			; get byte count
+	moveq	3,n4				; get low
+	asr	1,n3				; get max
+	sub	n4,n3
+	moveaw	3,r2				; get lcnt
+	movea	heaphi,rr			; alloc
+	iflt	sub	n2,freecnt
+	then	jsr	memout
+	end
+	add	n2,heaphi
+	adda	r2,r1				; get rel
+	movem	n1/n3/n4/r1/r2,(rr)		; initialize
+	return(rr)
+	end cons
+
+cons2 = proc (low: int, q: sequence[t]) returns (cvt)
+	moveq	2,n2
+	ifne	cmp	(rr),n2			; empty?
+	then	movea	rr,r1			; no
+		add	(rr),n2			; get byte count
+		movea	heaphi,rr		; alloc
+		iflt	sub	n2,freecnt
+		then	jsr	memout
+		end
+		add	n2,heaphi
+		movea	rr,r2
+		asr	2,n2
+		subq	1,n2
+		loop
+			move	(r1)+,(r2)+	; copy
+			dbra	n2,this
+			swap	n2
+			subqw	1,n2
+			blt	next
+			swap	n2
+		end
+		movea	n0,r2
+	end
+	array[t]$%_cons2(low, rr)
+	return(rr)
+	end cons2
+
+%_cons2 = qproc (low: int, q: sequence[t]) returns (cvt)
+	move	low,n4
+	ifvc	move	n4,n6			; check low bound
+		subq	2,n6
+		bvs	next
+		move	(rr),n3			; get size
+		asr	1,n3
+		add	n3,n6			; check high
+	then	movea	rr,r1			; save vector
+		move	%adv,,1,n1		; get header
+		moveq	dv%blen,n2		; get byte count
+		subq	3,n3			; get max
+		moveaw	3,r2			; get lcnt
+		movea	heaphi,rr		; alloc
+		iflt	sub	n2,freecnt
+		then	jsr	memout
+		end
+		add	n2,heaphi
+		adda	r2,r1			; get rel
+		movem	n1/n3/n4/r1/r2,(rr)	; initialize
+		return(rr)
+	end
+	signal	failure("array bounds overflow")
+	end %_cons2
+
+empty = qproc (a: cvt) returns (bool)
+	moveq	0,n1
+	tstb	dv%max(rr)
+	slt	n1
+	return(n1)
+	end empty
+
+low = qproc (a: cvt) returns (int)
+	movea	dv%low(rr),rr
+	return(rr)
+	end low
+
+high = qproc (a: cvt) returns (int)
+	move	dv%low(rr),n1		; high = low + size - 1
+	add	dv%max(rr),n1
+	return(n1)
+	end high
+
+size = qproc (a: cvt) returns (int)
+	movea	dv%max(rr),rr		; get max
+	addq	3,rr			; get size
+	return(rr)
+	end size
+
+set_low = qproc (a: cvt, low: int)
+	move	rr,n1
+	ifvc	subq	2,n1				; check low bound
+	then	movea	a,r1
+		move	dv%max(r1),n2			; get size
+		addq	3,n2
+		ifvc	add	n1,n2			; check new high bound
+		then	move	rr,dv%low(r1)		; set new low
+			return
+		end
+	end
+	signal 	failure("array bounds overflow")
+	end set_low
+
+trim = qproc (a: cvt, low, size: int) signals (bounds, negative_size)
+	movem	low,n5/r1
+	movem	dv%max(r1),n1/n2		; get max and low
+	move	n1,n3
+	add	n2,n1				; get high + 1
+	addq	2,n1
+	ifge	cmp	n2,n5			; check new low
+		blt	next
+		sub	n5,n1
+	then	ifge	move	rr,n4		; check requested size
+		then	subqb	1,n4
+			ifgt	cmp	n1,n4	; get actual new size - 1
+			then	move	n1,n4
+			end
+			subq	2,n4
+			movem	n4/n5,dv%max(r1); set new max and low
+			sub	n2,n5		; get delta low
+			sub	n4,n3		; get delta size
+			sub	n5,n3		; split
+			add	n5,n5		; fix deltas
+			asr	1,n3
+			add	n5,dv%lcnt(r1)	; bump lcnt
+			addw	n3,dv%hcnt(r1)	; bump hcnt
+			add	n5,dv%rel(r1)	; bump rel ptr
+			return
+		end
+		signal	negative_size
+	end
+	signal	bounds
+	end trim
+
+fill = qproc (low, size: int, elt: t) returns (cvt) signals (negative_size)
+	iflt	move	size,n1				; check size
+	then	signal	negative_size
+	end
+	ifge	cmpi	037,,0177765,n1
+	then	signal	failure("huge allocation request")
+	end
+	move	low,n4
+	ifvc	move	n4,n6				; check low bound
+		subq	2,n6
+		bvs	next
+		add	n1,n6				; check high
+	then	movea	rr,r2				; save elt
+		move	n1,n3
+		iflt	subq	3,n3			; any elts?
+		then	lea	[],r1			; no
+		else	add	n1,n1			; get header
+			move	n1,n2			; get byte count
+			addq	2,n2
+			movea	heaphi,rr		; alloc
+			iflt	sub	n2,freecnt
+			then	jsr	memout
+			end
+			add	n2,heaphi
+			move	n1,(rr)
+			movea	rr,r1
+			addq	4,rr
+			move	n3,n2
+			asr	1,n2
+			loop
+				move	r2,(rr)+	; fill next elt
+				dbra	n2,this
+				swap	n2
+				subqw	1,n2
+				blt	next
+				swap	n2
+			end
+			movea	n0,rr
+		end
+		move	%adv,,0,n1			; get header
+		moveq	dv%blen,n2			; get byte count
+		moveaw	3,r2				; get lcnt
+		movea	heaphi,rr			; alloc
+		iflt	sub	n2,freecnt
+		then	jsr	memout
+		end
+		add	n2,heaphi
+		adda	r2,r1				; get rel
+		movem	n1/n3/n4/r1/r2,(rr)		; initialize
+		return(rr)
+	end
+	signal	failure("array bounds overflow")
+	end fill
+
+fill_copy = proc (low, size: int, elt: t) returns (cvt) signals (negative_size)
+			where t has copy: proctype (t) returns (t)
+	var	a,cnt
+	a := array[t]$fill(low, size, elt)
+	    resignal negative_size
+	move	n0,cnt
+	loop
+		subq	2,size		; more?
+		blt	next
+		t$copy(elt)		; yes, copy another one
+		movem	cnt,n1/r1
+		movea	dv%rel(r1),r1	; get rel
+		move	rr,(r1,n1)	; store
+		addq	4,cnt		; bump offset
+	end
+	return(a)
+	end fill_copy
+
+fetch = qproc (a: cvt, index: int) returns (t) signals (bounds)
+	move	rr,n2
+	movea	a,r1
+	ifle	sub	dv%low(r1),n2	; get offset
+		blt	next		; check lower bound
+		cmp	dv%max(r1),n2	; check upper bound
+	then	add	n2,n2		; get byte count
+		movea	dv%rel(r1),r1	; get rel
+		movea	1(r1,n2),rr	; fetch
+		return(rr)
+	end
+	signal	bounds
+	end fetch
+
+bottom = qproc (a: cvt) returns (t) signals (bounds)
+	ifge	tstb	dv%max(rr)	; empty?
+	then	movea	dv%rel(rr),rr	; no, get rel
+		movea	1(rr),rr	; fetch
+		return(rr)
+	end
+	signal	bounds
+	end bottom
+
+top = qproc (a: cvt) returns (t) signals (bounds)
+	ifge	move	dv%max(rr),n1	; empty?
+	then	add	n1,n1		; no, get byte count
+		movea	dv%rel(rr),rr	; get rel
+		movea	1(rr,n1),rr	; fetch
+		return(rr)
+	end
+	signal	bounds
+	end top
+
+store = qproc (a: cvt, index: int, elt: t) signals (bounds)
+	movem	index,n2/r1
+	ifle	sub	dv%low(r1),n2	; get offset
+		blt	next		; check lower bound
+		cmp	dv%max(r1),n2	; check upper bound
+	then	add	n2,n2		; get byte count
+		movea	dv%rel(r1),r1	; get rel
+		move	rr,1(r1,n2)	; store
+		return
+	end
+	signal	bounds
+	end store
+
+addh = qproc (a: cvt, elt: t)
+	movea	a,r1
+retry:	if	subqw	1,dv%hcnt(r1)			; free space?
+		bne	this
+		move	dv%lcnt(r1),n2			; maybe underflow
+		movea	dv%rel(r1),r2			; get rel
+		suba	n2,r2				; convert to ref
+		move	(r2),n3				; get vec size
+		sub	n2,n3				; - lcnt
+		move	dv%max(r1),n1
+		add	n1,n1
+		sub	n1,n3				; - max = new hcnt
+		asr	2,n3
+		beq	next				; room?
+		movew	n3,dv%hcnt(r1)			; yes, save new hcnt
+	then	addq	2,dv%max(r1)			; increment max
+		move	dv%max(r1),n1
+		move	n1,n2
+		add	dv%low(r1),n2			; check new high
+		ifvc	addq	1,n2
+		then	add	n1,n1			; get byte count
+			movea	dv%rel(r1),r1		; get rel
+			move	rr,1(r1,n1)		; store new elt
+			return
+		end
+		subq	2,dv%max(r1)			; reset max
+		addqw	1,dv%hcnt(r1)			; reset free count
+		signal	failure("array bounds overflow")
+	end
+	movew	n0,dv%hcnt(r1)				; reset free count
+	ifeq	asr	2,n2				; space at other end?
+	then	movea	rr,r2				; save elt
+		ifgt	addq	4,n1			; empty?
+		then	movew	2048,n3			; no, increase by 512
+			ifle	cmpi	8192,n1		; unless 2K or under
+			then	move	n1,n3		; then double
+			end
+			add	n3,n1			; get header
+			addq	2,n1
+			move	n1,n2			; get byte count
+			addq	2,n2
+			movea	heaphi,rr		; alloc real part
+			iflt	sub	n2,freecnt
+			then	jsr	memout
+			end
+			add	n2,heaphi
+			move	n1,(rr)
+			movea	dv%rel(r1),r3		; get old rel
+			addq	3,rr			; get new rel
+			move	rr,dv%rel(r1)		; set new rel
+			asr	2,n3
+			addw	n3,dv%hcnt(r1)		; set new hcnt
+			addq	1,rr
+			addq	1,r3
+			move	dv%max(r1),n2
+			asr	1,n2
+			loop
+				move	(r3)+,(rr)+	; copy
+				dbra	n2,this
+				swap	n2
+				subqw	1,n2
+				blt	next
+				swap	n2
+			end
+			movea	r2,rr
+			movea	n0,r3
+			bra	retry
+		end
+		moveq	0,n1
+		ifne	moveb	dv%predm(r1),n1		; predict?
+		then	moveb	(r1),n2			; yes
+			subb	%advb,n2
+			asl	n2,n1
+		else	moveq	1,n1			; no
+		end
+		aslw	2,n1				; get header
+		addqw	2,n1
+		move	n1,n2				; get byte count
+		addqw	2,n2
+		movea	heaphi,rr			; alloc real part
+		iflt	sub	n2,freecnt
+		then	jsr	memout
+		end
+		add	n2,heaphi
+		move	n1,(rr)
+		addq	3,rr				; get rel
+		move	rr,dv%rel(r1)			; set rel
+		asr	2,n2
+		movew	n2,dv%hcnt(r1)			; set hcnt
+		movea	r2,rr
+		bra	retry
+	end
+	addw	n2,dv%hcnt(r1)				; swap free counts
+	moveq	3,n3
+	move	n3,dv%lcnt(r1)
+	asl	2,n2
+	sub	n2,dv%rel(r1)				; move back rel
+	asr	2,n1					; empty?
+	blt	retry
+	movea	dv%rel(r1),r2				; no, get rel
+	addq	1,r2					; set to move
+	lea	(r2,n2),r3
+	loop
+		move	(r3)+,(r2)+			; copy
+		dbra	n1,this
+		swap	n1
+		subqw	1,n1
+		blt	next
+		swap	n1
+	end
+	movea	n0,r2
+	movea	n0,r3
+	bra	retry
+	end addh
+
+addl = qproc (a: cvt, elt: t)
+	movea	a,r1
+retry:	ifgt	subq	4,dv%lcnt(r1)			; free space?
+	then	ifvc	subq	2,dv%low(r1)		; decrement low
+		then	addq	2,dv%max(r1)		; increment max
+			subq	4,dv%rel(r1)		; move back rel ptr
+			movea	dv%rel(r1),r1		; get rel
+			move	rr,1(r1)		; store new elt
+			return
+		end
+		addq	2,dv%low(r1)			; reset low
+		addq	4,dv%lcnt(r1)			; reset free count
+		signal	failure("array bounds overflow")
+	end
+	addq	4,dv%lcnt(r1)				; reset lcnt
+	movea	dv%rel(r1),r2				; get rel
+	move	-3(r2),n3				; get vec size
+	move	dv%max(r1),n1
+	add	n1,n1
+	sub	n1,n3					; - max
+	ifeq	subq	6,n3				; space at other end?
+	then	movea	rr,r2				; no, save elt
+		ifgt	addq	4,n1			; empty?
+		then	move	n1,n4			; no
+			movew	2048,n3			; increase by 512
+			ifle	cmpi	8192,n1		; unless 2K or under
+			then	move	n1,n3		; then double
+			end
+			add	n3,n1			; get header
+			addq	2,n1
+			move	n1,n2			; get byte count
+			addq	2,n2
+			movea	heaphi,rr		; alloc real part
+			iflt	sub	n2,freecnt
+			then	jsr	memout
+			end
+			add	n2,heaphi
+			move	n1,(rr)
+			movea	dv%rel(r1),r3		; get old rel
+			lea	3(rr,n3),rr		; get new rel
+			move	rr,dv%rel(r1)		; set new rel
+			add	n3,dv%lcnt(r1)		; set new lcnt
+			addq	1,r3
+			addq	1,rr
+			move	dv%max(r1),n2
+			asr	1,n2
+			loop
+				move	(r3)+,(rr)+	; copy
+				dbra	n2,this
+				swap	n2
+				subqw	1,n2
+				blt	next
+				swap	n2
+			end
+			movea	r2,rr
+			movea	n0,r3
+			bra	retry
+		end
+		moveq	0,n1
+		ifne	moveb	dv%predm(r1),n1		; predict?
+		then	moveb	(r1),n2			; yes
+			subb	%advb,n2
+			asl	n2,n1
+		else	moveq	1,n1			; no
+		end
+		aslw	2,n1				; get header
+		addqw	2,n1
+		move	n1,n2				; get byte count
+		addqw	2,n2
+		movea	heaphi,rr			; alloc real part
+		iflt	sub	n2,freecnt
+		then	jsr	memout
+		end
+		add	n2,heaphi
+		move	n1,(rr)
+		subq	1,n2				; get lcnt
+		move	n2,dv%lcnt(r1)
+		adda	n2,rr				; get rel
+		move	rr,dv%rel(r1)			; set rel
+		movea	r2,rr
+		bra	retry
+	end
+	add	n3,dv%lcnt(r1)				; fix lcnt
+	add	n3,dv%rel(r1)				; fix rel
+	movew	n0,dv%hcnt(r1)				; fix hcnt
+	tst	n1
+	blt	retry					; empty?
+	lea	5(r2,n1),r2				; set to move
+	lea	(r2,n3),r3
+	asr	2,n1
+	loop
+		move	-(r2),-(r3)			; move up
+		dbra	n1,this
+		swap	n1
+		subqw	1,n1
+		blt	next
+		swap	n1
+	end
+	movea	n0,r2
+	movea	n0,r3
+	bra	retry
+	end addl
+
+remh = qproc (a: cvt) returns (t) signals (bounds)
+	ifge	move	dv%max(rr),n1		; empty?
+	then	add	n1,n1			; no, get byte count
+		subq	2,dv%max(rr)		; decrement size
+		addqw	1,dv%hcnt(rr)		; increment free count
+		movea	dv%rel(rr),rr		; get rel
+		movea	1(rr,n1),rr		; get top elt
+		return(rr)
+	end
+	signal	bounds
+	end remh
+
+reml = qproc (a: cvt) returns (t) signals (bounds)
+	ifge	tstb	dv%max(rr)		; empty?
+	then	movea	dv%rel(rr),r1		; no, get rel
+		addq	4,dv%rel(rr)		; bump rel
+		addq	2,dv%low(rr)		; increment low
+		subq	2,dv%max(rr)		; decrement size
+		addq	4,dv%lcnt(rr)		; increment free count
+		movea	1(r1),rr		; fetch bottom elt
+		return(rr)
+	end
+	signal	bounds
+	end reml
+
+elements = iter (a: cvt) yields (t)
+	var	idx,hgh
+	movem	dv%max(rr),n1/n2		; get max and low
+	add	n2,n1				; get high
+	movem	n1/n2,hgh			; save high and low
+	loop
+		cmp	hgh,n2			; done?
+		bgt	next
+		movea	a,r1
+		sub	dv%low(r1),n2		; get offset
+		blt	bounds			; check lower bound
+		cmp	dv%max(r1),n2
+		bgt	bounds			; check upper bound
+		add	n2,n2			; get byte count
+		movea	dv%rel(r1),r1		; get rel
+		movea	1(r1,n2),rr		; fetch
+		yield(rr)			; yield it
+		addq	2,idx			; bump index
+		move	idx,n2			; get index
+	end
+	return
+bounds:	signal	failure("array bounds exception")
+	end elements
+
+indexes = iter (a: cvt) yields (int)
+	var	idx,hgh
+	movem	dv%max(rr),n1/rr		; get max and low
+	add	rr,n1				; get high
+	movem	n1/rr,hgh			; save high and low
+	loop
+		cmpa	hgh,rr			; done?
+		bgt	next
+		yield(rr)			; yield index
+		addq	2,idx			; bump index
+		movea	idx,rr			; get index
+	end
+	end indexes
+
+equal = qproc (a1, a2: cvt) returns (bool)
+	moveq	0,n1
+	cmpa	a1,rr
+	seq	n1
+	return(n1)
+	end equal
+
+similar = proc (a1, a2: cvt) returns (bool)
+			where t has similar: proctype (t, t) returns (bool)
+	var	idx,hgh
+	movem	dv%max(rr),n1/n2			; get max and low
+	movea	a1,r1
+	movem	dv%max(r1),n3/n4			; get max and low
+	ifeq	cmp	n2,n4				; lows must be same
+		bne	next
+		cmp	n1,n3				; maxs must be same
+	then	add	n2,n1				; get high
+		movem	n1/n2,hgh			; save high and low
+		loop
+			cmp	hgh,n2			; done?
+			bgt	next
+			move	n2,n3
+			sub	dv%low(r1),n2		; get offset
+			blt	bounds			; check lower bound
+			cmp	dv%max(r1),n2
+			bgt	bounds			; check upper bound
+			add	n2,n2			; get byte count
+			movea	dv%rel(r1),r1		; get rel
+			move	1(r1,n2),-(sp)		; fetch and push
+			sub	dv%low(rr),n3		; get offset
+			blt	bounds			; check lower bound
+			cmp	dv%max(rr),n3
+			bgt	bounds			; check upper bound
+			add	n3,n3			; get byte count
+			movea	dv%rel(rr),rr		; get rel
+			movea	1(rr,n3),rr		; fetch
+			t$similar(*, rr)		; compare
+			move	rr,n7			; test
+			beq	notsim
+			addq	2,idx			; bump index
+			movem	idx,n2/rr
+			movea	a1,r1
+		end
+		return(true)
+	end
+notsim:	return(false)
+bounds:	signal	failure("array bounds exception")
+	end similar
+
+similar1 = proc (a1, a2: cvt) returns (bool)
+			where t has equal: proctype (t, t) returns (bool)
+	var	idx,hgh
+	movem	dv%max(rr),n1/n2			; get max and low
+	movea	a1,r1
+	movem	dv%max(r1),n3/n4			; get max and low
+	ifeq	cmp	n2,n4				; lows must be same
+		bne	next
+		cmp	n1,n3				; maxs must be same
+	then	add	n2,n1				; get high
+		movem	n1/n2,hgh			; save high and low
+		loop
+			cmp	hgh,n2			; done?
+			bgt	next
+			move	n2,n3
+			sub	dv%low(r1),n2		; get offset
+			blt	bounds			; check lower bound
+			cmp	dv%max(r1),n2
+			bgt	bounds			; check upper bound
+			add	n2,n2			; get byte count
+			movea	dv%rel(r1),r1		; get rel
+			move	1(r1,n2),-(sp)		; fetch and push
+			sub	dv%low(rr),n3		; get offset
+			blt	bounds			; check lower bound
+			cmp	dv%max(rr),n3
+			bgt	bounds			; check upper bound
+			add	n3,n3			; get byte count
+			movea	dv%rel(rr),rr		; get rel
+			movea	1(rr,n3),rr		; fetch
+			t$equal(*, rr)			; compare
+			move	rr,n7			; test
+			beq	notsim
+			addq	2,idx			; bump index
+			movem	idx,n2/rr
+			movea	a1,r1
+		end
+		return(true)
+	end
+notsim:	return(false)
+bounds:	signal	failure("array bounds exception")
+	end similar1
+
+copy = proc (a: cvt) returns (cvt)
+			where t has copy: proctype (t) returns (t)
+	var	cnt
+	a := array[t]$copy1(a)
+	move	n0,cnt
+	loop
+		movem	cnt,n1/rr
+		move	n1,n2
+		asr	1,n2
+		cmp	dv%max(rr),n2		; done?
+		bgt	next
+		movea	dv%rel(rr),rr		; get rel
+		movea	(rr,n1),rr		; fetch
+		t$copy(rr)			; copy
+		movem	cnt,n1/r1
+		movea	dv%rel(r1),r1		; reget rel
+		move	rr,(r1,n1)		; store
+		addq	4,cnt			; bump offset
+	end
+	return(a)
+	end copy
+
+copy1 = qproc (a: cvt) returns (cvt)
+	movea	rr,r2
+	iflt	move	dv%max(r2),n3		; empty?
+	then	lea	[],r1			; yes
+	else	move	n3,n1			; no, get header
+		addq	3,n1
+		add	n1,n1
+		move	n1,n2			; get byte count
+		addq	2,n2
+		movea	heaphi,rr		; alloc
+		iflt	sub	n2,freecnt
+		then	jsr	memout
+		end
+		add	n2,heaphi
+		move	n1,(rr)
+		movea	rr,r1
+		movea	dv%rel(r2),r3		; get rel
+		asr	1,n3
+		addq	4,rr
+		addq	1,r3
+		loop
+			move	(r3)+,(rr)+	; copy
+			dbra	n3,this
+			swap	n3
+			subqw	1,n3
+			blt	next
+			swap	n3
+		end
+		movea	n0,r3
+	end
+	movem	(r2),n1/n3/n4			; get header, max, low
+	movew	n0,n1				; get hcnt
+	moveq	dv%blen,n2			; get byte count
+	moveaw	3,r2				; get lcnt
+	movea	heaphi,rr			; alloc
+	iflt	sub	n2,freecnt
+	then	jsr	memout
+	end
+	add	n2,heaphi
+	adda	r2,r1				; get rel
+	movem	n1/n3/n4/r1/r2,(rr)		; initialize
+	return(rr)
+	end copy1
+
+print = proc (a: cvt, pst: pstream)
+			where t has print: proctype (t, pstream)
+	var	first,idx,hgh
+	pstream$text(pst, "[")
+	movea	a,rr
+	movem	dv%max(rr),n1/n2		; get max and low
+	add	n2,n1				; get high
+	move	n2,n3
+	movem	n1/n2/n3,hgh
+	int$print(n2, pst)			; print low bound
+	pstream$get_max_width(pst)
+	move	hgh,n1
+	sub	idx,n1
+	addqb	1,n1
+	ifle	cmpa	n1,rr			; printing all elts?
+	then	pstream$text(pst, "..")		; no, show high
+		int$print(hgh, pst)
+	end
+	pstream$start(pst, ": ")
+	ifne	move	rr,n7			; stop if ...
+	then	loop
+			move	idx,n2
+			cmp	hgh,n2			; done?
+			bgt	next
+			ifne	cmp	first,n2	; comma if not first
+			then	pstream$pause(pst, ",")
+				move	rr,n7		; stop if ...
+				beq	next
+				move	idx,n2
+			end
+			movea	a,r1
+			sub	dv%low(r1),n2		; get offset
+			blt	bounds			; check lower bound
+			cmp	dv%max(r1),n2
+			bgt	bounds			; check upper bound
+			add	n2,n2			; get byte count
+			movea	dv%rel(r1),r1		; get rel
+			move	1(r1,n2),-(sp)		; fetch
+			t$print(*, pst)			; print it
+			addq	2,idx			; bump index
+		end
+	end
+	pstream$stop(pst, "]")
+	return
+bounds:	signal	failure("array bounds exception")
+	end print
+
+;; Arrays are encoded as low bound, size, predict, and then size elements.
+
+encode = proc (a: cvt, ist: istream) signals (not_possible(string))
+		where t has encode: proctype (t, istream)
+					signals (not_possible(string))
+	var	idx, hgh, size		;; Index, high and size (as CLU ints).
+
+	movea	a, r1
+	movem	dv%max(r1), n1/n2	;; Get max (= 2 * (size - 1)) and low.
+	move	n1, size		;; Compute size.
+	addq	3, size
+	add	n2, n1			;; Get high.
+	movem	n1/n2, hgh		;; Save high and low.
+	istream$%puti(rr, n2)		;; Encode low.
+	istream$%puti(ist, size)	;; Encode size.
+	movea	a, r1
+	moveq	0, n1
+	moveb	dv%predm(r1), n1	;; Get predict.
+	moveb	(r1), n2
+	subb	%advb, n2
+	asl	n2, n1
+	add	n1, n1			;; Integerize it.
+	addq	1, n1
+	istream$%puti(ist, n1)		;; Encode it.
+
+	move	idx, n2
+	loop
+		cmp	hgh, n2		;; Done?
+		bgt	next
+		movea	a, rr
+		sub	dv%low(rr), n2	;; Get offset.
+		blt	bounds		;; Check lower bound.
+		cmp	dv%max(rr), n2
+		bgt	bounds		;; Check upper bound.
+		add	n2, n2		;; Get byte offset.
+		movea	dv%rel(rr), rr
+		move	1(rr, n2), -(sp);; Fetch element.
+		t$encode(*, ist)	;; Encode it.
+		addq	2, idx		;; Bump index.
+		move	idx, n2		;; Get index and loop.
+		end resignal not_possible
+	return
+
+bounds:	signal	failure("array bounds exception")
+	end encode
+			
+decode = proc (ist: istream) returns (cvt)
+				signals (end_of_file, not_possible(string))
+		where t has decode: proctype (istream) returns (t)
+					signals (end_of_file, not_possible(string))
+	var	q, size, low, pred, idx, max ;; Max and idx are byte indices + 1.
+	begin
+	low := istream$%geti(rr)	;; Get low.
+	move	rr, n1			;; Check it.
+	subq	2, n1
+	bvs	badfmt
+	size := istream$%geti(ist)	;; Get size.
+	move	rr, n1			;; Check it.
+	blt	badfmt
+	cmpi	037,,0177765, n1	;; Same semi-random bound as array$fill
+	bge	badfmt
+	subq	3, n1			;; Check high (= low + size - 1)
+	add	low, n1
+	bvs	badfmt
+	pred := istream$%geti(ist)	;; Get predict.
+	cmpa	037,,0160001, rr	;; Check it.
+	bhi	badfmt
+	ifeq	cmp	size, n0	;; Any elements?
+	then	movea	[], r1		;; No. Real part is the empty vector.
+	else	move	size, n2	;; Yes. Create and fill in real part.
+		add	n2, n2
+		addq	2, n2		;; Get size * 4 + 4 (# bytes to alloc).
+		movea	heaphi, rr
+		iflt	sub	n2, freecnt	;; Alloc memory.
+		then	jsr	memout
+			end
+		add	n2, heaphi
+		move	rr, q		;; Save vector.
+		subq	2, n2
+		move	n2, (rr)	;; Store header (size * 4 + 2)
+		sub	n0, n2		;; Set max = size * 4 + 1
+		move	n2, max
+		move	5, idx		;; Initialize index.
+		loop
+			t$decode(ist)		;; Decode next element.
+			move	idx, n1
+			movea	q, r1
+			move	rr, -1(r1, n1)	;; Store it.
+			addq	4, n1	 	;; Bump index.
+			cmp	max, n1
+			bgt	next	 	;; More to do?
+			move	n1, idx	 	;; Yes. Record next index
+			end		 	;; and loop.
+		movea	q, r1
+		end
+	move	dv%blen, n2		;; Alloc. and fill in dope vector.
+	movea	heaphi, rr
+	iflt	sub	n2, freecnt
+	then	jsr	memout
+		end
+	add	n2, heaphi
+	move	pred, n1		;; Get predict.
+	asr	1, n1
+	moveb	%advb, n2
+	loop
+		cmpi	0377, n1	;; Normalize.
+		ble	next
+		addqb	1, n2
+		addq	1, n1
+		asr	1, n1
+	end
+	moveb	n2, (rr)		;; Store LH of header.
+	moveb	n1, dv%predm(rr)
+	movew	n0, dv%hcnt(rr)		;; RH of header (freehi + 1 mod 2**16).
+	move	low, dv%low(rr)		;; Store low.
+	move	size, n1		;; (2 * size) + 1
+	move	3, n3
+	sub	n3, n1			;; 2 * (size - 1)
+	move	n1, dv%max(rr)		;; Store max.
+	move	n3, dv%lcnt(rr)		;; Store lcnt (freelow = 0).
+	move	r1, dv%rel(rr)
+	add	n3, dv%rel(rr)		;; Store rel (= addr of first elt - 1).
+	return (rr)
+	end resignal end_of_file, not_possible
+
+badfmt:	signal	not_possible("bad format")
+	end decode
+	
+	
+	
+
+_gcd = proc (a: cvt, tab: gcd_tab) returns (int)
+			where t has _gcd: proctype (t, gcd_tab) returns (int)
+	gcd_tab$%insert(rr, dv%blen, <6: <7: t$_gcd>>, a)
+	return(rr)
+	end _gcd
+
+end array

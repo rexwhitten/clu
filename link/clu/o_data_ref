@@ -1,0 +1,8 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+Output_Data_Ref = proc (Addr: address, Env: lnk_env);
+    %% Must rewrite later.
+    rewrites$AddH(Env.Mach_Dependent.Rewrites,
+		  rewrite$Create(Env.Output.Position, Addr));
+    out_link_chan$Write_Long_Word(Env.Output, 0);
+    end Output_Data_Ref;

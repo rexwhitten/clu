@@ -1,0 +1,933 @@
+%	GDEFN CLU
+% Copyright Massachusetts Institute of Technology 1980,, 1989
+%	CLU Compiler Version 3: definition generator
+
+# extend
+
+mtype = proctype (mref) returns (locate)
+
+g_definition = proc (e: g_env, def: definition)
+	tagcase def
+	   tag apply (d: applydefn):
+		g_applydefn(e, d, "", false)
+	   tag cluster_ (d: typedefn):
+		g_typedefn(e, d)
+	   tag selector_, atype:
+		g_env$err(e, "selector and applytype clusters cannot be generated")
+	   others:
+	   end
+	end g_definition
+
+g_applydefn = proc (e: g_env, def: applydefn, cname: str, cinit: bool)
+	te: g_tenv := e.tenv
+	me: g_menv := e.menv
+	is_iter: bool := def.gen.unique = "itertype"
+	rname: str := def.idn.str
+	g_env$begin_routine(e,
+			    g_tenv$store_str(te, rname),
+			    g_tenv$store_sconst(te, cname || rname),
+			    is_iter)
+	pos: int := 0
+	for dec: decl in decllist$elements(def.parms) do
+		for id: idn in idnlist$elements(dec.idns) do
+			pos := pos + 1
+			id.val := locate$make_rparm(mref$make_val(pos))
+			end
+		end
+	e.rparm_count := pos
+	pp_set: bool := pos > 0  cor  e.cparm_count > 0
+	nargs: int := 0
+	nres: int := 0
+	tagcase def.type_.abs
+	   tag apply (at: appletype):
+		nargs := typelist$size(at.args)
+		e.arg_count := nargs
+		nres := typelist$size(at.vals)
+		e.res_count := nres
+		if nres = 1
+		   then rt: typespec := typelist$bottom(at.vals)
+			val: mref, pflag: int := g_tenv$store_tdesc(te, rt)
+			e.result := val
+		   else e.result := te.no_type
+		   end
+	   others:
+	   end
+	pos := 4 * nargs
+	if is_iter
+	   then pos := pos + 4 end
+	names: qv := qv$[]
+	last: idn
+	for dec: decl in decllist$elements(def.args) do
+		for id: idn in idnlist$elements(dec.idns) do
+			id.val := locate$make_var(pos)
+			last := id
+			pos := pos - 4
+			names := qv$addh(names, g_tenv$store_sconst(te, id.str))
+			end
+		end
+	e.arg_names := g_tenv$store_cell(te,
+					 _const_seq,
+					 g_tenv$store_vec(te, names))
+	g_menv$begin_vars(me)
+	me.compact := true
+	if pp_set
+	   then g_menv$alloc_var(me) end
+	if nargs > 0
+	   then g_menv$init_var(me, last) end
+	need: int := me.var_pos
+	names := qv$[]
+	locals: bool := cmpvar$locals()
+	if locals  cor  ~e.either
+	   then for id: idn in idnrow$elements(def.vars) do
+			g_menv$init_var(me, id)
+			if locals
+			   then names := qv$addh(names,
+						 g_tenv$store_sconst(te, id.str))
+			   end
+			end
+		me.compact := false
+	   end
+	e.var_count := qv$size(names)
+	e.var_names := g_tenv$store_cell(te,
+					 _const_seq,
+					 g_tenv$store_vec(te, names))
+	make: mtype
+	if pp_set
+	   then make := locate$make_prown
+	   else make := locate$make_rown
+	   end
+	rcount: int
+	rinit: bool
+	rcount, rinit, names := g_ownvars(e, def.init, make, locals)
+	e.own_names := g_tenv$store_cell(te,
+					 _const_seq,
+					 g_tenv$store_vec(te, names))
+	e.rown_count := rcount
+	regs: reglist := g_menv$begin_state(me, true)
+	if pp_set
+	   then regs[_addrd_PP] := locate$make_tos(nil) end
+	if nargs > 0
+	   then regs[_addrd_RR] := last.val end
+	if ~cinit  cand  ~rinit  cand  e.time
+	   then if ~is_iter  cand  nargs <= 2  cand
+		   ((stmtlist$empty(def.body)  cand  nres = 0)  cor
+		    (stmtlist$size(def.body) = 1  cand  nres < 2  cand
+			g_qproc(e, stmtlist$bottom(def.body))))
+		   then if nargs = 2
+			   then immed(me, RTD)
+				immed(me, 4)
+			   else immed(me, RTS)
+			   end
+			% 68000
+			%if nargs = 2
+			%   then minst(me, MOVE, indir_SP_, _pincr_SP) end
+			%immed(me, RTS)
+			g_menv$end_state(me)
+			g_menv$end_vars(me)
+			g_env$end_routine(e)
+			return
+		elseif (stmtlist$size(def.body) = 1  cand
+			g_pass_through1(e, def.args, def.type_,
+					stmtlist$bottom(def.body)))
+			 cor
+		       (stmtlist$size(def.body) = 2  cand
+			g_pass_through2(e, def.args, def.type_, def.body))
+		   then g_menv$end_state(me)
+			g_menv$end_vars(me)
+			g_env$end_routine(e)
+			return
+		end
+	   end
+	xinst(me, LINK, _EP)
+	need_loc: int := g_menv$next_loc(me)
+	immed(me, 0)
+	move_loc: int := g_menv$next_loc(me)
+	if nargs > 0
+	   then if pp_set
+		   then xinst(me, MOVEMM, _idisp_EP)
+			immed(me, 0020400)
+			immed(me, -8)
+		   else minst(me, MOVE, idisp_EP_, _addrd_RR)
+			immed(me, -4)
+		   end
+	elseif pp_set
+	   then minst(me, MOVE, idisp_EP_, _addrd_PP)
+		immed(me, -4)
+	end
+	if e.either
+	   then g_env$push_handler(e, "bounds", _wexit)
+		g_env$push_handler(e, "overflow", _cexit)
+		g_env$push_handler(e, "overflow-reg", _cexit)
+		g_env$push_handler(e, "overflow-tos", _cexit)
+	   end
+	g_owninit(e, def.init, pp_set, cinit, rinit)
+	def.init := initlist$new()
+	cont: bool := true
+	for s: stmt in stmtlist$elements(def.body) do
+		if ~g_stmt(e, s)
+		   then cont := false
+			break
+		   end
+		end
+	def.body := stmtlist$new()
+	if cont
+	   then if typelist$empty(def.vals)  cor  is_iter
+		   then g_return(e, exprlist$new())
+		   else x: expr := expr$create(exprabs$make_str("no return values"),
+					       te.str_type)
+			g_signal(e, condition${name: "failure",
+					       args: exprlist$[x]})
+		   end
+	   end
+	if e.either
+	   then g_finish_causes(e) end
+	mpos: int := me.min_pos
+	fixups: ai := g_env$pop_fixups(e)
+	if mpos = 0
+	   then inst = MOVEA + _SP * 01000 + _addrd_EP
+		 for i: int in ai$indexes(fixups) do
+			loc: int := fixups[i] - i
+			g_menv$remove(me, loc, 1)
+			g_menv$store_value(me, loc - 1, inst)
+			end
+	   else for loc: int in ai$elements(fixups) do
+			g_menv$store_value(me, loc, mpos)
+			end
+	   end
+	g_menv$store_value(me, need_loc, mpos)
+	if need - mpos = 0
+	   then if nargs > 0  cand  pp_set
+		   then g_menv$store_value(me, move_loc,
+					   MOVEMM + _indir_SP)
+			g_menv$remove(me, move_loc + 2, 1)
+		elseif pp_set
+		   then g_menv$store_value(me, move_loc,
+					   MOVE + (indir_SP_ * 0100) +
+					   _addrd_PP)
+			g_menv$remove(me, move_loc + 1, 1)
+		elseif nargs > 0
+		   then g_menv$store_value(me, move_loc,
+					   MOVE + (indir_SP_ * 0100) +
+					   _addrd_RR)
+			g_menv$remove(me, move_loc + 1, 1)
+		end
+	   end
+	g_menv$end_state(me)
+	g_menv$end_vars(me)
+	g_env$end_routine(e)
+	end g_applydefn
+
+g_typedefn = proc (e: g_env, d: typedefn)
+	te: g_tenv := e.tenv
+	me: g_menv := e.menv
+	cname: str := d.idn.str
+	g_env$begin_type(e, g_tenv$store_str(te, cname), d.up_)
+	cname := cname || "$"
+	pos: int := 0
+	for dec: decl in decllist$elements(d.parms) do
+		for id: idn in idnlist$elements(dec.idns) do
+			pos := pos + 1
+			id.val := locate$make_cparm(mref$make_val(pos))
+			end
+		end
+	e.cparm_count := pos
+	make: mtype
+	if pos > 0
+	   then make := locate$make_pcown
+	   else make := locate$make_cown
+	   end
+	locals: bool := cmpvar$locals()
+	ccount: int, cinit: bool, names: qv :=
+				g_ownvars(e, d.init, make, locals)
+	e.cown_count := ccount
+	e.cown_names := g_tenv$store_vec(te, names)
+	if cinit
+	   then g_env$begin_routine(e,
+				    g_tenv$store_str(te, "%%init"),
+				    g_tenv$store_sconst(te, cname || "%%init"),
+				    false)
+		e.rparm_count := 0
+		e.arg_count := 0
+		val: mref := g_tenv$store_cell(te,
+					       _const_seq,
+					       g_tenv$store_vec(te, qv$[]))
+		e.arg_names := val
+		e.var_count := 0
+		e.var_names := val
+		e.result := te.no_type
+		e.own_names := val
+		e.rown_count := 0
+		g_menv$begin_vars(me)
+		regs: reglist := g_menv$begin_state(me, true)
+		xinst(me, LINK, _EP)
+		immed(me, 0)
+		if pos = 0
+		   then ainst(me, SUBQB, 1, _long)
+		 	udesc(me, g_tenv$add_use(te,
+						 _use_cown,
+						 mref$make_val(1)))
+		   else minst(me, MOVE, pdecr_SP_, _addrd_PP)
+			g_menv$alloc_var(me)
+			regs[_addrd_PP] := locate$make_tos(nil)
+			src: int := g_pp_set(me,
+					     g_tenv$add_puse(te,
+							     _use_cown,
+							     mref$make_val(1)),
+					     locate$make_cown(mref$make_val(1)))
+			ainst(me, SUBQB, 1, src)
+		   end
+		if e.either
+		   then g_env$push_handler(e, "bounds", _wexit)
+			g_env$push_handler(e, "overflow", _cexit)
+			g_env$push_handler(e, "overflow-reg", _cexit)
+			g_env$push_handler(e, "overflow-tos", _cexit)
+		   end
+		g_initlist(e, d.init)
+		g_return(e, exprlist$new())
+		g_menv$end_state(me)
+		if e.either
+		   then g_finish_causes(e) end
+		g_menv$end_vars(me)
+		g_env$end_routine(e)
+	   end
+	d.init := initlist$new()
+	for op: applydefn in applydefnlist$elements(d.body) do
+		g_applydefn(e, op, cname, cinit)
+		end
+	g_env$end_type(e)
+	end g_typedefn
+
+g_finish_causes = proc (e: g_env)
+	me: g_menv := e.menv
+	locs: ai := g_env$pop_handler(e, "bounds")
+	if ~ai$empty(locs)
+	   then for loc: int in ai$elements(locs) do
+			g_menv$goto(me, loc)
+			end
+		g_cause(e, e.bcause)
+	   end
+	tlocs: ai := g_env$pop_handler(e, "overflow-tos")
+	if ~ai$empty(tlocs)
+	   then for loc: int in ai$elements(tlocs) do
+			g_menv$goto(me, loc)
+			end
+		xinst(me, CLR, _pincr_SP)
+	   end
+	rlocs: ai := g_env$pop_handler(e, "overflow-reg")
+	if ~ai$empty(rlocs)
+	   then for loc: int in ai$elements(rlocs) do
+			g_menv$goto(me, loc)
+			end
+		ainst(me, SUBA, _RR, _addrd_RR)
+		ainst(me, SUBA, _R1, _addrd_R1)
+		ainst(me, SUBA, _R2, _addrd_R2)
+		ainst(me, SUBA, _R3, _addrd_R3)
+	   end
+	locs := g_env$pop_handler(e, "overflow")
+	if ~ai$empty(tlocs)  cor  ~ai$empty(rlocs)  cor  ~ai$empty(locs)
+	   then for loc: int in ai$elements(locs) do
+			g_menv$goto(me, loc)
+			end
+		g_cause(e, e.ocause)
+	   end
+	end g_finish_causes
+
+g_ownvars = proc (e: g_env, owns: initlist, make: mtype, locals: bool)
+					returns (int, bool, qv)
+	names: qv := qv$[]
+	if initlist$empty(owns)
+	   then return(0, false, names) end
+	te: g_tenv := e.tenv
+	pos: int := 1
+	isinit: bool := false
+	for oinit: init in initlist$elements(owns) do
+		tagcase oinit.stmt
+		   tag decl (d: decl):
+			for i: idn in idnlist$elements(d.idns) do
+				pos := pos + 1
+				i.val := make(mref$make_val(pos))
+				if locals
+				   then names := qv$addh(names,
+						    g_tenv$store_sconst(te,
+								        i.str))
+				   end
+				end
+		   tag init (di: declinit):
+			isinit := isinit  cor
+				  ~decllist$empty(di.anys)  cor
+				  is_non_zero(di.expr)
+			for dec: decl in decllist$elements(di.decls) do
+				for i: idn in idnlist$elements(dec.idns) do
+					pos := pos + 1
+					i.val := make(mref$make_val(pos))
+					if locals
+					   then names := qv$addh(names,
+						    g_tenv$store_sconst(te,
+									i.str))
+					   end
+					end
+				end
+		   end
+		end
+	return(pos, isinit, names)
+	end g_ownvars
+
+g_owninit = proc (e: g_env, owns: initlist, parm: bool, cinit, rinit: bool)
+	if cinit
+	   then te: g_tenv := e.tenv
+		me: g_menv := e.menv
+		t: typespec := e.uptype
+		cop: clusterop := clusterop${type_: t,
+					     name:  "%%init",
+					     parms: exprlist$new()}
+		abs: exprabs := exprabs$make_op(cop)
+		tagcase t.abs
+		   tag cluster_ (clut: clutype):
+			if exprlist$empty(clut.parms)
+			   then xinst(me, TSTB, _long)
+				udesc(me, g_tenv$add_use(te,
+							 _use_cown,
+							 mref$make_val(1)))
+			   else src: int := g_pp_set(me,
+						     g_tenv$add_puse(te,
+								     _use_cown,
+								     mref$make_val(1)),
+						     locate$make_cown(mref$make_val(1)))
+				xinst(me, TSTB, src)
+			   end
+			xinst(me, BNE, 6)
+			g_call(e, abs, 0)
+		   others:
+		   end
+	   end
+	if rinit
+	   then te: g_tenv := e.tenv
+		me: g_menv := e.menv
+		oregs: reglist := me.state
+		nregs: reglist := g_menv$begin_state(me, false)
+		loc: int
+		if parm
+		   then src: int := g_pp_set(me,
+					     g_tenv$add_puse(te,
+							     _use_rown,
+							     mref$make_val(1)),
+					     locate$make_rown(mref$make_val(1)))
+			xinst(me, TSTB, src)
+			loc := binst(me, BNE)
+			ainst(me, SUBQB, 1, src)
+		   else disp: int := g_tenv$add_use(te,
+						    _use_rown,
+						    mref$make_val(1))
+			xinst(me, TSTB, _long)
+			udesc(me, disp)
+			loc := binst(me, BNE)
+			ainst(me, SUBQB, 1, _long)
+			udesc(me, disp)
+		   end
+		g_initlist(e, owns)
+		g_merge_state(oregs, nregs, true)
+		g_menv$end_state(me)
+		g_menv$goto(me, loc)
+	   end
+	end g_owninit
+
+g_initlist = proc (e: g_env, owns: initlist)
+	for oinit: init in initlist$elements(owns) do
+		e.line := oinit.line
+		tagcase oinit.stmt
+		   tag init (di: declinit):
+			idns: idnlist := idnlist$new()
+			for d: decl in decllist$elements(di.decls) do
+				idns := idns || d.idns
+				end
+			x: expr := di.expr
+			if idnlist$size(idns) ~= 1
+			   then g_assn(e, assn${left:  idns,
+						anys:  di.anys,
+						right: exprlist$[x]})
+				continue
+			   end
+			dest: locate := idnlist$bottom(idns).val
+			tagcase x.abs
+			   tag null_:
+			   tag int_ (i: int):
+				g_vinit(e, dest, 2 * i + 1)
+				   except when overflow:
+					       g_move_src(e, dest, _bigint, i)
+					  end
+			   tag bool_ (b: bool):
+				if b
+				   then g_vinit(e, dest, 0377) end
+			   tag char_ (c: char):
+				if c ~= '\000'
+				   then g_vinit(e, dest, char$c2i(c)) end
+			   others:
+				g_expr(e, x, dest)
+			   end
+			g_anys(e, di.anys)
+		   others:
+		   end
+		end
+	end g_initlist
+
+is_non_zero = proc (x: expr) returns (bool)
+	tagcase x.abs
+	   tag null_:
+		return(false)
+	   tag bool_ (b: bool):
+		return(b)
+	   tag char_ (c: char):
+		return(c > '\000')
+	   others:
+		return(true)
+	   end
+	end is_non_zero
+
+g_vinit = proc (e: g_env, dest: locate, i: int)
+	me: g_menv := e.menv
+	tagcase dest
+	   tag var (num: int):
+		if i = 1
+		   then minst(me, MOVEB, idisp_EP_, _datad_N0)
+			immed(me, num + 3)
+		elseif i > 1  cand  i <= 8
+		   then ainst(me, ADDQB, i // 010, _idisp_EP)
+			immed(me, num + 3)
+		elseif i >= 0370 cand i <= 0377
+		   then ainst(me, SUBQB, (0400 - i) // 010, _idisp_EP)
+			immed(me, num + 3)
+		elseif i >= 0 cand i <= 0177777
+		   then minst(me, MOVEW, idisp_EP_, _immed)
+			immed(me, i)
+			immed(me, num + 2)
+		elseif i >= -8  cand  i <= -1
+		   then ainst(me, SUBQ, -i // 010, _idisp_EP)
+			immed(me, num)
+		else g_move_src(e, dest, _immed, i) end
+	   tag rown (num: mref):
+		if i = 1
+		   then minst(me, MOVE, long_, _datad_N0)
+			udesc(me, g_tenv$add_use(e.tenv, _use_rown, num))
+		elseif i > 1 cand i <= 8
+		   then ainst(me, ADDQ, i // 010, _long)
+			udesc(me, g_tenv$add_use(e.tenv, _use_rown, num))
+		elseif i >= -8 cand i <= -1
+		   then ainst(me, SUBQ, -i // 010, _long)
+			udesc(me, g_tenv$add_use(e.tenv, _use_rown, num))
+		else g_move_src(e, dest, _immed, i) end
+	   tag cown (num: mref):
+		if i = 1
+		   then minst(me, MOVE, long_, _datad_N0)
+			udesc(me, g_tenv$add_use(e.tenv, _use_cown, num))
+		elseif i > 1 cand i <= 8
+		   then ainst(me, ADDQ, i // 010, _long)
+			udesc(me, g_tenv$add_use(e.tenv, _use_cown, num))
+		elseif i >= -8 cand i <= -1
+		   then ainst(me, SUBQ, -i // 010, _long)
+			udesc(me, g_tenv$add_use(e.tenv, _use_cown, num))
+		else g_move_src(e, dest, _immed, i) end
+	   tag prown (num: mref):
+		diff1 = idisp_ - _indir * 010
+		diff2 = _idisp - _indir
+		reg: int
+		if i = 1
+		   then reg := g_pp_set(me,
+					g_tenv$add_puse(e.tenv, _use_rown, num),
+					dest)
+			minst(me, MOVEB, reg * 010 + diff1, _datad_N0)
+			immed(me, 3)
+		elseif i > 1  cand  i <= 8
+		   then reg := g_pp_set(me,
+					g_tenv$add_puse(e.tenv, _use_rown, num),
+					dest)
+			ainst(me, ADDQB, i // 010, reg + diff2)
+			immed(me, 3)
+		elseif i >= 0370 cand i <= 0377
+		   then reg := g_pp_set(me,
+					g_tenv$add_puse(e.tenv, _use_rown, num),
+					dest)
+			ainst(me, SUBQB, (0400 - i) // 010, reg + diff2)
+			immed(me, 3)
+		elseif i >= 0 cand i <= 0177777
+		   then reg := g_pp_set(me,
+					g_tenv$add_puse(e.tenv, _use_rown, num),
+					dest)
+			minst(me, MOVEW, reg * 010 + diff1, _immed)
+			immed(me, i)
+			immed(me, 2)
+		elseif i >= -8  cand  i <= -1
+		   then reg := g_pp_set(me,
+					g_tenv$add_puse(e.tenv, _use_rown, num),
+					dest)
+			ainst(me, SUBQ, -i // 010, reg)
+		else g_move_src(e, dest, _immed, i) end
+	   tag pcown (num: mref):
+		diff1 = idisp_ - _indir * 010
+		diff2 = _idisp - _indir
+		reg: int
+		if i = 1
+		   then reg := g_pp_set(me,
+					g_tenv$add_puse(e.tenv, _use_cown, num),
+					dest)
+			minst(me, MOVEB, reg * 010 + diff1, _datad_N0)
+			immed(me, 3)
+		elseif i > 1  cand  i <= 8
+		   then reg := g_pp_set(me,
+					g_tenv$add_puse(e.tenv, _use_cown, num),
+					dest)
+			ainst(me, ADDQB, i // 010, reg + diff2)
+			immed(me, 3)
+		elseif i >= 0370 cand i <= 0377
+		   then reg := g_pp_set(me,
+					g_tenv$add_puse(e.tenv, _use_cown, num),
+					dest)
+			ainst(me, SUBQB, (0400 - i) // 010, reg + diff2)
+			immed(me, 3)
+		elseif i >= 0 cand i <= 0177777
+		   then reg := g_pp_set(me,
+					g_tenv$add_puse(e.tenv, _use_cown, num),
+					dest)
+			minst(me, MOVEW, reg * 010 + diff1, _immed)
+			immed(me, i)
+			immed(me, 2)
+		elseif i >= -8  cand  i <= -1
+		   then reg := g_pp_set(me,
+					g_tenv$add_puse(e.tenv, _use_cown, num),
+					dest)
+			ainst(me, SUBQ, -i // 010, reg)
+		else g_move_src(e, dest, _immed, i) end
+	   others:
+	   end
+	end g_vinit
+
+g_pass_through1 = proc (e: g_env, args: decllist, t: typespec, s: stmt)
+								returns (bool)
+	resigs: namelist
+	tagcase s.abs
+	   tag resignal_ (ss: resignalstmt):
+		s := ss.stmt
+		resigs := ss.resigs
+	   others:
+		resigs := namelist$new()
+	   end
+	tagcase s.abs
+	   tag invoke (inv: invoke):
+		tagcase inv.apply.typespec.abs
+		   tag apply (ta: appletype):
+			return(typelist$empty(ta.vals)  cand
+			       g_pass_invoke(e, args, t, inv, resigs))
+		   others:
+		   end
+	   tag return_ (vals: exprlist):
+		if exprlist$size(vals) = 1
+		   then tagcase g_strip(exprlist$bottom(vals)).abs
+			   tag invoke (inv: invoke):
+				return(g_pass_invoke(e, args, t, inv, resigs))
+			   others:
+			   end
+		   end
+	   tag for_ (ss: forstmt):
+		if stmtlist$size(ss.body.stmts) = 1  cand
+		   decllist$empty(ss.anys)
+		   then tagcase stmtlist$bottom(ss.body.stmts).abs
+			   tag yield_ (vals: exprlist):
+				tagcase ss.vars
+				   tag new (decls: decllist):
+					return(g_decl_match(decls, vals)  cand
+					       g_pass_invoke(e, args, t,
+							     ss.call, resigs))
+				   others:
+				   end
+			   others:
+			   end
+		   end
+	   others:
+	   end
+	return(false)
+	end g_pass_through1
+
+g_pass_through2 = proc (e: g_env, args: decllist, t: typespec, stmts: stmtlist)
+								returns (bool)
+	s: stmt := stmtlist$bottom(stmts)
+	resigs: namelist
+	tagcase s.abs
+	   tag resignal_ (ss: resignalstmt):
+		s := ss.stmt
+		resigs := ss.resigs
+	   others:
+		resigs := namelist$new()
+	   end
+	tagcase s.abs
+	   tag declinit (di: declinit):
+		if ~decllist$empty(di.anys)
+		   then return(false) end
+		tagcase di.expr.abs
+		   tag invoke (inv: invoke):
+			tagcase inv.apply.typespec.abs
+			   tag apply (ta: appletype):
+				tagcase stmtlist$top(stmts).abs
+				   tag return_ (vals: exprlist):
+					return(g_decl_match(di.decls, vals)
+						 cand
+					       g_pass_invoke(e, args, t,
+							     inv, resigs))
+				   others:
+				   end
+			   others:
+			   end
+		   others:
+		   end
+	   others:
+	   end
+	return(false)
+	end g_pass_through2
+
+g_pass_invoke = proc (e: g_env, args: decllist, t: typespec, inv: invoke,
+				resigs: namelist) returns (bool)
+	tagcase inv.apply.abs
+	   tag apply, op:
+		x: expr := inv.apply
+		if t ~= x.typespec  cand
+		   g_decl_match(args, inv.args) cand
+		   g_resignals_all(x.typespec, resigs)
+		   then te: g_tenv := e.tenv
+			val: mref, pflag: int :=
+				g_tenv$store_rdesc(te, x, exprlist$size(inv.args))
+			if pflag ~= _plain
+			   then g_tenv$add_puse(te, _use_rdesc, val)
+			   else g_tenv$add_use(te, _use_rdesc, val)
+			   end
+			return(true)
+		   end
+	   others:
+	   end
+	return(false)
+	end g_pass_invoke
+
+g_resignals_all = proc (t: typespec, resigs: namelist) returns (bool)
+	tagcase t.abs
+	   tag apply (at: appletype):
+		for sig: exception in exceptionlist$elements(at.sigs) do
+			oops: bool := true
+			for n: name in namelist$elements(resigs) do
+				if n = sig.name
+				   then oops := false
+					break
+				   end
+				end
+			if oops
+			   then return(false) end
+			end
+		return(true)
+	   others:
+		return(false)
+	   end
+	end g_resignals_all
+
+g_qproc = proc (e: g_env, s: stmt) returns (bool)
+	tagcase s.abs
+	   tag assn (sa: assn):
+		if idnlist$size(sa.left) ~= 1  cor
+		   exprlist$size(sa.right) ~= 1  cor
+		   ~decllist$empty(sa.anys)
+		   then return(false) end
+		dest: locate := idnlist$bottom(sa.left).val
+		return(~locate$is_var(dest)  cand
+		       g_ezexpr(e, exprlist$bottom(sa.right), dest))
+	   tag invoke (sa: invoke):
+		sel: int
+		tagcase sa.apply.abs
+		   tag op (cop: clusterop):
+			if str$indexs("set_", cop.name) ~= 1
+			   then exit toohard end
+			tagcase cop.type_.abs
+			   tag select (selt: seltype):
+				if selt.gen.unique ~= "record"
+				   then exit toohard end
+				sel := 4 * g_sel(str$rest(cop.name, 5),
+						 selt.parms)
+			   others:
+				exit toohard
+			   end
+		   others:
+			exit toohard
+		   end
+		x: expr := g_strip(exprlist$bottom(sa.args))
+		y: expr := g_strip(exprlist$top(sa.args))
+		if g_is_hard(x) >= _medium  cor  g_is_hard(y) >= _medium
+		   then exit toohard end
+		tagcase x.abs
+		   tag idn (id: idn):
+			tagcase id.val
+			   tag var (num: int):
+				if num = 0
+				   then g_ezexpr(e, y,
+						 locate$make_disp
+						     (regdisp${reg:  _RR,
+							       disp: sel}))
+					return(true)
+				   end
+			   others:
+			   end
+		   others:
+		   end
+		g_ezexpr(e, x, locate$make_areg(_R1))
+		g_ezexpr(e, y, locate$make_disp(regdisp${reg:  _R1,
+							 disp: sel}))
+		return(true)
+	   tag return_ (sa: exprlist):
+		return(exprlist$empty(sa)  cor
+		       g_ezexpr(e, exprlist$bottom(sa), locate$make_areg(_RR)))
+	   others:
+	   end except when toohard: end
+	return(false)
+	end g_qproc
+
+g_ezexpr = proc (e: g_env, x: expr, dest: locate) returns (bool)
+        me: g_menv := e.menv
+	x := g_strip(x)
+	tagcase x.abs
+	   tag idn (id: idn):
+		tagcase id.val
+		   tag var (num: int):
+			if num > 0
+			   then g_move_src(e, dest, _idisp_SP, 4)
+			   else g_move_src(e, dest, _addrd_RR, 0)
+			   end
+		   others:
+			g_move_idn(e, dest, id, x)
+                   end
+		return(true)
+	   tag int_, bool_, char_, null_, real_, str, apply, op:
+		g_const_expr(e, x, dest)
+		return(true)
+	   tag a_cons, s_cons:
+		if is_const_expr(x)
+		   then g_const_expr(e, x, dest)
+			return(true)
+		   end
+	   tag invoke (inv: invoke):
+		if exprlist$size(inv.args) ~= 1
+		   then exit toohard end
+		tagcase inv.apply.abs
+		   tag op (cop: clusterop):
+			tagcase cop.type_.abs
+			   tag cluster_ (clut: clutype):
+				n: str := clut.gen.unique
+				if n = "sequence"  cor  n = "_vec"
+				   then if cop.name ~= "size"
+					   then exit toohard end
+					reg: int := g_qzexpr(e, inv, dest)
+					if reg >= 0
+					   then minst(me, MOVE, datad_N7_,
+							_indir + reg)
+						ainst(me, ASR, 1, _datad_N7)
+						g_move_src(e, dest,
+							   _datad_N7, 0)
+						return(true)
+					   end
+				elseif n = "string"  cor  n = "_bytevec"
+				   then if cop.name ~= "size"
+					   then exit toohard end
+					reg: int := g_qzexpr(e, inv, dest)
+					if reg >= 0
+					   then g_move_src(e, dest,
+							   _indir + reg, 0)
+						return(true)
+					   end
+				elseif n ~= "array"
+				   then exit toohard end
+				n := cop.name
+				if n = "size"
+				   then reg: int := g_qzexpr(e, inv, dest)
+					if reg >= 0
+					   then minst(me, MOVE, datad_N7_,
+						      _idisp + reg)
+						immed(me, _dv_max)
+						ainst(me, ADDQ, 3, _datad_N7)
+						g_move_src(e, dest,
+							   _datad_N7, 0)
+						return(true)
+					   end
+				elseif n = "low"
+				   then reg: int := g_qzexpr(e, inv, dest)
+					if reg >= 0
+					   then g_move_src(e, dest,
+							   _idisp + reg,
+							   _dv_low)
+						return(true)
+					   end
+				elseif n = "high"
+				   then reg: int := g_qzexpr(e, inv, dest)
+					if reg >= 0
+					   then minst(me, MOVE, datad_N7_,
+						      _idisp + reg)
+						immed(me, _dv_low)
+						ainst(me, ADD, _N7,
+						      _idisp + reg)
+						immed(me, _dv_max)
+						g_move_src(e, dest,
+							   _datad_N7, 0)
+						return(true)
+					   end
+				end
+			   tag select (selt: seltype):
+				n: name := selt.gen.unique
+				if (n = "record"  cor  n = "struct")  cand
+				   str$indexs("get_", cop.name) = 1
+				   then reg: int := g_qzexpr(e, inv, dest)
+					if reg >= 0
+					   then g_move_src(e, dest,
+							   _idisp + reg,
+							   4 * g_sel(str$rest
+									 (cop.name,
+									  5),
+								     selt.parms))
+						return(true)
+					   end
+				elseif n = "oneof"  cand
+				       str$indexs("make_", cop.name) = 1
+				   then if is_const_expr(exprlist$bottom(inv.args))
+					   then g_const_expr(e, x, dest)
+						return(true)
+					elseif g_is_compact(selt.parms, true)
+					   then i: int, fast: bool :=
+						    g_sel_info(str$rest(cop.name, 6),
+							       selt.parms)
+						if ~fast
+						   then exit toohard end
+						reg: int := g_qzexpr(e, inv, dest)
+						if reg >= 0
+						   then ainst(me, ADDA, reg, _immed)
+							immed(me, i * 0400)
+							immed(me, 0)
+							g_move_src(e, dest,
+								   _addrd + reg, 0)
+							return(true)
+						   end
+					end
+				end
+			   others:
+			   end
+		   others:
+		   end
+	   others:
+	   end except when toohard: end
+	return(false)
+	end g_ezexpr
+
+g_qzexpr = proc (e: g_env, inv: invoke, dest: locate) returns (int)
+	reg: int := _RR
+	tagcase dest
+	   tag areg (dreg: int):
+		if dreg = _R1
+		   then reg := _R1 end
+	   tag disp (rd: regdisp):
+		if rd.reg = _RR
+		   then reg := _R1 end
+	   others:
+	   end
+	if ~g_ezexpr(e, exprlist$bottom(inv.args), reglocs[reg + _addrd])
+	   then reg := -1 end
+	return(reg)
+	end g_qzexpr

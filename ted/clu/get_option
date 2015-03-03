@@ -1,0 +1,78 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+% The following procedure is used to get an option character
+% from the user with an optional numeric argument.  The caller
+% specifies the prompt string for the user, the valid
+% characters, the help string for the option (displayed when
+% the user type '?'), and a flag to indicate whether the cursor
+% should be displayed on the top line (where the prompt is
+% displayed) or in the calling environment (where the text is
+% displayed) (if tc is true, the calling environment is
+% displayed).
+
+% As a convention to cut down on the redisplay, there will be
+% no prompting display or other redisplay unless the user has
+% not typed the option character for some time after the start
+% of the procedure.  Presumably, anyone typing ahead that much
+% needs no prompting, and anyone in doubt will wait for the
+% prompt.
+
+get_option = proc (e: env, prompt, valid, help: string, tc: bool)
+	       returns (int, char)
+	       signals (errmsg(string))
+    done: bool := false
+    disp: string
+    arg: int := e.this_arg
+    num: string := ""
+
+    % Now get a character and test it for validity. If it is
+    % invalid we complain about it. ^G always quits, ? always
+    % prints the help. Lower-case chars are converted to
+    % upper-case.  Numbers are used to accumulate arguments.
+
+    need_top_display: bool
+    if tc
+       then need_top_display := ~_pending_chars()
+       else need_top_display := ~_pending_wait()
+	    tc := need_top_display
+       end
+    c: char := ' '
+    while true do
+	if need_top_display
+	   then if ~done
+		   then disp := prompt || " (" || valid || "?): " || num
+			done := true
+		   end
+		top_display(e, disp)
+	   end
+	if tc then env$display(e) end
+	tc := true
+	c := _getc()
+	if c >= 'a' cand c <= 'z' then c := i2c(c2i(c)-32)
+	 elseif c = ctrlg then signal errmsg(quit_msg)
+	 end
+	if need_top_display then top_display(e, string$append(disp, c)) end
+	need_top_display := true
+	if c = '?'
+	   then % print the help
+		type_string(e, help, "---- Help for " || prompt)
+	 elseif (c = '-'  cand  string$empty(num))  cor
+		(c >= '0'  cand  c <= '9')
+	   then % accumulate numeric arg
+		num := string$append(num, c)
+		if done then disp := string$append(disp, c) end
+		need_top_display := ~_pending_chars()
+	 elseif c = ctrll
+	   then % redisplay
+		env$clear(e)
+	 elseif string$empty(valid) cor string$indexc(c, valid) > 0
+	   then % got the option
+		if num = "-"
+		   then arg := -arg
+		 elseif ~string$empty(num)
+		   then arg := arg * int$parse(num) end
+		return (arg, c)
+	 else % a bad character
+	      _bell()
+	 end
+	end except when overflow: signal errmsg("Overflow!") end
+    end get_option

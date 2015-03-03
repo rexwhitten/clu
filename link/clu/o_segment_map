@@ -1,0 +1,51 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+Output_Segment_Map = proc (Env: lnk_env);
+    LS: stream;
+    Seg_N: int;
+    Out: out_link_chan := Env.Output;
+    Type_It: bool := Env.Options.Do_Type_Seg_Map;
+    if (Type_It)
+       then LS := Env.Options.List_Stream;
+	    stream$PutL(LS, "\nSegment Map:");
+	    Seg_N := 0;
+       end;
+    Locs: locates := Env.Locates;
+    Loc:  locate  := Locs.Seg_Map;
+    Old_Addr: address := Env.Pointers.Seg_Map;		%% Remember old address.
+    Env.Pointers.Seg_Map := Loc.Start_Address;
+    for Addr: address, Size: int, Name: string
+	  in locates$All_Seg_Info(Locs) do
+	Output_Int(Size, Env);
+	Output_Address(Addr, Env);
+	   except when Not_Possible:
+		       Output_Int(-1, Env);
+		  end;
+	if (Type_It)
+	   then stream$PutS(     LS, "   " );
+		stream$PutLeft(  LS, Name, 15 );
+		stream$PutRight( LS, int$Unparse(Seg_N), 3 );
+		stream$PutC(     LS, ':' );
+		Addr := address$Fix_Address(Addr,
+					    Env.Locates);   %% Make sure addr is fixed.
+		stream$PutRight( LS, address$HUnparse(Addr), 9 );
+		stream$PutRight( LS, ("0" || address$OUnparse(Addr)), 13 );
+		stream$PutC(     LS, ',' );
+		stream$PutRight( LS, i_HUnparse(Size), 8 );
+		stream$PutRight( LS, i_OUnparse(Size), 8 );
+		stream$PutL(     LS, " bytes" );
+		Seg_N := Seg_N + 1;
+	   end;
+	   except when Not_Possible(*):
+		       stream$PutL(LS, "");
+		       Seg_N := Seg_N + 1;
+		  end;
+	end;
+    if (address$Is_Null(Old_Addr))
+       then Output_Int(0, Env);
+	    Output_Zero_Ref(Env);	  %% Output back pointer.  0 for end.
+       else Output_Int(Locs.Seg_Map.Size, Env);
+	    Output_Address(Old_Addr, Env);
+       end;
+    out_link_chan$Force_Out(Out);
+    end Output_Segment_Map;

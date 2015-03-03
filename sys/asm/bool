@@ -1,0 +1,75 @@
+; Copyright Massachusetts Institute of Technology 1980, 1989
+
+bool = cluster is and, or, not, equal, similar, copy, print, 
+			encode, decode, _gcd
+
+and = qproc (b1, b2: cvt) returns (cvt)
+	move	rr,n1
+	and	b1,n1
+	return(n1)
+	end and
+
+or = qproc (b1, b2: cvt) returns (cvt)
+	move	rr,n1
+	or	b1,n1
+	return(n1)
+	end or
+
+not = qproc (b: cvt) returns (cvt)
+	move	rr,n1
+	seq	n1
+	return(n1)
+	end not
+
+equal = qproc (b1, b2: cvt) returns (cvt)
+	moveq	0,n1
+	cmpa	b1,rr
+	seq	n1
+	return(n1)
+	end equal
+
+similar = qproc (b1, b2: cvt) returns (cvt)
+	moveq	0,n1
+	cmpa	b1,rr
+	seq	n1
+	return(n1)
+	end similar
+
+copy = qproc (b: cvt) returns (cvt)
+	return(rr)
+	end copy
+
+print = proc (b: cvt, pst: pstream)
+	lea	"false",rr
+	ifne	move	b,n1
+	then	lea	"true",rr
+	end
+	pstream$text(pst, rr)
+	end print
+
+encode = proc (b: cvt, ist: istream) signals (not_possible(string))
+	move	b, n1
+	add	n1, n1
+	addqb	1, n1			;; Integerize boolean value.
+	istream$%puti(rr, n1)
+		resignal not_possible
+	end encode
+
+decode = proc (ist: istream) returns (cvt)
+				signals (end_of_file, not_possible(string))
+	istream$%geti(rr)
+		resignal end_of_file, not_possible
+	move	rr, n1
+	ifeq	asr	1, n1
+		beq	this		;; False?
+		cmpi	0377, n1	;; True?
+	then	return (n1)		;; Yes (one or the other)
+		end
+	signal	not_possible("bad format")	;; Neither.
+	end decode
+
+_gcd = qproc (b: cvt, tab: gcd_tab) returns (int)
+	return(0)
+	end _gcd
+
+end bool

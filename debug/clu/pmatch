@@ -1,0 +1,28 @@
+%% Copyright Massachusetts Institute of Technology 1981, 1989
+
+%%% Print out the names of routines that are loaded and available for use whose
+%%% names contain Rtn as a substring. [user-interface routine]
+%%% (SEP/Nov  7 1984)
+
+PMatch = proc (Rtn: string);
+    ss = sequence[string]
+    Flag: bool := _Enter_System();
+    Rtn_Tab: _rtn_table := _Get_Rtn_Table();
+    PO: stream := stream$Primary_Output();
+    for RI: _rtn_info in _rtn_table$Elements(Rtn_Tab) do
+	if (string$IndexS(Rtn, RI.Name) ~= 0)
+	   then stream$PutS(PO, RI.Name);
+		stream$PutC(PO, '(');
+		First: bool := true;
+		for Arg_S: string in ss$Elements(RI.Args_Names) do
+		    if (First)
+		       then First := false;
+		       else stream$PutS(PO, ", ");
+		       end;
+		    stream$PutS(PO, Arg_S);
+		    end;
+		stream$PutL(PO, ")");
+	   end;
+	end;
+    _Exit_System(Flag);
+    end PMatch;

@@ -1,0 +1,14 @@
+%% Copyright Massachusetts Institute of Technology 1984, 1989
+
+#extend
+
+Finish_Output = proc (Env: lnk_env, Get_Times: bool);
+    if (Get_Times) then Env.Times.Outs.FndRtns := Run_Time(); end;
+    Output_Found_Rtns(Env);
+    if (Get_Times) then Env.Times.Outs.RtnChns := Run_Time(); end;
+    Output_Rtn_Chains(Env);
+    if (Get_Times) then Env.Times.Outs.Pnts := Run_Time(); end;
+    Output_Pointers(Env);
+    Env.Output.Entry_Address := address$Make_Specific(vEntry_Address);
+    out_link_chan$Write_Header(Env.Output, Env);
+    end Finish_Output;

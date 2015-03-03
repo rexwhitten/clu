@@ -1,0 +1,1015 @@
+%	GINST CLU
+% Copyright Massachusetts Institute of Technology 1980, 1989
+%	MC68000 Assembler: instruction generator
+
+# extend
+
+_nothing = 0200000
+_single  = 0300000
+_usenum  = 0400000
+
+% Dy,Dx    or    -(Ay),-(Ax)
+
+g_form_01 = proc (e: g_env, opcode: int, src, dst: operand) returns (bool)
+	tagcase src
+	   tag datad (sreg: int):
+		tagcase dst
+		   tag datad (dreg: int):
+			ainst(e.menv, opcode, dreg, sreg)
+			return(true)
+		   others:
+		   end
+	   tag pdecr (sreg: int):
+		tagcase dst
+		   tag pdecr (dreg: int):
+			ainst(e.menv, opcode + 010, dreg, sreg)
+			return(true)
+		   others:
+		   end
+	   others:
+	   end
+	return(false)
+	end g_form_01
+
+% ea,Dn    or    Dn,ea
+
+g_form_02 = proc (e: g_env, opcode: int, src, dst: operand) returns (bool)
+	tagcase src
+	   tag datad (sreg: int):
+		tagcase dst
+		   tag datad (dreg: int):
+			ainst(e.menv, opcode, dreg, _datad + sreg)
+			return(true)
+		   tag indir, pincr, pdecr, idisp, index, text, data, var:
+			l, r: int := g_first(e, opcode + 0400, sreg, dst)
+			g_rest(e, l, r)
+			return(true)
+		   others:
+		   end
+	   tag addrd (sreg: int):
+		if 0 ~= i_and(opcode, 010000)  cand  0 ~= i_and(opcode, 0300)
+		   then tagcase dst
+			   tag datad (dreg: int):
+				ainst(e.menv, opcode, dreg, _addrd + sreg)
+				return(true)
+			   others:
+			   end
+		   end
+	   tag none, rlist, label, this, next:
+	   others:
+		tagcase dst
+		   tag datad (reg: int):
+			l, r: int := g_first(e, opcode, reg, src)
+			g_rest(e, l, r)
+			return(true)
+		   others:
+		   end
+	   end
+	return(false)
+	end g_form_02
+
+% #,ea
+
+g_form_03 = proc (e: g_env, opcode: int, src, dst: operand) returns (bool)
+	me: g_menv := e.menv
+	tagcase src
+	   tag int_ (i: int):
+		tagcase dst
+		   tag datad, indir, pincr, pdecr, idisp, index, text, data, var:
+			l, r: int := g_first(e, opcode, 0, dst)
+			sz: int := i_and(opcode, 0300)
+			if sz = 0
+			   then if i < -0400  cor  i > 0377
+				   then g_env$err(e, "illegal immediate value")
+				   end
+				immed(me, i // 0400)
+			elseif sz = 0100
+			   then immed(me, i)
+			elseif i < 0
+			   then immed(me, -1)
+				immed(me, i)
+			else immed(me, 0)
+			     immed(me, i)
+			end
+			g_rest(e, l, r)
+			return(true)
+		   tag sr:
+			if ~(opcode = ANDIW  cor
+			     opcode = ORIW  cor
+			     opcode = EORIW)
+			   then return(false) end
+			xinst(me, opcode, _sr)
+			immed(me, i)
+			return(true)
+		   tag ccr:
+			if ~(opcode = ANDIB  cor
+			     opcode = ORIB  cor
+			     opcode = EORIB)
+			   then return(false) end
+			xinst(me, opcode, _sr)
+			if i < -0400  cor  i > 0377
+			   then g_env$err(e, "illegal immediate value") end
+			immed(me, i // 0400)
+			return(true)
+		   others:
+		   end
+	   tag pair (pair: intpair):
+		tagcase dst
+		   tag datad, indir, pincr, pdecr, idisp, index, text, data, var:
+			if 0200 = i_and(opcode, 0300)
+			   then l, r: int := g_first(e, opcode, 0, dst)
+				immed(me, pair.left)
+				immed(me, pair.right)
+				g_rest(e, l, r)
+				return(true)
+			   end
+		   others:
+		   end
+	   others:
+	   end
+	return(false)
+	end g_form_03
+
+% Dx,Dy    or    #,Dy    or    ea
+
+g_form_04 = proc (e: g_env, opcode: int, src, dst: operand) returns (bool)
+	tagcase src
+	   tag datad (sreg: int):
+		tagcase dst
+		   tag datad (dreg: int):
+			ainst(e.menv, opcode + 040, sreg, dreg)
+			return(true)
+		   others:
+		   end
+	   tag int_ (i: int):
+		if i < 1  cor  i > 8
+		   then g_env$err(e, "illegal immediate value") end
+		tagcase dst
+		   tag datad (reg: int):
+			ainst(e.menv, opcode, i // 010, reg)
+			return(true)
+		   others:
+		   end
+	   tag none:
+		tagcase dst
+		   tag indir, pincr, pdecr, idisp, index, text, data, var:
+			if 0100 = i_and(opcode, 0300)
+			   then l, r: int := g_first(e, opcode + 0200, 0, dst)
+				g_rest(e, l, r)
+				return(true)
+			   end
+		   others:
+		   end
+	   others:
+	   end
+	return(false)
+	end g_form_04
+
+% label
+
+g_form_05 = proc (e: g_env, opcode: int, src, dst: operand) returns (bool)
+	tagcase src
+	   tag none:
+		tagcase dst
+		   tag label (id: idn):
+			loc: int := binst(e.menv, opcode)
+			tagcase id.kind
+			   tag label (lab: int):
+				g_menv$store_offset(e.menv, loc, lab)
+			   tag flabel (locs: ai):
+				ai$addh(locs, loc)
+			   others:
+			   end
+			return(true)
+		   tag this:
+			g_env$add_this(e, binst(e.menv, opcode))
+			return(true)
+		   tag next:
+			g_env$add_next(e, binst(e.menv, opcode))
+			return(true)
+		   others:
+		   end
+	   others:
+	   end
+	return(false)
+	end g_form_05
+
+% Dn,ea    or    #,ea
+
+g_form_06 = proc (e: g_env, opcode: int, src, dst: operand) returns (bool)
+	tagcase dst
+	   tag datad (dreg: int):
+		tagcase src
+		   tag datad (sreg: int):
+			ainst(e.menv, opcode, sreg, _datad + dreg)
+			return(true)
+		   tag int_ (i: int):
+			if i < 0  cor  i > 31
+			   then g_env$err(e, "illegal bit number") end
+			me: g_menv := e.menv
+			xinst(me, opcode + 03400, _datad + dreg)
+			immed(me, i)
+			return(true)
+		   others:
+		   end
+	   tag indir, pincr, pdecr, idisp, index, text, data, var:
+		tagcase src
+		   tag datad (reg: int):
+			l, r: int := g_first(e, opcode, reg, dst)
+			g_rest(e, l, r)
+			return(true)
+		   tag int_ (i: int):
+			if i < 0  cor  i > 7
+			   then g_env$err(e, "illegal bit number") end
+			l, r: int := g_first(e, opcode + 03400, 0, dst)
+			me: g_menv := e.menv
+			immed(me, i)
+			g_rest(e, l, r)
+			return(true)
+		   others:
+		   end
+	   others:
+	   end
+	return(false)
+	end g_form_06
+
+% ea,Dn
+
+g_form_07 = proc (e: g_env, opcode: int, src, dst: operand) returns (bool)
+	tagcase dst
+	   tag datad (dreg: int):
+		tagcase src
+		   tag addrd (sreg: int):
+			if 0 ~= i_and(opcode, 030000)  cand
+			   0 ~= i_and(opcode, 0300)
+			   then ainst(e.menv, opcode, dreg, _addrd + sreg)
+				return(true)
+			   end
+		   tag none, rlist, this, next, label:
+		   others:
+			l, r: int := g_first(e, opcode, dreg, src)
+			g_rest(e, l, r)
+			return(true)
+		   end
+	   others:
+	   end
+	return(false)
+	end g_form_07
+
+% ea
+
+g_form_08 = proc (e: g_env, opcode: int, src, dst: operand) returns (bool)
+	tagcase src
+	   tag none:
+		ctl: bool := opcode = JMP  cor  opcode = JSR  cor  opcode = PEA
+		tagcase dst
+		   tag indir, idisp, index, text, data, var, expr:
+			l, r: int := g_first(e, opcode, 0, dst)
+			g_rest(e, l, r)
+			return(true)
+		   tag pcdsp, pcidx:
+			if ctl
+			   then l, r: int := g_first(e, opcode, 0, dst)
+				g_rest(e, l, r)
+				return(true)
+			   end
+		   tag label (id: idn):
+			if ctl
+			   then me: g_menv := e.menv
+				xinst(me, opcode, _pcdsp)
+				loc: int := pcrel(me)
+				tagcase id.kind
+				   tag flabel (locs: ai):
+					ai$addh(locs, loc)
+				   tag label (lab: int):
+					g_menv$store_offset(me, loc, lab)
+				   others:
+				   end
+				return(true)
+			   end
+		   tag this:
+			if ctl
+			   then me: g_menv := e.menv
+				xinst(me, opcode, _pcdsp)
+				g_env$add_this(e, pcrel(me))
+				return(true)
+			   end
+		   tag next:
+			if ctl
+			   then me: g_menv := e.menv
+				xinst(me, opcode, _pcdsp)
+				g_env$add_next(e, pcrel(me))
+				return(true)
+			   end
+		   tag datad, pincr, pdecr:
+			if ~ctl
+			   then l, r: int := g_first(e, opcode, 0, dst)
+				g_rest(e, l, r)
+				return(true)
+			   end
+		   others:
+		   end
+	   others:
+	   end
+	return(false)
+	end g_form_08
+
+% ea,An
+
+g_form_09 = proc (e: g_env, opcode: int, src, dst: operand) returns (bool)
+	tagcase dst
+	   tag addrd (reg: int):
+		tagcase src
+		   tag indir, idisp, index, pcdsp, pcidx, text, data, var, expr:
+			l, r: int := g_first(e, opcode, reg, src)
+			g_rest(e, l, r)
+			return(true)
+		   tag datad, addrd, pincr, pdecr, int_, pair:
+			if opcode ~= LEA
+			   then l, r: int := g_first(e, opcode, reg, src)
+				g_rest(e, l, r)
+				return(true)
+			   end
+		   tag label (id: idn):
+			if opcode = LEA
+			   then me: g_menv := e.menv
+				ainst(me, opcode, reg, _pcdsp)
+				loc: int := pcrel(me)
+				tagcase id.kind
+				   tag flabel (locs: ai):
+					ai$addh(locs, loc)
+				   tag label (lab: int):
+					g_menv$store_offset(me, loc, lab)
+				   others:
+				   end
+				return(true)
+			   end
+		   tag this:
+			if opcode = LEA
+			   then me: g_menv := e.menv
+				ainst(me, opcode, reg, _pcdsp)
+				g_env$add_this(e, pcrel(me))
+				return(true)
+			   end
+		   tag next:
+			if opcode = LEA
+			   then me: g_menv := e.menv
+				ainst(me, opcode, reg, _pcdsp)
+				g_env$add_next(e, pcrel(me))
+				return(true)
+			   end
+		   others:
+		   end
+	   others:
+	   end
+	return(false)
+	end g_form_09
+
+% (Ay)+,(Ax)+
+
+g_form_10 = proc (e: g_env, opcode: int, src, dst: operand) returns (bool)
+	tagcase src
+	   tag pincr (sreg: int):
+		tagcase dst
+		   tag pincr (dreg: int):
+			ainst(e.menv, opcode, dreg, sreg)
+			return(true)
+		   others:
+		   end
+	   others:
+	   end
+	return(false)
+	end g_form_10
+
+% Dn,label
+
+g_form_11 = proc (e: g_env, opcode: int, src, dst: operand) returns (bool)
+	tagcase src
+	   tag datad (reg: int):
+		tagcase dst
+		   tag label (id: idn):
+			me: g_menv := e.menv
+			xinst(me, opcode, reg)
+			loc: int := pcrel(me)
+			tagcase id.kind
+			   tag label (lab: int):
+				g_menv$store_offset(me, loc, lab)
+			   tag flabel (locs: ai):
+				ai$addh(locs, loc)
+			   others:
+			   end
+			return(true)
+		   tag this:
+			me: g_menv := e.menv
+			xinst(me, opcode, reg)
+			g_env$add_this(e, pcrel(me))
+			return(true)
+		   tag next:
+			me: g_menv := e.menv
+			xinst(me, opcode, reg)
+			g_env$add_next(e, pcrel(me))
+			return(true)
+		   others:
+		   end
+	   others:
+	   end
+	return(false)
+	end g_form_11
+
+% Dn,ea
+
+g_form_12 = proc (e: g_env, opcode: int, src, dst: operand) returns (bool)
+	tagcase src
+	   tag datad (reg: int):
+		tagcase dst
+		   tag datad, indir, pincr, pdecr, idisp, index, text, data, var:
+			l, r: int := g_first(e, opcode, reg, dst)
+			g_rest(e, l, r)
+			return(true)
+		   others:
+		   end
+	   others:
+	   end
+	return(false)
+	end g_form_12
+
+% Dx,Dy    or    Ax,Ay    or    Dx,Ay
+
+g_form_13 = proc (e: g_env, opcode: int, src, dst: operand) returns (bool)
+	tagcase src
+	   tag datad (sreg: int):
+		tagcase dst
+		   tag datad (dreg: int):
+			ainst(e.menv, opcode + 0100, sreg, dreg)
+			return(true)
+		   tag addrd (dreg: int):
+			ainst(e.menv, opcode + 0210, sreg, dreg)
+			return(true)
+		   others:
+		   end
+	   tag addrd (sreg: int):
+		tagcase dst
+		   tag addrd (dreg: int):
+			ainst(e.menv, opcode + 0110, sreg, dreg)
+			return(true)
+		   others:
+		   end
+	   others:
+	   end
+	return(false)
+	end g_form_13
+
+% Dn
+
+g_form_14 = proc (e: g_env, opcode: int, src, dst: operand) returns (bool)
+	tagcase src
+	   tag none:
+		tagcase dst
+		   tag datad (reg: int):
+			xinst(e.menv, opcode, reg)
+			return(true)
+		   others:
+		   end
+	   others:
+	   end
+	return(false)
+	end g_form_14
+
+% An,#
+
+g_form_15 = proc (e: g_env, opcode: int, src, dst: operand) returns (bool)
+	tagcase src
+	   tag addrd (reg: int):
+		tagcase dst
+		   tag int_ (i: int):
+			xinst(e.menv, opcode, reg)
+			immed(e.menv, i)
+			return(true)
+		   others:
+		   end
+	   others:
+	   end
+	return(false)
+	end g_form_15
+
+% ea,ea
+
+g_form_16 = proc (e: g_env, opcode: int, src, dst: operand) returns (bool)
+	tagcase src
+	   tag sr:
+		if opcode ~= MOVEW
+		   then return(false) end
+		tagcase dst
+		   tag datad, indir, pincr, pdecr, idisp, index, var, text, data:
+		       l, r: int := g_first(e, MOVESRM, 0, dst)
+		       g_rest(e, l, r)
+		       return(true)
+		   others:
+		       return(false)
+		   end
+	   tag ccr:
+		if opcode ~= MOVEW
+		   then return(false) end
+		tagcase dst
+		   tag datad, indir, pincr, pdecr, idisp, index, var, text, data:
+		       l, r: int := g_first(e, MOVECCRM, 0, dst)
+		       g_rest(e, l, r)
+		       return(true)
+		   others:
+		       return(false)
+		   end
+	   tag usp:
+		if opcode ~= MOVE
+		   then return(false) end
+		tagcase dst
+		   tag addrd (reg: int):
+		       immed(e.menv, MOVEUSPM + reg)
+		       return(true)
+		   others:
+		       return(false)
+		   end
+	   tag none, rlist, label, this, next:
+		return(false)
+	   tag addrd:
+		if opcode = MOVEB
+		   then return(false) end
+	   others:
+	   end
+	des: int
+	dl: int := _nothing
+	dr: int := 0
+	tagcase dst
+	   tag datad (reg: int):
+		des := reg * 010 + datad_
+	   tag indir (reg: int):
+		des := reg * 010 + indir_
+	   tag pincr (reg: int):
+		des := reg * 010 + pincr_
+	   tag pdecr (reg: int):
+		des := reg * 010 + pdecr_
+	   tag idisp (pair: operpair):
+		des := pair.reg * 010 + idisp_
+		dl := _single
+		dr := pair.disp
+	   tag index (pair: operpair):
+		des := pair.reg * 010 + index_
+		dl := _single
+		dr := pair.disp
+	   tag text (addr: int):
+		if addr > 0  cand  addr < 0100000
+		   then des := short_
+			dl := _single
+		   else des := long_
+			dl := 0
+		   end
+		dr := addr
+	   tag data (addr: int):
+		des := long_
+		dl := _usenum
+		dr := g_tenv$add_use(e.tenv, _use_global, mref$make_val(addr))
+	   tag var (id: idn):
+		tagcase id.kind
+		   tag epvar (disp: int):
+			des := idisp_EP_
+			dl := _single
+			dr := disp
+		   tag spvar (disp: int):
+			des := idisp_SP_
+			dl := _single
+			dr := disp
+		   tag rown (num: mref):
+			des := long_
+			dl := _usenum
+			dr := g_tenv$add_use(e.tenv, _use_rown, num)
+		   tag cown (num: mref):
+			des := long_
+			dl := _usenum
+			dr := g_tenv$add_use(e.tenv, _use_cown, num)
+		   tag prown (num: mref):
+			des := indir_R4_
+			dreg: int := _R4
+			tagcase src
+			   tag var (sid: idn):
+				tagcase sid.kind
+				   tag prown, pcown:
+					des := indir_R3_
+					dreg := _R3
+				   others:
+				   end
+			   others:
+			   end
+			dl := _nothing	
+			dr := g_tenv$add_puse(e.tenv, _use_rown, num)
+			if dr = 0
+			   then ainst(e.menv, MOVEA, dreg, _indir_PP)
+			   else ainst(e.menv, MOVEA, dreg, _idisp_PP)
+				immed(e.menv, 4 * dr)
+				dr := 0
+			   end
+		   tag pcown (num: mref):
+			des := indir_R4_
+			dreg: int := _R4
+			tagcase src
+			   tag var (sid: idn):
+				tagcase sid.kind
+				   tag prown, pcown:
+					des := indir_R3_
+					dreg := _R3
+				   others:
+				   end
+			   others:
+			   end
+			dl := _nothing
+			dr := g_tenv$add_puse(e.tenv, _use_cown, num)
+			if dr = 0
+			   then ainst(e.menv, MOVEA, dreg, _indir_PP)
+			   else ainst(e.menv, MOVEA, dreg, _idisp_PP)
+				immed(e.menv, 4 * dr)
+				dr := 0
+			   end
+		   tag wvec (val: mref):
+			des := long_
+			dl := _usenum
+			dr := g_tenv$add_use(e.tenv, _use_wvec, val)
+		   others:
+		   end
+	   tag sr:
+		if opcode ~= MOVEW
+		   then return(false) end
+		opcode := MOVESR
+		des := 0
+	   tag ccr:
+		if opcode ~= MOVEW
+		   then return(false) end
+		opcode := MOVECCR
+		des := 0
+	   tag usp:
+		if opcode ~= MOVE
+		   then return(false) end
+		tagcase src
+		   tag addrd (reg: int):
+		       immed(e.menv, MOVEUSP + reg)
+		       return(true)
+		   others:
+		       return(false)
+		   end
+	   others:
+		return(false)
+	   end
+	sl, sr: int := g_first(e, opcode + des * 0100, 0, src)
+	g_rest(e, sl, sr)
+	g_rest(e, dl, dr)
+	return(true)
+	end g_form_16
+
+% #,ea    (1 <= # <= 8)
+
+g_form_17 = proc (e: g_env, opcode: int, src, dst: operand) returns (bool)
+	tagcase src
+	   tag int_ (i: int):
+		if i < 1  cor  i > 8
+		   then g_env$err(e, "illegal immediate value") end
+		tagcase dst
+		   tag addrd (reg: int):
+			if 0 ~= i_and(opcode, 0300)
+			   then ainst(e.menv, opcode, i // 010, _addrd + reg)
+				return(true)
+			   end
+		   tag datad, indir, pincr, pdecr, idisp, index, text, data, var:
+			l, r: int := g_first(e, opcode, i // 010, dst)
+			g_rest(e, l, r)
+			return(true)
+		   others:
+		   end
+	   others:
+	   end
+	return(false)
+	end g_form_17
+
+% rlist,ea    or    ea,rlist
+
+g_form_18 = proc (e: g_env, opcode: int, src, dst: operand) returns (bool)
+	tagcase src
+	   tag rlist (rlist: rangelist):
+		tagcase dst
+		   tag indir, idisp, index, text, data, pcdsp, pcidx, var:
+			l, r: int := g_first(e, opcode, 0, dst)
+			val: int := 0
+			for rng: rangepair in rangelist$elements(rlist) do
+				for bit: int in int$from_to(rng.from, rng.to) do
+					val := val + 2 ** bit
+					end
+				end
+			immed(e.menv, val)
+			g_rest(e, l, r)
+			return(true)
+		   tag pdecr:
+			l, r: int := g_first(e, opcode, 0, dst)
+			val: int := 0
+			for rng: rangepair in rangelist$elements(rlist) do
+				for bit: int in int$from_to(rng.from, rng.to) do
+					val := val + 2 ** (15 - bit)
+					end
+				end
+			immed(e.menv, val)
+			g_rest(e, l, r)
+			return(true)
+		   others:
+		   end
+	   tag indir, idisp, index, text, data, pcdsp, pcidx, pincr, var:
+		tagcase dst
+		   tag rlist (rlist: rangelist):
+			l, r: int := g_first(e, opcode + 02000, 0, src)
+			val: int := 0
+			for rng: rangepair in rangelist$elements(rlist) do
+				for bit: int in int$from_to(rng.from, rng.to) do
+					val := val + 2 ** bit
+					end
+				end
+			immed(e.menv, val)
+			g_rest(e, l, r)
+			return(true)
+		   others:
+		   end
+	   others:
+	   end
+	return(false)
+	end g_form_18
+
+% Dx,d(Ay)    or    d(Ay),Dx
+
+g_form_19 = proc (e: g_env, opcode: int, src, dst: operand) returns (bool)
+	tagcase src
+	   tag datad (reg: int):
+		tagcase dst
+		   tag idisp (pair: operpair):
+			me: g_menv := e.menv
+			ainst(me, opcode + 0200, reg, pair.reg)
+			immed(me, pair.disp)
+			return(true)
+		   others:
+		   end
+	   tag idisp (pair: operpair):
+		tagcase dst
+		   tag datad (reg: int):
+			me: g_menv := e.menv
+			ainst(me, opcode, reg, pair.reg)
+			immed(me, pair.disp)
+			return(true)
+		   others:
+		   end
+	   others:
+	   end
+	return(false)
+	end g_form_19
+
+% #,Dn
+
+g_form_20 = proc (e: g_env, opcode: int, src, dst: operand) returns (bool)
+	tagcase src
+	   tag int_ (i: int):
+		if i < -0200  cor  i > 0177
+		   then g_env$err(e, "illegal immediate value") end
+		tagcase dst
+		   tag datad (reg: int):
+			ainst(e.menv, opcode, reg, i // 0400)
+			return(true)
+		   others:
+		   end
+	   others:
+	   end
+	return(false)
+	end g_form_20
+
+% <empty>
+
+g_form_21 = proc (e: g_env, opcode: int, src, dst: operand) returns (bool)
+	tagcase src
+	   tag none:
+		tagcase dst
+		   tag none:
+			immed(e.menv, opcode)
+			return(true)
+		   others:
+		   end
+	   others:
+	   end
+	return(false)
+	end g_form_21
+
+% #
+
+g_form_22 = proc (e: g_env, opcode: int, src, dst: operand) returns (bool)
+	tagcase src
+	   tag none:
+		tagcase dst
+		   tag int_ (i: int):
+			if opcode = STOP  cor  opcode = RTD
+			   then immed(e.menv, opcode)
+				immed(e.menv, i)
+			   else if i < 0  cor  i > 017
+				   then g_env$err(e, "illegal vector number")
+					i := 0
+				   end
+				xinst(e.menv, opcode, i)
+			   end
+			return(true)
+		   others:
+		   end
+	   others:
+	   end
+	return(false)
+	end g_form_22
+
+% An
+
+g_form_23 = proc (e: g_env, opcode: int, src, dst: operand) returns (bool)
+	tagcase src
+	   tag none:
+		tagcase dst
+		   tag addrd (reg: int):
+			xinst(e.menv, opcode, reg)
+			return(true)
+		   others:
+		   end
+	   others:
+	   end
+	return(false)
+	end g_form_23
+
+g_first = proc (e: g_env, opcode, dreg: int, ea: operand) returns (int, int)
+	me: g_menv := e.menv
+	src: int
+	l: int := _nothing
+	r: int := 0
+	tagcase ea
+	   tag datad (sreg: int):
+		src := _datad + sreg
+	   tag addrd (sreg: int):
+		src := _addrd + sreg
+	   tag indir (sreg: int):
+		src := _indir + sreg
+	   tag pincr (sreg: int):
+		src := _pincr + sreg
+	   tag pdecr (sreg: int):
+		src := _pdecr + sreg
+	   tag idisp (pair: operpair):
+		src := _idisp + pair.reg
+		l := _single
+		r := pair.disp
+	   tag index (pair: operpair):
+		src := _index + pair.reg
+		l := _single
+		r := pair.disp
+	   tag pcdsp (disp: int):
+		src := _pcdsp
+		l := _single
+		r := disp
+	   tag pcidx (disp: int):
+		src := _pcidx
+		l := _single
+		r := disp
+	   tag text (addr: int):
+		if addr > 0  cand  addr < 0100000
+		   then src := _short
+			l := _single
+		   else src := _long
+			l := 0
+		   end
+		r := addr
+	   tag data (addr: int):
+		src := _long
+		l := _usenum
+		r := g_tenv$add_use(e.tenv, _use_global, mref$make_val(addr))
+	   tag var (id: idn):
+		tagcase id.kind
+		   tag epvar (disp: int):
+			src := _idisp_EP
+			l := _single
+			r := disp
+		   tag spvar (disp: int):
+			src := _idisp_SP
+			l := _single
+			r := disp
+		   tag rown (num: mref):
+			src := _long
+			l := _usenum
+			r := g_tenv$add_use(e.tenv, _use_rown, num)
+		   tag cown (num: mref):
+			src := _long
+			l := _usenum
+			r := g_tenv$add_use(e.tenv, _use_cown, num)
+		   tag prown (num: mref):
+			src := _indir_R4
+			l := _single
+			r := g_tenv$add_puse(e.tenv, _use_rown, num)
+			if r = 0
+			   then ainst(e.menv, MOVEA, _R4, _indir_PP)
+			   else ainst(e.menv, MOVEA, _R4, _idisp_PP)
+				immed(e.menv, 4 * r)
+				r := 0
+			   end
+		   tag pcown (num: mref):
+			src := _indir_R4
+			l := _single
+			r := g_tenv$add_puse(e.tenv, _use_cown, num)
+			if r = 0
+			   then ainst(e.menv, MOVEA, _R4, _indir_PP)
+			   else ainst(e.menv, MOVEA, _R4, _idisp_PP)
+				immed(e.menv, 4 * r)
+				r := 0
+			   end
+		   tag wvec (val: mref):
+			src := _long
+			l := _usenum
+			r := g_tenv$add_use(e.tenv, _use_wvec, val)
+		   others:
+		   end
+	   tag int_ (i: int):
+		md: int := i_and(opcode, 0700)
+		op: int := i_and(opcode, 0170000)
+		src := _immed
+		r := i
+		if op = MOVEB  cor
+		   (md = 0  cand  ~(op = MOVEW  cor  op = MOVE))
+		   then l := _single
+			if r < -0400  cor  r > 0377
+			   then g_env$err(e, "illegal immediate value") end
+			r := r // 0400
+		elseif op = MOVEW  cor
+		       ~(op = MOVEB  cor  op = MOVE  cor
+			 md = 0  cor  md = 0200  cor
+			 (md = 0700  cand  0 ~= i_and(op, 010000)))
+		   then l := _single
+		else l := r / 0100000 end
+	   tag pair (pair: intpair):
+		src := _immed
+		l := pair.left
+		r := pair.right
+		md: int := i_and(opcode, 0700)
+		op: int := i_and(opcode, 0170000)
+		if ~(op = MOVE  cor
+		     (~(op = MOVEB  cor  op = MOVEW)  cand
+		      (md = 0200  cor  (md = 0700  cand  0 ~= i_and(op, 010000)))))
+		   then g_env$err(e, "illegal immediate value")
+			l := _single
+		   end
+	   tag expr (x: expr):
+		tagcase x.abs
+		   tag apply, op:
+			te: g_tenv := e.tenv
+			val: mref, pflag: int := g_tenv$store_rconst(te, x, -1)
+			if pflag ~= _plain
+			   then r := g_tenv$add_puse(te, _use_const, val)
+				if r = 0
+				   then src := _indir_PP
+				   else src := _idisp_PP
+					l := _single
+					r := 4 * r
+				   end
+			   else r := g_tenv$add_use(te, _use_const, val)
+				if opcode = LEA  cor  opcode = PEA  cor
+				   opcode = JSR  cor  opcode = JMP
+				   then src := _long
+				   else src := _immed
+				   end
+				l := _usenum
+			   end
+		   tag star:
+			g_env$err(e, "illegal use of * expression")
+			src := 0
+		   others:
+			te: g_tenv := e.tenv
+			val: mref, pflag: int := g_tenv$store_const(te, x)
+			if pflag ~= _plain
+			   then r := g_tenv$add_puse(te, _use_const, val)
+				if r = 0
+				   then src := _indir_PP
+				   else src := _idisp_PP
+					l := _single
+					r := 4 * r
+				   end
+			   else if opcode = LEA  cor  opcode = PEA
+				   then src := _long
+				   else src := _immed
+				   end
+				l := _usenum
+				r := g_tenv$add_use(te, _use_const, val)
+			   end
+		   end
+	   others:
+	   end
+	ainst(me, opcode, dreg, src)
+	return(l, r)
+	end g_first
+
+g_rest = proc (e: g_env, l, r: int)
+	if l = _single
+	   then immed(e.menv, r)
+	elseif l = _usenum
+	   then udesc(e.menv, r)
+	elseif l ~= _nothing
+	   then immed(e.menv, l)
+		immed(e.menv, r)
+	end
+	end g_rest

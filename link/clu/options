@@ -1,0 +1,834 @@
+%% Copyright Massachusetts Institute of Technology 1985, 1989
+
+#extend
+
+options = cluster is 
+	create, end_use, add_options, print,
+	is_debug, is_working_dir, give_working_dir,
+	get_do_type_consts,  get_do_type_excepts,
+	get_do_type_owns,    get_do_type_routines,
+	get_do_type_refs,    get_do_type_seg_map,    get_do_type_uses,
+	get_do_type_w_vecs,
+	get_do_type_times,
+	get_list_stream,
+	get_default_lib,
+	get_heap_size,
+	get_stack_size,
+	get_symbols_wanted,
+	get_jcl_size,
+	get_version_number,
+	get_debugging,	     set_debugging,
+	get_init_debug,	     set_init_debug,
+	get_debug_ready,     set_debug_ready,
+	get_naive_debug,     set_naive_debug,
+	get_output_to_file,  set_output_to_file,
+	get_small,
+	get_dump_file_name,
+	get_image_file_name,
+	get_pipe_file_name,
+	get_main_routine,
+	search_dirs,
+	prepare_to_dump, re_init, _gcd;
+
+    rep = record [
+	      Type_Consts:	bool,
+	      Type_Excepts:	bool,
+	      Type_Owns:	bool,
+	      Type_Refs:	bool,
+	      Type_Routines:	bool,
+	      Type_Seg_Map:	bool,
+	      Type_Times:	bool,
+	      Type_Uses:	bool,
+	      Type_W_Vecs:	bool,
+	      List_Stream:	pos_stream,
+	      Syms_Wanted:	bool,
+	      Debug_Set:	bool,
+	      Debugging:	bool,
+	      Init_Debug:	bool,
+	      Debug_Ready:	bool,
+	      Naive_Debug:	bool,
+	      Output_to_File:	bool,
+	      Small:		bool,
+	      Main_Routine:	string,
+	      Search_Dir:	array[string],
+	      Default_Dir:	string,
+	      Image_Fl_Nm:	file_name,
+	      Dump_Fl_Nm:	file_name,
+	      Pipe_Fl_Nm:	mfn,
+	      Heap_Size:	int,
+	      Stack_Size:	int,
+	      JCL_Size:		int,
+	      VNum:		int
+		  ];
+
+
+
+    op_table = sequence[op_ent]
+    op_rtn   = proctype (rep, bool, string) signals (bad_syntax(string));
+    op_ent   = struct[ Str:	string,
+		       Rtn:	op_rtn]
+    mfn      = oneof[None:   null,
+		     Exists: file_name]
+
+    own Debug_Ent:       op_ent := op_ent${Str:    "debug",
+					   Rtn:    Debugging};
+    own Init_Debug_Ent:  op_ent := op_ent${Str:    "init_debug",
+					   Rtn:    Init_Debug};
+    own Naive_Debug_Ent: op_ent := op_ent${Str:    "naive_debug",
+					   Rtn:    Naive_Debug};
+
+    own Dbg_Tab: op_table :=		%% Debug option table.
+	    op_table$[
+		Debug_Ent,
+		Init_Debug_Ent,
+		Naive_Debug_Ent
+		      ];
+
+    own Working_Dir_Ent: op_ent := op_ent${Str:	"directory:",
+					   Rtn: Working_Dir};
+
+
+    own Opt_Tab: op_table :=		%% Option command table.
+	    op_table$[			%% Must be in alphabetical order!
+		op_ent${Str:    "all_list",
+			Rtn:    All_List},
+		op_ent${Str:    "consts_list",
+			Rtn:    Consts_List},
+		Debug_Ent,
+		op_ent${Str:	"default_lib:",
+			Rtn:	Default_Lib},
+		Working_Dir_Ent,
+		op_ent${Str:	"dump_file:",
+			Rtn:	Dump_File},
+		op_ent${Str:    "excepts_list",
+			Rtn:    Excepts_List},
+		op_ent${Str:    "heap_size:",
+			Rtn:    Heap_Size},
+		op_ent${Str:	"image_file:",
+			Rtn:	Image_File},
+		Init_Debug_Ent,
+		op_ent${Str:    "jcl_size:",
+			Rtn:    JCL_Size},
+		op_ent${Str:    "list_file:",
+			Rtn:    List_File},
+		op_ent${Str:    "main:",
+			Rtn:    Main_Rtn},
+		Naive_Debug_Ent,
+		op_ent${Str:    "owns_list",
+			Rtn:    Owns_List},
+		op_ent${Str:    "pipe_file:",
+			Rtn:    Pipe_File},
+		op_ent${Str:    "refs_list",
+			Rtn:    Refs_List},
+		op_ent${Str:    "routines_list",
+			Rtn:    Routines_List},
+		op_ent${Str:    "search:",
+			Rtn:    Search_Lib},
+		op_ent${Str:    "seg_map_list",
+			Rtn:    Seg_Map_List},
+		op_ent${Str:	"small",
+			Rtn:	Small},
+		op_ent${Str:    "stack_size:",
+			Rtn:    Stack_Size},
+		op_ent${Str:    "symbols",
+			Rtn:    Symbols},
+		op_ent${Str:    "times_list",
+			Rtn:    Times_List},
+		op_ent${Str:    "uses_list",
+			Rtn:    Uses_List},
+		op_ent${Str:    "version:",
+			Rtn:    Version_Number},
+		op_ent${Str:    "w_vecs_list",
+			Rtn:    W_Vecs_List}
+		      ];
+
+    Create = proc () returns (cvt);
+	return ( rep${
+		     Type_Consts:      false,
+		     Type_Excepts:     false,
+		     Type_Owns:        false,
+		     Type_Refs:	       false,
+		     Type_Routines:    false,
+		     Type_Seg_Map:     false,
+		     Type_Times:       false,
+		     Type_Uses:        false,
+		     Type_W_Vecs:      false,
+		     List_Stream:      pos_stream$Make_None(nil),
+		     Syms_Wanted:      true,
+		     Debug_Set:	       false,
+		     Debugging:	       false,
+		     Init_Debug:       false,
+		     Debug_Ready:      false,
+		     Naive_Debug:      false,
+		     Output_to_File:   true,
+		     Small:	       true,
+		     Main_Routine:     "start_up",
+		     Search_Dir:       array[string]$new(),
+		     Default_Dir:      mach_constants$Default_Library(),
+		     Image_Fl_Nm:      mach_constants$Image_File_Name(),
+		     Dump_Fl_Nm:       mach_constants$Dump_File_Name(),
+		     Pipe_Fl_Nm:       mfn$Make_None(nil),
+		     Heap_Size:        mach_constants$Default_Heap_Size(),
+		     Stack_Size:       mach_constants$Default_Stack_Size(),
+		     JCL_Size:	       0,
+		     VNum:	       0
+		      }
+		);
+	end Create;
+
+    End_Use = proc (Op: cvt);
+	List_Str: stream := pos_stream$Value_Str(Op.List_Stream);
+	   except when Wrong_Tag:
+		       return;
+		  end;
+	if ( (~ stream$Is_Closed(List_Str)) cand
+	     (List_Str ~= stream$Primary_Output()) )
+	   then stream$Close(List_Str);
+	   end;
+	pos_stream$Change_None(Op.List_Stream, nil);
+	end End_Use;
+
+    Is_Debug = proc (Op_Str: string) returns (bool);
+	Cmnd_Str: string;
+	Term_Chr: char;
+	F: bool;
+	if (string$Size(Op_Str) = 0)
+	   then return (false);
+	   end;
+	Op_Str, Cmnd_Str, Term_Chr, F := Extract_Op_Info(Op_Str);
+	Ent: op_ent := Lookup_Ent(Cmnd_Str, Term_Chr, Opt_Tab);
+	   except when Not_Found:
+		       return (false);
+		  end;
+	for Dbg_Ent: op_ent in op_table$Elements(Dbg_Tab) do
+	    if (Dbg_Ent = Ent)
+	       then return (true);
+	       end;
+	    end;
+	return (false);
+	end Is_Debug;
+
+    Is_Working_Dir = proc (Op_Str: string) returns (bool);
+	Cmnd_Str: string;
+	Term_Chr: char;
+	F: bool;
+	if (string$Size(Op_Str) = 0)
+	   then return (false);
+	   end;
+	Op_Str, Cmnd_Str, Term_Chr, F := Extract_Op_Info(Op_Str);
+	Ent: op_ent := Lookup_Ent(Cmnd_Str, Term_Chr, Opt_Tab);
+	   except when Not_Found:
+		       return (false);
+		  end;
+	return (Ent = Working_Dir_Ent);
+	end Is_Working_Dir;
+
+    Give_Working_Dir = proc (Op_Str: string) returns (string)
+			 signals (not_working_dir_option);
+	Cmnd_Str: string;
+	Term_Chr: char;
+	F: bool;
+	Op_Str, Cmnd_Str, Term_Chr, F := Extract_Op_Info(Op_Str);
+	Ent: op_ent := Lookup_Ent(Cmnd_Str, Term_Chr, Opt_Tab);
+	   except when Not_Found:
+		       signal Not_Working_Dir_Option;
+		  end;
+	if (Ent = Working_Dir_Ent)
+	   then	if (string$Size(Op_Str) = 0)
+		   then	signal Not_Working_Dir_Option;
+		   end;
+		Rest_I: int := string$IndexC(':', Op_Str) + 1;
+		if (Rest_I = 1)
+		   then	signal Not_Working_Dir_Option;
+		   end;
+		Dir_Name: string := Strip_Spaces(string$Rest(Op_Str, Rest_I));
+		return (Dir_Name);
+	   else signal Not_Working_Dir_Option;
+	   end;
+	end Give_Working_Dir;
+    
+
+    Add_Options = proc (Op: cvt, Opts: as) returns (cvt)
+		    signals(bad_syntax(string));
+	as = array[string]
+	Cmnd_Str: string;
+	Term_Chr: char;
+	F: bool;
+	for Op_Str: string in as$Elements(Opts) do
+	    if (string$Size(Op_Str) = 0) then continue;
+	       end;
+	    Op_Str, Cmnd_Str, Term_Chr, F := Extract_Op_Info(Op_Str);
+	    Op_Entry: op_ent := Lookup_Ent(Cmnd_Str, Term_Chr, Opt_Tab);
+	       except when Not_Found:
+			   signal Bad_Syntax(Op_Str);
+		      end;
+	    Op_Entry.Rtn(Op, F, Op_Str);
+	       resignal Bad_Syntax;
+	    end;
+
+	return (Op);
+	end Add_Options;
+
+    Lookup_Ent = proc (Test_Str: string, Term_Char: char, Opt_T: op_table)
+		      returns (op_Ent)
+		      signals (not_found);
+	Found_Ent: op_ent;
+	Found: bool := false;
+	for Entry: op_ent in op_table$Elements(Opt_T) do
+	    if ((string$IndexS(Test_Str, Entry.Str) = 1) cand
+		((Term_Char = '\000') cor
+		 (Term_Char = Entry.Str[string$Size(Entry.Str)])
+		 ))
+	       then if (Found)
+		       then signal Not_Found;
+		       else Found := true;
+			    Found_Ent := Entry;
+		       end;
+	       end;
+	    end;
+	if (Found)
+	   then return (Found_Ent);
+	   else signal Not_Found;
+	   end;
+	end Lookup_Ent;
+
+    Extract_Op_Info = proc (Op_Str: string) returns (string, string, char, bool);
+	Cmnd_Str: string;
+	Term_Chr: char;
+	F: bool := true;
+	if (Op_Str[1] = '-')
+	   then Op_Str := string$Rest(Op_Str, 2);
+		F := false;
+	   end;
+	if (string$IndexC(':', Op_Str) ~= 0)
+	   then Cmnd_Str := Str_Lower(
+				string$SubStr(Op_Str, 1,
+					      (string$IndexC(':', Op_Str) - 1)));
+		Term_Chr := ':';
+	   else Cmnd_Str := Str_Lower(Op_Str);
+		Term_Chr := '\000';
+	   end;
+	return (Op_Str, Cmnd_Str, Term_Chr, F);
+	end Extract_Op_Info;
+    
+
+    Get_Do_Type_Consts = proc (Opts: cvt) returns (bool);
+	return (Opts.Type_Consts);
+	end Get_Do_Type_Consts;
+
+    Get_Do_Type_Excepts = proc (Opts: cvt) returns (bool);
+	return (Opts.Type_Excepts);
+	end Get_Do_Type_Excepts;
+
+    Get_Do_Type_Owns = proc (Opts: cvt) returns (bool);
+	return (Opts.Type_Owns);
+	end Get_Do_Type_Owns;
+
+    Get_Do_Type_Refs = proc (Opts: cvt) returns (bool);
+	return (Opts.Type_Refs);
+	end Get_Do_Type_Refs;
+
+    Get_Do_Type_Seg_Map = proc (Opts: cvt) returns (bool);
+	return (Opts.Type_Seg_Map);
+	end Get_Do_Type_Seg_Map;
+
+    Get_Do_Type_Times = proc (Opts: cvt) returns (bool);
+	return (Opts.Type_Times);
+	end Get_Do_Type_Times;
+
+    Get_Do_Type_Uses = proc (Opts: cvt) returns (bool);
+	return (Opts.Type_Uses);
+	end Get_Do_Type_Uses;
+
+    Get_Do_Type_W_Vecs = proc (Opts: cvt) returns (bool);
+	return (Opts.Type_W_Vecs);
+	end Get_Do_Type_W_Vecs;
+
+    Get_Do_Type_Routines = proc (Opts: cvt) returns (bool);
+	return (Opts.Type_Routines);
+	end Get_Do_Type_Routines;
+
+    Get_Symbols_Wanted = proc (Opts: cvt) returns (bool);
+	return (Opts.Syms_Wanted);
+	end Get_Symbols_Wanted;
+
+    Get_Debugging = proc (Opts: cvt) returns (bool);
+	return (Opts.Debugging);
+	end Get_Debugging;
+
+    Set_Debugging = proc (Opts: cvt, F: bool);
+	Opts.Debugging := F;
+	end Set_Debugging;
+
+    Get_Init_Debug = proc (Opts: cvt) returns (bool);
+	return (Opts.Init_Debug);
+	end Get_Init_Debug;
+
+    Set_Init_Debug = proc (Opts: cvt, F: bool);
+	Opts.Init_Debug := F;
+	end Set_Init_Debug;
+
+    Get_Debug_Ready = proc (Opts: cvt) returns (bool);
+	return (Opts.Debug_Ready);
+	end Get_Debug_Ready;
+
+    Set_Debug_Ready = proc (Opts: cvt, F: bool);
+	Opts.Debug_Ready := F;
+	end Set_Debug_Ready;
+
+    Get_Naive_Debug = proc (Opts: cvt) returns (bool);
+	return (Opts.Naive_Debug);
+	end Get_Naive_Debug;
+
+    Set_Naive_Debug = proc (Opts: cvt, F: bool);
+	Opts.Naive_Debug := F;
+	if (F)
+	   then Opts.Debugging      := true;
+		Opts.Init_Debug     := false;
+		Opts.Output_to_File := false;
+		Opts.Small          := false;
+		Opts.JCL_Size	    := (vDbg_JCL_Size / vLong_Size);
+	   end;
+	end Set_Naive_Debug;
+
+    Get_Output_to_File = proc (Opts: cvt) returns (bool);
+	return (Opts.Output_to_File);
+	end Get_Output_to_File;
+
+    Set_Output_to_File = proc (Opts: cvt, F: bool);
+	Opts.Output_to_File := F;
+	end Set_Output_to_File;
+
+    Get_Small = proc (Opts: cvt) returns (bool);
+	return (Opts.Small);
+	end Get_Small;
+
+    Get_Dump_File_Name = proc (Opts: cvt) returns (file_name);
+	return (Opts.Dump_Fl_Nm);
+	end Get_Dump_File_Name;
+
+    Get_Image_File_Name = proc (Opts: cvt) returns (file_name);
+	return (Opts.Image_Fl_Nm);
+	end Get_Image_File_Name;
+
+    Get_Pipe_File_Name = proc (Opts: cvt) returns (mfn);
+	return (Opts.Pipe_Fl_Nm);
+	end Get_Pipe_File_Name;
+
+    Get_List_Stream = proc (Opts: cvt) returns (stream);
+	tagcase Opts.List_Stream
+	   tag None:
+	       PO: stream := stream$Primary_Output();
+	       pos_stream$Change_Str(Opts.List_Stream, PO);
+	       return (PO);
+	   tag Str (S: stream):
+	       return (S);
+	   end;
+	end Get_List_Stream;
+
+    Get_Main_Routine = proc (Opts: cvt) returns (string);
+	return (Opts.Main_Routine);
+	end Get_Main_Routine;
+
+    Get_Heap_Size = proc (Opts: cvt) returns (int);
+	return (Opts.Heap_Size);
+	end Get_Heap_Size;
+
+    Get_Stack_Size = proc (Opts: cvt) returns (int);
+	return (Opts.Stack_Size);
+	end Get_Stack_Size;
+
+    Get_JCL_Size = proc (Opts: cvt) returns (int);
+	return (Opts.JCL_Size);
+	end Get_JCL_Size;
+
+    Get_Version_Number = proc (Opts: cvt) returns (int);
+	return (Opts.VNum);
+	end Get_Version_Number;
+
+    Get_Default_Lib = proc (Opts: cvt) returns (string) signals (not_set)
+	if string$empty(Opts.Default_Dir)
+	    then signal not_set
+	    else return (Opts.Default_Dir)
+	    end
+	end Get_Default_Lib
+
+    Search_Dirs = iter (Opts: cvt) yields (string)
+	for sd: string in array[string]$elements(Opts.Search_Dir) do
+	   yield(sd)
+	   end
+	end Search_Dirs
+
+    Print = proc (Opts: cvt, S: pstream);
+	rep$Print(Opts, S);
+	end Print;
+
+
+    Consts_List = proc (Op: rep, F: bool, Op_Str: string)
+		    signals (bad_syntax(string));
+	Op.Type_Consts := F;
+	end Consts_List;
+
+    Excepts_List = proc (Op: rep, F: bool, Op_Str: string)
+		     signals (bad_syntax(string));
+	Op.Type_Excepts := F;
+	end Excepts_List;
+
+    Owns_List = proc (Op: rep, F: bool, Op_Str: string)
+		  signals (bad_syntax(string));
+	Op.Type_Owns := F;
+	end Owns_List;
+
+    Refs_List = proc (Op: rep, F: bool, Op_Str: string)
+		  signals (bad_syntax(string));
+	Op.Type_Refs := F;
+	end Refs_List;
+
+    Routines_List = proc (Op: rep, F: bool, Op_Str: string)
+		      signals (bad_syntax(string));
+	Op.Type_Routines := F;
+	end Routines_List;
+
+    Seg_Map_List = proc (Op: rep, F: bool, Op_Str: string)
+		     signals (bad_syntax(string));
+	Op.Type_Seg_Map := F;
+	end Seg_Map_List;
+
+    Times_List = proc (Op: rep, F: bool, Op_Str: string)
+		   signals (bad_syntax(string));
+	Op.Type_Times := F;
+	end Times_List;
+
+    Uses_List = proc (Op: rep, F: bool, Op_Str: string)
+		  signals (bad_syntax(string));
+	Op.Type_Uses := F;
+	end Uses_List;
+
+    W_Vecs_List = proc (Op: rep, F: bool, Op_Str: string)
+		    signals (bad_syntax(string));
+	Op.Type_W_Vecs := F;
+	end W_Vecs_List;
+
+    All_List = proc (Op: rep, F: bool, Op_Str: string)
+		 signals (bad_syntax(string));
+	Op.Type_Consts := F;
+	Op.Type_Excepts := F;
+	Op.Type_Owns := F;
+	Op.Type_Refs := F;
+	Op.Type_Seg_Map := F;
+	Op.Type_Times := F;
+	Op.Type_Uses := F;
+	Op.Type_W_Vecs := F;
+	Op.Type_Routines := F;
+	end All_List;
+
+
+    Symbols = proc (Op: rep, F: bool, Op_Str: string)
+		signals (bad_syntax(string));
+	if (Op.Naive_Debug)
+	   then signal Bad_Syntax(Op_Str);
+	   end;
+	Op.Syms_Wanted := F;
+	end Symbols;
+
+    Main_Rtn = proc (Op: rep, F: bool, Op_Str: string)
+		 signals (bad_syntax(string));
+	if (Op.Naive_Debug)
+	   then signal Bad_Syntax(Op_Str);
+	   end;
+	Rest_I: int := string$IndexC(':', Op_Str) + 1;
+	Mn_Name: string := Str_Lower(
+			       Strip_Spaces(string$Rest(Op_Str, Rest_I)));
+	if ((Rest_I = 1) cor
+	    (Mn_Name = ""))
+	   then signal Bad_Syntax(Op_Str);
+	   end;
+	Op.Main_Routine := Mn_Name;
+	end Main_Rtn;
+
+    Search_Lib = proc (Op: rep, F: bool, Op_Str: string)
+		   signals (bad_syntax(string));
+	Rest_I: int := string$IndexC(':', Op_Str) + 1;
+	if (Rest_I = 1)
+	   then signal Bad_Syntax(Op_Str);
+	   end;
+	Dir_Name: string := Strip_Spaces(string$Rest(Op_Str, Rest_I));
+	if string$empty(Dir_Name) then signal Bad_Syntax(Op_Str) end
+	Search_Dir: string := file_name$Create(Dir_Name, "", "", "").Dir || "/";
+	   except when Bad_Format:
+		       signal Bad_Syntax(Op_Str);
+		  end;
+	if F then
+	   for sd: string in array[string]$elements(Op.Search_Dir) do
+	   	if sd = Search_Dir then return end
+		end
+	   array[string]$addh(Op.Search_Dir, Search_Dir)
+	   else 
+	   for i: int in array[string]$indexes(Op.Search_Dir) do
+		if Search_Dir = Op.Search_Dir[i] then
+		    for j: int in int$from_to(i,array[string]$high(Op.Search_Dir)-1) do
+			Op.Search_Dir[j] := Op.Search_Dir[j+1]
+			end
+		    array[string]$remh(Op.Search_Dir)
+		    return
+		    end
+		end
+	    end
+	end Search_Lib;
+
+    Default_Lib = proc (Op: rep, F: bool, Op_Str: string)
+		    signals (bad_syntax(string));
+	if F then
+	    Rest_I: int := string$Indexc(':', Op_Str) + 1
+	    if Rest_I = 1
+	    	then signal Bad_Syntax(Op_Str)
+		end
+	    Dir_Name: string := Strip_Spaces(string$Rest(Op_Str, Rest_I))
+	    if string$empty(Dir_Name) then signal Bad_Syntax(Op_Str) end
+	    Op.Default_Dir := file_name$Create(Dir_Name, "", "", "").Dir || "/"
+	    	except when Bad_Format:
+			    signal Bad_Syntax(Op_Str)
+		       end
+	  else
+	    Op.Default_Dir := ""
+	  end
+	end Default_Lib;
+
+    Working_Dir = proc (Op: rep, F: bool, Op_Str: string)
+		   signals (bad_syntax(string));
+	%% Do nothing.
+	end Working_Dir;
+
+    Small = proc (Op: rep, F: bool, Op_Str: string)
+	      signals (bad_syntax(string));
+	if (Op.Naive_Debug)
+	   then signal Bad_Syntax(Op_Str);
+	   end;
+	Op.Small := F;
+	end Small;
+
+    Debugging = proc (Op: rep, F: bool, Op_Str: string)
+		  signals (bad_syntax(string));
+	if (Op.Naive_Debug)
+	   then signal Bad_Syntax(Op_Str);
+	   end;
+	if (Op.Debug_Set)	%% Can only be set once.
+	   then return;
+	   else Op.Debug_Set := true;
+	   end;
+	Op.Debugging := F;
+	Op.Output_to_File := ~ F;
+	Op.Small := ~ F;
+	if (F)
+	   then Op.JCL_Size    := (vDbg_JCL_Size / vLong_Size);
+	   end;
+	end Debugging;
+
+    Init_Debug = proc (Op: rep, F: bool, Op_Str: string)
+		   signals (bad_syntax(string));
+	if (Op.Naive_Debug)
+	   then signal Bad_Syntax(Op_Str);
+	   end;
+	if (Op.Debug_Set)	%% Can only be set once.
+	   then return;
+	   else Op.Debug_Set := true;
+	   end;
+	Op.Init_Debug := F;
+	if (F)
+	   then Op.Debugging   := true;
+		Op.Small       := false;
+		Op.JCL_Size    := (vDbg_JCL_Size / vLong_Size);
+		Op.Stack_Size  := vDbg_Stack_Size;
+		Op.Heap_Size   := vDbg_Heap_Size;
+	   end;
+	end Init_Debug;
+
+    Naive_Debug = proc (Op: rep, F: bool, Op_Str: string)
+		    signals (bad_syntax(string));
+	if (Op.Naive_Debug)
+	   then signal Bad_Syntax(Op_Str);
+	   end;
+	if (Op.Debug_Set)	%% Can only be set once.
+	   then return;
+	   else Op.Debug_Set := true;
+	   end;
+	up(Op).Naive_Debug := F;
+	if (F)
+	   then Op.JCL_Size    := (vDbg_JCL_Size / vLong_Size);
+	   end;
+	end Naive_Debug;
+
+    List_File = proc (Op: rep, F: bool, Op_Str: string)
+		  signals (bad_syntax(string));
+	Rest_I: int := string$IndexC(':', Op_Str) + 1;
+	if (Rest_I = 1)
+	   then signal Bad_Syntax(Op_Str);
+	   end;
+	List_Fn_S: string := Strip_Spaces(string$Rest(Op_Str, Rest_I));
+	tagcase Op.List_Stream
+	   tag None:
+	   tag Str (Str: stream):
+	       if ( (~ stream$Is_Closed(Str)) cand
+		    (Str ~= stream$Primary_Output()) )
+		  then stream$Close(Str);
+		  end;
+	   end;
+	if (List_Fn_S = "")
+	   then pos_stream$Change_None(Op.List_Stream, nil);
+	   else Str: stream := stream$Open(
+				   file_name$Parse(List_Fn_S), "write");
+		   except when Bad_Format:
+			       signal Bad_Syntax("File name: " || List_Fn_S);
+			  when Not_Possible(Err_S: string):
+			       signal Bad_Syntax("Cant open " || List_Fn_S || "  " || Err_S);
+			  end;
+		pos_stream$Change_Str(Op.List_Stream, Str);
+	   end;
+	end List_File;
+
+    Image_File = proc (Op: rep, F: bool, Op_Str: string)
+		   signals (bad_syntax(string));
+	if (Op.Naive_Debug)
+	   then signal Bad_Syntax(Op_Str);
+	   end;
+	Img_Fl_Nm: file_name;
+	Rest_I: int := string$IndexC(':', Op_Str) + 1;
+	if (Rest_I = 1)
+	   then signal Bad_Syntax(Op_Str);
+	   end;
+	Img_Fl_Nm_S: string := Strip_Spaces(string$Rest(Op_Str, Rest_I));
+	if (Img_Fl_Nm_S = "")
+	   then Img_Fl_Nm := mach_constants$Image_File_Name();
+	   else Img_Fl_Nm := file_name$Parse(Img_Fl_Nm_S);
+	   end;
+	Op.Image_Fl_Nm := Img_Fl_Nm;
+	Dmp_Fl_Nm: file_name := Op.Dump_Fl_Nm;
+	Op.Dump_Fl_Nm := file_name$Create(Img_Fl_Nm.Dir, Img_Fl_Nm.Name,
+					  Dmp_Fl_Nm.Suffix, Dmp_Fl_Nm.Other);
+	end Image_File;
+
+    Dump_File = proc (Op: rep, F: bool, Op_Str: string)
+		  signals (bad_syntax(string));
+	if (Op.Naive_Debug)
+	   then signal Bad_Syntax(Op_Str);
+	   end;
+	Dmp_Fl_Nm: file_name;
+	Rest_I: int := string$IndexC(':', Op_Str) + 1;
+	if (Rest_I = 1)
+	   then signal Bad_Syntax(Op_Str);
+	   end;
+	Dmp_Fl_Nm_S: string := Strip_Spaces(string$Rest(Op_Str, Rest_I));
+	if (Dmp_Fl_Nm_S = "")
+	   then Dmp_Fl_Nm := mach_constants$Dump_File_Name();
+	   else Dmp_Fl_Nm := file_name$Parse(Dmp_Fl_Nm_S);
+	   end;
+	Op.Dump_Fl_Nm := Dmp_Fl_Nm;
+	Img_Fl_Nm: file_name := Op.Image_Fl_Nm;
+	Op.Image_Fl_Nm := file_name$Create(Dmp_Fl_Nm.Dir, Dmp_Fl_Nm.Name,
+					   Img_Fl_Nm.Suffix, Img_Fl_Nm.Other);
+	end Dump_File;
+
+    Pipe_File = proc (Op: rep, F: bool, Op_Str: string)
+		  signals (bad_syntax(string));
+	if (Op.Naive_Debug)
+	   then signal Bad_Syntax(Op_Str);
+	   end;
+	Rest_I: int := string$IndexC(':', Op_Str) + 1;
+	if (Rest_I = 1)
+	   then signal Bad_Syntax(Op_Str);
+	   end;
+	Pipe_Fl_Nm_Str: string := Strip_Spaces(string$Rest(Op_Str, Rest_I));
+	Op.Pipe_Fl_Nm := mfn$Make_Exists(
+			     file_name$Parse(Pipe_Fl_Nm_Str));
+	   except when Bad_Format:
+		       signal Bad_Syntax("Bad pipe file name " ||
+					 Pipe_Fl_Nm_Str);
+		  end;
+	end Pipe_File;
+
+    Heap_Size = proc (Op: rep, F: bool, Op_Str: string)
+		  signals (bad_syntax(string));
+	if (Op.Naive_Debug)
+	   then signal Bad_Syntax(Op_Str);
+	   end;
+	Rest_I: int := string$IndexC(':', Op_Str) + 1;
+	if (Rest_I = 1)
+	   then signal Bad_Syntax(Op_Str);
+	   end;
+	Op.Heap_Size := (mach_constants$Heap_Alloc() *
+			 int$Parse(
+			     Strip_Spaces(string$Rest(Op_Str, Rest_I)))
+			 );
+	   except Others:
+		       signal Bad_Syntax(Op_Str);
+		  end;
+	end Heap_Size;
+
+    Stack_Size = proc (Op: rep, F: bool, Op_Str: string)
+		   signals (bad_syntax(string));
+	if (Op.Naive_Debug)
+	   then signal Bad_Syntax(Op_Str);
+	   end;
+	Rest_I: int := string$IndexC(':', Op_Str) + 1;
+	if (Rest_I = 1)
+	   then signal Bad_Syntax(Op_Str);
+	   end;
+	Op.Stack_Size := (mach_constants$Stack_Alloc() *
+			  int$Parse(
+			      Strip_Spaces(string$Rest(Op_Str, Rest_I)))
+			  );
+	   except Others:
+		       signal Bad_Syntax(Op_Str);
+		  end;
+	end Stack_Size;
+
+    Version_Number = proc (Op: rep, F: bool, Op_Str: string)
+		       signals (bad_syntax(string));
+	if (Op.Naive_Debug)
+	   then signal Bad_Syntax(Op_Str);
+	   end;
+	Rest_I: int := string$IndexC(':', Op_Str) + 1;
+	if (Rest_I = 1)
+	   then signal Bad_Syntax(Op_Str);
+	   end;
+	Op.VNum := int$Parse( Strip_Spaces(string$Rest(Op_Str, Rest_I)) );
+	   except Others:
+		       signal Bad_Syntax(Op_Str);
+		  end;
+	end Version_Number;
+
+    JCL_Size = proc (Op: rep, F: bool, Op_Str: string)
+		       signals (bad_syntax(string));
+	if (Op.Naive_Debug)
+	   then signal Bad_Syntax(Op_Str);
+	   end;
+	Rest_I: int := string$IndexC(':', Op_Str) + 1;
+	if (Rest_I = 1)
+	   then signal Bad_Syntax(Op_Str);
+	   end;
+	Op.JCL_Size := int$Parse( Strip_Spaces(string$Rest(Op_Str, Rest_I)) );
+	   except Others:
+		       signal Bad_Syntax(Op_Str);
+		  end;
+	end JCL_Size;
+
+    Prepare_to_Dump = proc (Opts: cvt, Locs: locates);
+	tagcase Opts.List_Stream
+	   tag None:
+	   tag Str (List_Str: stream):
+	       if ( (~ stream$Is_Closed(List_Str)) cand
+		    (List_Str ~= stream$Primary_Output()) )
+		  then stream$Close(List_Str);
+		  end;
+	       pos_stream$Change_None(Opts.List_Stream, nil);
+	   end;
+	end Prepare_to_Dump;		%% Put in a string stream.
+
+    Re_Init = proc (Opts: cvt);
+	end Re_Init;
+
+    _gcd = proc (Opts: cvt, Tab: gcd_tab) returns (int);
+	return (rep$_gcd(Opts, Tab));
+	end _gcd;
+
+    end options;

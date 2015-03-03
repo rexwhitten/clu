@@ -1,0 +1,4 @@
+; Copyright Massachusetts Institute of Technology 1981, 1989
+
+_unhandled_exception = qproc (what: string)
+	end _unhandled_exception

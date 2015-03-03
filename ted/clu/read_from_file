@@ -1,0 +1,35 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+read_from_file = proc (e: env, fn: fname, delflg, dspflg: bool)
+		   returns (fname, buf) signals (not_possible(string))
+    own open: bool := false
+    own chan: _chan
+    if open
+       then _chan$close(chan)
+	       except when not_possible (*): end
+	    open := false
+       end
+    chan := _chan$open(fn, "read", 0)
+       resignal not_possible
+    open := true
+    fn := chan.name
+    if delflg
+       then b: buf := e.buffer
+	    low, high: int := buf$get_frame(b)
+	    buf$set_cursor(b, low, 1)
+	    buf$delete(b, high, max_int)
+       end
+    rmsg: string
+    if dspflg
+       then rmsg := "Reading from " || fname$unparse(fn)
+	    top_display(e, rmsg)
+       end
+    b: buf, msg: string := buf$read(e, chan)
+    _chan$close(chan)
+       except when not_possible (*): end
+    open := false
+    if msg ~= "Done."  cand  buf$empty(b)
+       then signal not_possible(msg)
+     elseif dspflg
+       then top_display(e, rmsg || " - " || msg) end
+    return(fn, b)
+    end read_from_file

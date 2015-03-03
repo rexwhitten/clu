@@ -1,0 +1,26 @@
+%% Copyright Massachusetts Institute of Technology 1980, 1989
+
+Output_Symbol_Tables = proc (Env: lnk_env);
+    Pnts: lnk_pointers := Env.Pointers;
+    Rtn_STab: rtn_sym_tab  := Env.Rtn_Sym_Table;
+    Nam_STab: name_sym_tab := Env.Name_Sym_Table;
+    Start_Symbol_Tables(Env);
+
+    Name_C: constant := constant$Make_Seq(
+			    name_sym_tab$SS_to_S(Nam_STab));
+    constant$Output_Block(Name_C, true, Env);
+    if (address$Is_Null(Pnts.Name_Symbol_Table))
+       then Output_Zero_Ref(Env);
+       else Output_Reference(Pnts.Name_Symbol_Table, Env); %% Old sym table addr.
+       end;
+    Pnts.Name_Symbol_Table := Name_C.Address;
+
+    Rtn_C: constant := constant$Make_Seq(
+			   rtn_sym_tab$SS_to_S(Rtn_STab));
+    constant$Output_Block(Rtn_C, true, Env);
+    if (address$Is_Null(Pnts.Rtn_Symbol_Table))
+       then Output_Zero_Ref(Env);
+       else Output_Reference(Pnts.Rtn_Symbol_Table, Env); %% Old sym table addr.
+       end;
+    Pnts.Rtn_Symbol_Table  := Rtn_C.Address;
+    end Output_Symbol_Tables;

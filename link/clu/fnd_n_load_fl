@@ -1,0 +1,97 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+Find_and_Load_File = proc (Nm_Str: string, Env: lnk_env) signals (cant_find)
+    own FN_Len:  int    := _Dir_Ent_Size()	%% Max length of file name.
+
+    FN: file_name
+    begin
+
+	%% Try user dirs first.  These have been specified by one or more
+        %% #search options in the JCL.
+
+	for DR: string in options$Search_Dirs(Env.Options) do
+	    Nfs: file_spec := file_spec$Parse(DR ||
+					      string$SubStr(Nm_Str, 1, FN_Len))
+	       except when Bad_Format:
+			   continue
+		      end
+	    FN := _lnk_Exact_Name(file_spec$UnParse(Nfs))
+	       except when Not_Possible: 
+				
+			%% Try again without default suffix.
+
+			   Fs: file_spec,
+			   No_Suffix: bool := Fixup_In_File_Spec(Nfs)
+			   if (No_Suffix)
+			      then FN := _lnk_Exact_Name(file_spec$UnParse(Fs))
+				      except when Not_Possible:
+						  continue
+					     end
+			      else continue
+			      end
+		      end
+	    exit Found_It
+	    end
+	%% Try standard one now because file not found in user dirs.
+	%% Note that the default_lib can be modified by the #default_lib
+	%% option in the JCL.
+
+	Nfs: file_spec := file_spec$parse(Env.Options.Default_Lib ||
+					  string$SubStr(Nm_Str, 1, FN_Len))
+	   except when Not_Set,
+		       Bad_Format:
+		       signal Cant_Find
+		  end
+	FN := _lnk_Exact_Name(file_spec$UnParse(Nfs))  %% Then try usual one.
+	   except when Not_Possible: 
+
+		     %% Try again without default suffix.
+
+		       Fs: file_spec,
+		       No_Suffix: bool := Fixup_In_File_Spec(Nfs)
+		       if (No_Suffix)
+			  then FN := _lnk_Exact_Name(file_spec$UnParse(FS))
+				  except when Not_possible:
+					      exit Try_Index
+					 end
+			  else exit Try_Index
+			  end
+		  end
+	end 
+
+       except when Try_Index:
+		   Nfs: file_spec := file_spec$parse(Env.Options.Default_Lib ||
+			     Library_Special_Lookup(
+				 string$SubStr(Nm_Str, 1, FN_Len)))
+		     resignal Cant_find;
+		   except when Not_Set,
+		       Bad_Format:
+		       signal Cant_Find
+	             end
+                   FN := _lnk_Exact_Name(file_spec$UnParse(Nfs))
+
+         	   except when Not_Possible: 
+		     %% Try again without default suffix.
+		       Fs: file_spec,
+		       No_Suffix: bool := Fixup_In_File_Spec(Nfs)
+		       if (No_Suffix)
+			  then FN := _lnk_Exact_Name(file_spec$UnParse(FS))
+				  except when Not_possible:
+					      signal Cant_Find
+					 end
+			  else signal Cant_Find
+       			  end
+		    end	          
+	      end
+
+       except when Found_It:
+	      end
+
+    Load_File(FN, Env) 
+       except when Cant_Load(*):
+		   signal Cant_Find
+	      end
+
+    end Find_and_Load_File
+
+

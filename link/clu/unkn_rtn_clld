@@ -1,0 +1,23 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+Unknown_Routine_Called = proc (Called_RI: rtn_inst, Env: lnk_env);
+    rtn_stk = array[rtn_desc];
+
+    Caller_RD: rtn_desc,
+    Caller_RT: r_template := rtn_desc$Find(rtn_stk$Top(Env.Rtn_Stack),
+					   Env);
+       except when Bounds:		%% Not instantiating caller now.
+		   return;
+	      end;
+    CI: call_info := unknown_rtns$Lookup(Env.Mach_Dependent.Unknown_Rtns,
+					 rtn_inst$Stub_Rtn_Unparse(Called_RI));
+    if (pos_ri$Is_None(CI.Inst))
+       then pos_ri$Change_RI(CI.Inst, Called_RI);
+       end;
+    for RT: r_template in routine_list$Elements(CI.Callers) do
+	if (RT = Caller_RT)
+	   then return;
+	   end;
+	end;
+    CI.Callers := routine_list$AddH(CI.Callers, Caller_RT);
+    end Unknown_Routine_Called;

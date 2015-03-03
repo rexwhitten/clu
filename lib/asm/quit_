@@ -1,0 +1,11 @@
+;; Copyright Massachusetts Institute of Technology Liskov, 1989
+
+quit_ = proc ()
+	_cleanup_()				; clean up
+	_chan$_save_tty()			; clear up tty
+	clr	-(sp)
+	clr	-(sp)				; hack PC
+	moveq	%exit,n0			; done
+	move	n0, -(sp)
+	trap	0
+	end	quit_

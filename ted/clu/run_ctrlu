@@ -1,0 +1,36 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+run_ctrlu = proc (e: env, c: char) signals (errmsg(string), stop(env, string))
+    if c = ctrlu then env$forget_char(e) end
+    dotop: bool := ~_pending_wait()
+    num: string := ""
+    while true do
+	dotop := dotop cor ~_pending_chars()
+	if dotop then
+	   top_display(e, "#-arg: " || num)
+	   env$display(e)
+	   end
+	cc: char := _peek()
+	if cc = ctrlg  cand  c = ctrlu
+	   then _getc()
+		signal errmsg(quit_msg)
+	 elseif (cc = '-'  cand  string$empty(num))  cor
+		(cc >= '0'  cand  cc <= '9')
+	   then _getc()
+		num := string$append(num, cc)
+	 else break end
+	end
+    arg: int
+    if c = ctrlu
+       then arg := e.this_arg
+       else arg := e.next_arg
+       end
+    if string$empty(num)
+       then arg := 4 * arg
+     elseif num = "-"
+       then arg := -arg
+     else arg := arg * int$parse(num)
+     end except when overflow:
+		     if c = ctrlu then signal errmsg("Overflow!") end
+		end
+    e.next_arg := arg
+    end run_ctrlu

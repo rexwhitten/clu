@@ -1,0 +1,11 @@
+#
+set flist = `cat asmadds`
+chdir ..
+foreach f ($flist)
+	echo $f $f-save
+	set input = $<
+	cp $f $f-save
+	cat maint/asmhead $f >/tmp/add
+	/bin/mv -f /tmp/add $f
+end
+chdir maint

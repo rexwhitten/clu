@@ -1,0 +1,27 @@
+; Copyright Massachusetts Institute of Technology 1985, 1989
+
+_real_time = qproc () returns (int)
+	wvec	buf	{4}
+	lea	buf,rr
+	pea	8(rr)
+	move	rr,-(sp)
+	clr	-(sp)
+	moveq	%gettimeofday,n0
+	move	n0,-(sp)
+	trap	0
+	moveq	1,n0				; restore 0
+	lea	12(sp),sp			; pop stack
+	movew	(rr)+,n6
+	mulu	1000,n6
+	swap	n6
+	movew	(rr)+,n7
+	mulu	1000,n7
+	move	(rr),n5
+	divu	1000,n5
+	movew	n5,n6
+	add	n6,n7
+	add	n7,n7
+	bclr	31,n7
+	addq	1,n7
+	return(n7)
+	end _real_time

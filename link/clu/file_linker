@@ -1,0 +1,133 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+File_Linker = proc (File_Names: fnames, Env: lnk_env)
+		signals (cant_load(file_name), error(string),
+			 cant_open(file_name, string), not_found(string));
+
+    Lnk_Times: times;
+    Optns: options := Env.Options;
+    Get_Times: bool := Optns.Do_Type_Times;
+    %timer$Zero(); %% Temp for timing info.
+    %timer$Start(); %% Temp for timing info.
+    if (Get_Times)
+       then Lnk_Times := Env.Times;
+	    Lnk_Times.Load.Start := Run_Time();
+       end;
+
+    if ((Optns.Debugging cand ~ Optns.Debug_Ready) cor
+	Optns.Init_Debug)
+       then %% Load all files specified by debugging load command.
+	    In_Files: fnames,
+	    Out_F: fname,
+	    Opts: options := Get_Files(mach_constants$Debug_Line());
+	       resignal Error;
+	    for F_N: fname in fnames$Elements(In_Files) do
+		Load_File(F_N, env);
+		end;
+	       resignal Cant_Load;
+       end;
+    Top_Rtns: strs := Env.Top_Rtns;
+    if ((Optns.Init_Debug) cor
+	(Optns.Debugging))
+       then Top_Rtns := strs$AddH(Top_Rtns, vDebug_Main);
+       end;
+
+    for F_N: file_name in fnames$Elements(File_Names) do
+	Load_File(F_N, Env);
+	end;
+       resignal Cant_Load;
+
+    if (Get_Times)
+       then Lnk_Times.Load.Stop  := Run_Time();
+	    %timer$Stop(); %% Temp for timing info.
+	    %T_Out: stream := Open_Write("prj:load_times.txt"); %% Temp for timing info.
+	    %Timer_Stats(T_Out); %% Temp for timing info.
+	    %stream$Close(T_Out); %% Temp for timing info.
+	    %LS: stream := Env.Options.List_Stream; %% Temp for timing info.
+	    %stream$PutL(LS, "Load done."); %% Temp for timing info.
+	    %timer$Zero(); %% Temp for timing info.
+	    %timer$Start(); %% Temp for timing info.
+	    Lnk_Times.Link.Start := Run_Time();
+       end;
+
+    Main_RT: r_template;	%% Main will be last on Top_Rtns list.
+    %				%% Unless initializing debugging.
+
+    for Top_Rtn_Str: string in strs$Elements(Top_Rtns) do
+	Main_RT := rtn_tab$Lookup(Env.Routines,
+				  Top_Rtn_Str);
+	   except when Not_Found:
+		       Find_and_Load_File(Top_Rtn_Str, Env);
+		       Main_RT := rtn_tab$Lookup(Env.Routines,
+						 Top_Rtn_Str);
+		  end;
+	   except when Cant_Find,
+		       Not_Found:
+		       signal Not_Found(Top_Rtn_Str);
+		  end;
+	if ((Main_RT.Arg_Count ~= 0) cor
+	    (Main_RT.Param_Count ~= 0) cor
+	    r_template$Is_Iter(Main_RT))
+	   then signal Error("Invalid Main procedure.");
+	   end;
+	R_D: rtn_desc := rtn_desc$Make_Dummy_Main(Main_RT);
+	rtn_desc$Closure(R_D, Env);
+	   except when Error(Err_S: string):
+		       Should_Never_Happen[rtn_desc](Err_S, R_D);
+		  end;
+	end;
+
+    if (Optns.Debugging cand
+	~ Optns.Small)
+       then %% Link in all routines in files that have been used.
+	    Link_All_Unused_Rtns((Optns.Init_Debug cor ~ Optns.Output_to_File),
+				 Env);
+       end;
+
+    lnk_env$End_Link_Phase(Env);
+
+    if (Get_Times)
+       then Lnk_Times.Link.Stop := Run_Time();
+	    %timer$Stop(); %% Temp for timing info.
+	    %T_Out := Open_Write("prj:link_times.txt"); %% Temp for timing info.
+	    %Timer_Stats(T_Out); %% Temp for timing info.
+	    %stream$Close(T_Out); %% Temp for timing info.
+	    %stream$PutL(LS, "Link done."); %% Temp for timing info.
+	    %timer$Zero(); %% Temp for timing info.
+	    %timer$Start(); %% Temp for timing info.
+	    Lnk_Times.Setup.Start := Run_Time();
+       end;
+
+    Setup_Addresses(Env);
+    Env.Pointers.Main_Rtn_Start := Main_RT.Code_Address;
+
+    if (Get_Times)
+       then Lnk_Times.Setup.Stop := Run_Time();
+	    Lnk_Times.Out.Start := Run_Time();
+       end;
+
+    if (~ Optns.Debug_Ready)
+       then Open_Output_File(Env);
+	       except when Not_Possible(S: string):
+			   signal Error(S);
+		      end;
+       end;
+    Output_Everything(Env, Get_Times);
+       except when Cant_Open(F: fname, S: string):
+		   Reset_Output_File(Env);
+		   signal Cant_Open(F, S);
+	      end;
+    Close_Output_File(Env);
+       except when Not_Possible(S: string):
+		   signal Error(S);
+	      end;
+
+    if (Get_Times)
+       then Lnk_Times.Out.Stop := Run_Time();
+	    %timer$Stop(); %% Temp for timing info.
+	    %T_Out := Open_Write("prj:output_times.txt"); %% Temp for timing info.
+	    %Timer_Stats(T_Out); %% Temp for timing info.
+	    %stream$Close(T_Out); %% Temp for timing info.
+	    %stream$PutL(LS, "Output done."); %% Temp for timing info.
+       end;
+    end File_Linker;

@@ -1,0 +1,24 @@
+0000 Heapmx	% maximum high end of heap
+0004 Stkhi	% base of stack
+0010 Freecnt	% remaining free bytes in heap
+0014 Heaplo	% low end of heap
+0020 Heaphi	% current high end of heap
+0024 Memout	% JMP
+0026 Memloc	% out of heap address
+0034 Strtab	% single char string table
+0040 Numgcs	% number of GC's
+0044 Trcflg	% trace flag
+0050 Gcflag	% GC flag
+0054 Defer	% _event flag
+0060 Environ	% JCL and shell variables
+0064 Dbgflg	% system debug flag
+0070 Intflg	% interrupt flag
+0074 Rchain	% routine table chain
+0100 Nchain	% name table chain
+0104 Schain	% segment map chain
+0110 Rdpipe	% read from linker pipe
+0114 Wrpipe	% write to linker pipe
+0120 Sigtab	% table of traced signals
+0124 Uninit	% uninitialized variable flag
+0130 Brkaddr	% brk address - top of allocated memory
+0134 Gcpoint    % next address at which gc should occur

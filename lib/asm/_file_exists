@@ -1,0 +1,48 @@
+; Copyright Massachusetts Institute of Technology 1985, 1989
+
+_file_exists = proc (fs: string, ftype: int) returns (bool)
+					     signals (not_possible(string))
+	wvec	buf	{16}
+	movea	fs,rr
+	ifne	cmp	(rr),n0				; empty?
+		beq	this
+		cmpib	'/',4(rr)			; or relative?
+	then	working_dir()				; yes, add working dir
+		string$concat(rr, fs)
+	end
+	moveq	6,n1
+	ifeq	and	(rr),n1
+	then	string$append(rr, '\000')		; ASCIZ
+	end
+	lea	buf,r1
+	move	r1,-(sp)				; buffer
+	pea	4(rr)					; name
+	clr	-(sp)
+	moveq	%stat,n0				; get status
+	move	n0,-(sp)
+	trap	0
+	lea	12(sp),sp				; pop stack
+	ifcc
+	then	moveq	1,n0				; restore 0
+		moveq	0,n1				; right file type?
+		moveb	6(r1),n1
+		asrw	4,n1
+		move	ftype,n2
+		asr	1,n2
+		cmp	n1,n2
+		seq	n1
+		return(n1)
+	end
+	clr	-8(sp)
+	ifeq	cmpib	2,n0				; ENOENT?
+		beq	this
+		cmpib	20,n0				; ENOTDIR?
+	then	moveq	1,n0				; restore 0
+		return(false)
+	end
+	movea	n0,rr
+	lea	1(rr,rr),rr
+	moveq	1,n0
+	_erstr(rr)
+	signal	not_possible(rr)
+	end _file_exists

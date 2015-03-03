@@ -1,0 +1,31 @@
+;; Copyright Massachusetts Institute of Technology 1985, 1989
+
+_change_mode = proc (fn: file_name, mode: int) signals (not_possible(string))
+	file_name_fill(fn, "")		;; Fill in dir part.
+	file_name$unparse(rr)
+	ifeq	moveq	6, n1
+		and	(rr), n1
+	then	string$append (rr, '\000')	;; Append null if necessary.
+		end
+	move	mode, n2		;; Get mode.
+	asr	1, n2			;; De-integerize
+	move	n2, -(sp)		;; Push mode
+	pea	4(rr)			;; Push file name.
+	clr	-(sp)			;; Hack pc.
+	moveq	%chmod, n0
+	move	n0, -(sp)		;; Chmod
+	trap	0			;; do the call
+	scc	n1			;; Remember state of carry.
+	addq	4, sp			;; Pop pc
+	clr	(sp)+			;; Clear and pop out string addr.
+	clr	(sp)+			;; Clear and pop mode.
+	ifne	tstb	n1
+	then	moveq	1, n0		;; Restore n0.
+		return
+		end
+	movea	n0, rr
+	lea	1(rr, rr), rr		;; Save and integerize error result.
+	moveq	1, n0			;; Restore n0.
+	_erstr(rr)
+	signal	not_possible(rr)
+	end _change_mode

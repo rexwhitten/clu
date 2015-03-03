@@ -1,0 +1,1521 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+% Physical screen hacking cluster, for editors, etc.
+
+# extend
+
+screen = cluster is
+
+	% mode changing and initialization functions
+	init,			% sets up (first time, or new terminal)
+	enter_image_mode,	% set up terminal
+	leave_image_mode,	% restores the terminal
+
+	% option setting functions
+	set_padding,		% pad output
+	set_scroll,		% do scrolling (if poss)
+	set_keypad_mode,	% enter/exit alternate keypad mode
+	recolor,		% set color
+
+	% display functions
+	clear,			% clear screen and home up
+	display_line,		% display a line of an environment
+	redisplay_line,		% redisplay line as is
+	display_chars,		% display chars at end of line
+	update_line,		% update data to correspond with screen
+	set_cursor_pos,		% set the cursor position
+	get_cursor_pos,		% get the cursor position
+	scroll,			% scroll a region
+	full_scroll,		% scroll entire screen
+
+	% information returning functions
+	get_padding,		% padding on ?
+	get_screen_size,	% returns length and width of screen
+	fetch,			% fetch a line
+	id_lines_poss,		% ins/del lines possible ?
+	scrolling_poss,		% full screen scrolling possible ?
+	should_id_lines,	% makes decision about ins/del lines
+	should_scroll		% makes decision about scrolling
+
+    ldata = record[line: act,          % screen line, as chars
+		   len:  int,          % len of real string
+		   lim:  int,          % pos of last non-space char in line
+		   str:  string]       % the actual string
+
+    % invariant property of ldatas:
+    %	size(line) = hsize - 1
+    %	len = _calc_hpos(str, string$size(str) + 1)
+    %	lim < i < hsize  =>  line[i] = ' '
+    %	the chars in line correspond to the chars in str
+    %	the chars in lines[j] correspond to the chars on the
+    %	    screen on line j (the presence of an ! determined by len)
+
+    rep     = null
+    al      = array[ldata]
+
+    qi      = sequence[int]
+    zapc    = array_zap[char]
+    shiftc  = array_shift[char]
+    shiftl  = array_shift[ldata]
+    repll   = array_replace[ldata]
+    outc    = output$outc
+    outi    = output$outi
+    outs    = output$outs
+    outn    = output$outn
+    outa    = output$outa
+    outb    = output$outb
+    pad     = output$pad
+    flush   = output$flush
+    wait    = output$force_out
+    reset   = output$reset
+    oimage  = output$set_image
+
+    % terminal type numbers
+
+    virt    = 0
+    vt52    = 1
+    zenith  = 2
+    vt100v  = 3
+    hp      = 4
+    teleray = 5
+    aaa     = 6
+    adm3a   = 7
+    fox     = 8
+    nfox    = 9
+    dasher  = 10
+    e19     = 11
+    bit     = 12
+    vt100a  = 13
+
+    % some escape sequence equates
+
+    vt52_keol_str   = "\033K"
+    vt52_keos_str   = "\033J"
+    vt52_clear_str  = "\033H\033J"
+    vt52_up_str     = "\033A"
+    vt52_up2_str    = "\033A\033A"
+    vt52_down_str   = "\^J"
+    vt52_down2_str  = "\^J\^J"
+    vt52_right_str  = "\033C"
+    vt52_right2_str = "\033C\033C"
+    vt52_left_str   = "\^H"
+    vt52_left2_str  = "\^H\^H"
+    vt52_home_str   = "\033H"
+
+    aaa_sizes = qi$[60, 48, 40, 36, 30, 28, 26, 24, 22, 20, 18]
+    aaa_min_size = 18
+
+    _guess = 45			% guess at average line redisplay
+
+    own done: bool := false
+
+    % screen data base
+
+    own lines: al			    % array of line data
+    own holder: act			    % for display_line (new line)
+    own hlim: int			    % limit for holder
+    own temp: al			    % for scrolling
+
+    % option variables
+
+    own do_pad: bool			    % need padding ?
+    own do_scroll: bool			    % do full scrolling ?
+
+    % terminal type info
+
+    own image: bool			    % in image mode?
+    own cpo: _chan
+    own name: string		    % terminal name
+    own term: int			    % terminal type
+
+    % terminal properties
+
+    own vsize: int                          % # of lines (0 to vsize-1)
+    own hsize: int                          % # of cols  (0 to hsize-1)
+    own vsize1: int                         % vsize-1
+    own vhalf: int			    % (vsize-1)/2
+    own hsize1: int                         % hsize-1
+    own hhalf: int			    % (hsize-1)/2
+    own small: bool			    % reduced screen size?
+    own padding: int			    % padding factor
+    own overstrike: bool		    % overstrikes ?
+    own termcap: string			    % termcap string
+
+    % ability flags (options we can choose not to use)
+
+    own can_tab: bool                       % can tab reasonably ?
+    own can_scroll: bool                    % can scroll full screen ?
+    own can_rev_idx: bool		    % can reverse scroll full screen ?
+    own can_id_line: bool		    % can ins/del line ?
+    own id_scroll: bool			    % ins/del line by scrolling ?
+    own can_id_char: bool                   % can ins/del char ?
+    own can_keol: bool                      % can kill to end of line ?
+    own can_home: bool			    % can home ?
+    own can_up: bool			    % can move up ?
+    own can_left: bool			    % can move left ?
+    own can_right: bool			    % can move right ?
+
+    % output strings (escape sequences)
+
+    own home_str: string                    % home up
+    own clear_str: string                   % home and clear
+    own keol_str: string                    % kill to end of line
+    own keos_str: string		    % kill to end of screen
+    own up_str: string                      % up one line
+    own up2_str: string			    % up two lines
+    own down_str: string                    % down one line
+    own down2_str: string		    % down two lines
+    own right_str: string                   % right one
+    own right2_str: string		    % right two
+    own left_str: string                    % left one
+    own left2_str: string		    % left two
+    own delc_str: string                    % delete one char
+    own delc_pad: _bytevec		    % virt padding
+    own delc_cnt: int			    % size of delc_pad
+    own insl_str: string                    % insert one line
+    own insl_pad: _bytevec		    % virt padding
+    own insl_cnt: int			    % size of insl_pad
+    own dell_str: string                    % delete one line
+    own dell_pad: _bytevec		    % virt padding
+    own dell_cnt: int			    % size of dell_pad
+    own scr_str: string			    % scroll one line
+    own rev_str: string			    % reverse scroll one line
+    own move_str: string		    % cursor motion
+    own vim_str: string			    % start insert char mode
+    own vic_str: string			    % before each insert
+    own vip_str: string			    % after each insert
+    own vip_pad: _bytevec		    % padding
+    own vip_cnt: int			    % size of vip_pad
+    own vei_str: string			    % end insert char mode
+    own vdm_str: string			    % start delete char mode
+    own ved_str: string			    % end delete char mode
+    own vti_str: string			    % start program
+    own vte_str: string			    % end program
+    own vcr_str: string			    % carriage
+    own vta_str: string			    % tab
+    own vcs_str: string			    % change scroll window
+
+    % cursor info (-1 means unknown)
+
+    own vpos: int                           % current vertical pos
+    own hpos: int                           % current horizontal pos
+
+    init = proc ()
+	if ~done
+	   then lines := al$create(0)
+		holder := act$create(0)
+		hlim := -1
+		temp := al$create(0)
+		do_pad := true
+		do_scroll := true
+		image := false
+		cpo := _chan$primary_output()
+		done := true
+	   else leave_image_mode()
+	   end
+	termcap := _get_termcap()
+	hsize := int$parse(_termcap(termcap, ":co#", 0, 0))
+	   except when not_found, bad_format, overflow: hsize := 80 end
+	vsize := int$parse(_termcap(termcap, ":li#", 0, 0))
+	   except when not_found, bad_format, overflow: hsize := 24 end
+
+	small := vsize < 24
+	overstrike := false
+	can_tab := false
+	can_scroll := true
+	can_rev_idx := false
+	can_id_line := false
+	id_scroll := false
+	can_id_char := false
+	can_keol := true
+	can_home := true
+	can_up := true
+	can_left := true
+	can_right := true
+	keol_str := vt52_keol_str
+        keos_str := vt52_keos_str
+	clear_str := vt52_clear_str
+	up_str := vt52_up_str
+	up2_str := vt52_up2_str
+	down_str := vt52_down_str
+	down2_str := vt52_down2_str
+	right_str := vt52_right_str
+	right2_str := vt52_right2_str
+	left_str := vt52_left_str
+	left2_str := vt52_left2_str
+	home_str := vt52_home_str
+	delc_str := ""
+	insl_str := "\033L"
+	dell_str := "\033M"
+	scr_str := "\^J"
+	rev_str := "\033I"
+	vti_str := ""
+	vte_str := ""
+
+	name := _environ("TERM")
+	% do per type things
+	if name = "vt52"
+	   then term := vt52
+		can_tab := true
+		can_rev_idx := true
+	 elseif name = "h19"  cor  name = "heath"  cor
+		name = "z19"  cor  name = "z29"  cor
+		name = "alto"  cor  name = "altoh19"  cor  name = "altoheath"
+	   then term := zenith
+		clear_str := "\033E"
+		can_rev_idx := true
+		can_id_char := true
+		can_id_line := true
+		if name = "z29"
+		   then dell_cnt := 4
+			delc_cnt := 10
+		   else dell_cnt := 68
+			delc_cnt := 4
+		   end
+		can_tab := true
+		if name[1] = 'a'
+		   then small := vsize < 60
+			do_pad := false
+		   end
+	 elseif name = "e19"
+	   then term := e19
+		clear_str := "\033E"
+		can_rev_idx := true
+		can_id_char := true
+		can_id_line := true
+		can_tab := true
+		if term = e19
+		   then delc_str := "\033N"
+			insl_str := "\033L"
+			dell_str := "\033M"
+		   end
+	 elseif name = "vt100v"
+	   then term := vt100v
+		can_rev_idx := true
+		can_id_line := true
+		can_tab := true
+	 elseif name = "dasher"
+	   then term := dasher
+		can_keol := false
+		clear_str := "\^L"
+		up_str := "\^W"
+		up2_str := "\^W\^W"
+		down_str := "\^Z"
+		down2_str := "\^Z\^Z"
+		right_str := "\^X"
+		right2_str := "\^X\^X"
+		left_str := "\^Y"
+		left2_str := "\^Y\^Y"
+		home_str := "\^H"
+	 elseif name = "hp"
+	   then term := hp
+		small := true
+		can_scroll := false
+		can_id_char := true
+		can_id_line := true
+	 elseif name = "adm3a"
+	   then term := adm3a
+		can_keol := false
+		clear_str := "\^Z"
+		up_str := "\^K"
+		up2_str := "\^K\^K"
+		right_str := "\^L"
+		right2_str := "\^L\^L"
+		home_str := "\^^"
+	 elseif name = "t1061"
+	   then term := teleray
+		delc_str := "\033Q"
+		can_id_char := true
+		can_id_line := true
+		can_tab := true
+	 elseif name = "aaa"  cor
+		name = "vt100"  cor  name = "vt100a"  cor  name = "vt125"  cor
+		name = "vs100"  cor  name = "vs100s"  cor
+		name = "xterm"  cor  name = "xterms"
+	   then if name = "aaa"
+		   then term := aaa
+			small := false
+			can_id_char := true
+		   else term := vt100a
+			if name ~= "vt100"  cand  name ~= "vt100a"
+			   then do_pad := false end
+		   end
+		can_tab := true
+		can_rev_idx := true
+		can_id_line := true
+		up_str := "\033M"
+		up2_str := "\033[2A"
+		right_str := "\033[C"
+		right2_str := "\033[2C"
+		home_str := "\033[;H"
+		keol_str := "\033[K"
+		clear_str := "\033[;H\033[J"
+		rev_str := "\033M"
+	 elseif name = "fox"
+	   then term := fox
+	 elseif name = "pe550"
+	   then term := nfox
+	 elseif name = "bbn"
+	   then term := bit
+		small := vsize < 64
+		home_str := "\033[;H"
+		clear_str := "\033[;H\033J"
+		can_rev_idx := true
+		can_id_char := true
+		can_id_line := true
+		can_tab := true
+	 else term := virt
+	      if string$indexs(":cm=", termcap) = 0  cor
+		 string$indexs(":cl=", termcap) = 0
+		 then exit not_found end
+	      vti_str := _termcap(termcap, ":ti=", 0, 0)
+		 except when not_found: end
+	      vte_str := _termcap(termcap, ":te=", 0, 0)
+		 except when not_found: end
+	      if string$indexs(":am:", termcap) > 0
+		 then hsize := hsize - 1 end
+	      if string$indexs(":da:", termcap) > 0  cor
+		 string$indexs(":db:", termcap) > 0
+		 then small := true
+		      if string$indexs(":cd=", termcap) = 0
+			 then exit not_found end
+		 else small := false
+		 end
+	      if string$indexs(":ce=", termcap) = 0
+		 then can_keol := false end
+	      if string$indexs(":up=", termcap) = 0
+		 then can_up := false end
+	      if string$indexs(":pt:", termcap) > 0  cand
+		 string$indexs(":xt:", termcap) = 0
+		 then can_tab := true end
+	      if string$indexs(":bs:", termcap) = 0  cand
+		 string$indexs(":bc=", termcap) = 0
+		 then can_left := false end
+	      if string$indexs(":os:", termcap) > 0
+		 then if string$indexs(":eo:", termcap) = 0  cor  ~can_left
+			 then exit not_found end
+		      overstrike := true
+		 end
+	      if string$indexs(":nd=", termcap) = 0
+		 then can_right := false end
+	      if string$indexs(":ho=", termcap) = 0
+		 then can_home := false end
+	      if string$indexs(":sr=", termcap) > 0
+		 then can_rev_idx := true end
+	      if string$indexs(":ns:", termcap) > 0
+		 then can_scroll := false end
+	      if string$indexs(":al=", termcap) > 0  cand
+		 string$indexs(":dl=", termcap) > 0
+		 then can_id_line := true
+	       elseif can_rev_idx  cand  can_scroll  cand
+		      string$indexs(":cs=", termcap) > 0
+		 then can_id_line := true
+		      id_scroll := true
+	       end
+	      if string$indexs(":in:", termcap) = 0  cand
+		 string$indexs(":dc=", termcap) > 0  cand
+		 (string$indexs(":im=", termcap) > 0  cor
+		  string$indexs(":ic=", termcap) > 0)
+		 then can_id_char := true
+		 end
+	      if string$indexs(":MT:", termcap) > 0
+		 then _set_meta(true) end
+	 end except when not_found:
+			 _chan$puts(cpo,
+				    "TED won't work with this terminal\n",
+				    false)
+			 quit_()
+		    end
+	enter_image_mode()
+	set_padding(do_pad)
+	if term = aaa
+	   then if vsize < aaa_min_size
+		   then vsize := aaa_min_size end
+		for i: int in qi$elements(aaa_sizes) do
+		    if vsize >= i
+		       then vsize := i
+			    break
+		       end
+		    end
+		outs("\033[1Q\033[>4;20;25;29;30;33;34;35;36;37;39l")
+		% IRM;LNM;ZMBM;ZLNM;ZDBM;ZAWF;ZAWB;ZDDM;ZSPM;ZAXM;ZSSM
+		outs("\033[")   % memory and screen size
+		outn(vsize)
+		outs(";;;")
+		outn(vsize)
+		outc('p')
+		flush()
+	 end
+	vsize1 := vsize - 1
+	vhalf := vsize1 / 2
+	hsize1 := hsize - 1
+	hhalf := hsize1 / 2
+	set_cursor_pos(0, 0, true)
+	end init
+
+    enter_image_mode = proc ()
+	if image
+	   then return end
+	reset()
+	vpos := -1        % force positioning
+	hpos := -1
+	_image$set(true)
+	oimage(true)
+	if name = "vt100"
+	   then outs("\033[?7l")
+	   else outs(vti_str)
+	   end
+	flush()
+	image := true
+	end enter_image_mode
+
+    leave_image_mode = proc ()
+	if image
+	   then	if name = "vt100"
+		   then outs("\033[?7h")
+		   else outs(vte_str)
+		   end
+		wait()
+		_image$set(false)
+		image := false
+	   end
+	end leave_image_mode
+
+    set_padding = proc (b: bool)
+	do_pad := b
+	baud: int := _output_speed()
+	padding := 38400 / baud
+	if ~do_pad  cor
+	   (term ~= virt cand (baud < 1200  cor
+				    (baud = 1200 cand
+				     term ~= fox cand term ~= nfox)))
+	   then padding := 0
+		baud := 0
+	   end
+	if term = zenith
+	   then delc_str := add_pad("\033N", delc_cnt)
+		insl_str := add_pad("\033L", dell_cnt)
+		dell_str := add_pad("\033M", dell_cnt)
+	 elseif term = vt100v
+	   then scr_str := add_pad("\^J", 12)
+		rev_str := add_pad("\033I", 12)
+		clear_str := add_pad("\033H\033J", 40)
+	 elseif term = vt100a
+	   then scr_str := add_pad("\^J", 12)
+		rev_str := add_pad("\033M", 12)
+		clear_str := add_pad("\033[;H\033[J", 200)
+	 elseif term = hp
+	   then delc_str := add_pad("\033P", 4)
+	 elseif term = fox
+	   then keol_str := add_pad("\033I", 16)
+		clear_str := add_pad("\033K", 40)
+	 elseif term = nfox
+	   then keol_str := add_pad("\033I", 16)
+		clear_str := add_pad("\033E", 80)
+	 elseif term = virt
+	   then move_str := _termcap(termcap, ":cm=", 1, baud)
+		clear_str := _termcap(termcap, ":cl=", vsize, baud)
+		if small
+		   then keos_str := _termcap(termcap, ":cd=", 1, baud) end
+		if can_keol
+		   then keol_str := _termcap(termcap, ":ce=", 1, baud) end
+		vta_str := _termcap(termcap, ":ta=", 1, baud)
+		   except when not_found: vta_str := "\t" end
+		vcr_str := _termcap(termcap, ":cr=", 1, baud)
+		   except when not_found: vcr_str := "\^M" end
+		if can_rev_idx
+		   then rev_str := _termcap(termcap, ":sr=", 1, baud) end
+		scr_str := _termcap(termcap, ":sf=", 1, baud)
+		   except when not_found: scr_str := "\^J" end
+		if can_up
+		   then up_str := _termcap(termcap, ":up=", 1, baud)
+			up2_str := up_str || up_str
+		   end
+		if can_right
+		   then right_str := _termcap(termcap, ":nd=", 1, baud)
+			right2_str := right_str || right_str
+		   end
+		if can_left
+		   then left_str := _termcap(termcap, ":bc=", 1, baud)
+			left2_str := left_str || left_str
+		   end except when not_found: end
+		if can_home
+		   then home_str := _termcap(termcap, ":ho=", 1, baud) end
+		if id_scroll
+		   then vcs_str := _termcap(termcap, ":cs=", 1, baud)
+		 elseif can_id_line
+		   then insl_str := _termcap(termcap, ":al=", 1, 0)
+			insl_pad := _cvt[string, _bytevec](
+					string$rest(_termcap(termcap, ":al=",
+							     vsize, baud),
+						    string$size(insl_str) + 1))
+			insl_cnt := _bytevec$size(insl_pad)
+			dell_str := _termcap(termcap, ":dl=", 1, 0)
+			dell_pad := _cvt[string, _bytevec](
+					string$rest(_termcap(termcap, ":dl=",
+							     vsize, baud),
+						    string$size(dell_str) + 1))
+			dell_cnt := _bytevec$size(dell_pad)
+		 end
+		if can_id_char
+		   then vim_str := _termcap(termcap, ":im=", 1, baud)
+			   except when not_found: vim_str := "" end
+			vei_str := _termcap(termcap, ":ei=", 1, baud)
+			   except when not_found: vei_str := "" end
+			vic_str := _termcap(termcap, ":ic=", 1, baud)
+			   except when not_found: vic_str := "" end
+			if string$indexs(":ip=", termcap) = 0
+			   then vip_str := ""
+				vip_pad := _cvt[string, _bytevec]("")
+				vip_cnt := 0
+			   else vip_str := _termcap(termcap, ":ip=", 1, 0)
+				vip_pad := _cvt[string, _bytevec](
+					       string$rest(
+						   _termcap(termcap, ":ip=",
+							    hsize, baud),
+						   string$size(vip_str) + 1))
+				vip_cnt := _bytevec$size(vip_pad)
+			   end
+			vdm_str := _termcap(termcap, ":dm=", 1, baud)
+			   except when not_found: vdm_str := "" end
+			ved_str := _termcap(termcap, ":ed=", 1, baud)
+			   except when not_found: ved_str := "" end
+			delc_str := _termcap(termcap, ":dc=", 1, 0)
+			delc_pad := _cvt[string, _bytevec](
+					string$rest(_termcap(termcap, ":dc=",
+							     hsize, baud),
+						    string$size(delc_str) + 1))
+			delc_cnt := _bytevec$size(delc_pad)
+		   end
+	 end
+	end set_padding
+
+    set_scroll = proc (b: bool)
+	do_scroll := b
+	end set_scroll
+
+    set_keypad_mode = proc (b: bool) returns (bool)
+	if term = vt52  cor  term = vt100v  cor  term = zenith  cor
+	   term = vt100a  cor  term = e19  cor term = bit
+	   then if b
+		   then outs("\033=")
+			if term = vt100a
+			   then outs("\033[?1h") end
+		   else outs("\033>")
+			if term = vt100a
+			   then outs("\033[?1l") end
+		   end
+		flush()
+		return(true)
+	 elseif term = virt cand
+		string$indexs(":ks=", termcap) > 0 cand
+		string$indexs(":ke=", termcap) > 0
+	   then if b
+		   then outs(_termcap(termcap, ":ks=", 0, 0))
+		   else outs(_termcap(termcap, ":ke=", 0, 0))
+		   end
+		flush()
+		return(true)
+	 end
+	return(false)
+	end set_keypad_mode
+
+    recolor = proc (white: bool) returns (bool)
+	% implement some day
+	return(false)
+	end recolor
+
+    clear = proc ()
+	outs(clear_str)
+	flush()	% start it working
+	ovsize: int := al$size(lines)
+	deltav: int := vsize - ovsize
+	deltah: int := hsize1 - act$size(holder)
+	limit: int := ovsize - 1
+	if deltav < 0
+	   then limit := vsize1 end
+	% clear out char arrays, and auxiliary info
+	for i: int in int$from_to(0, limit) do
+	    line: ldata := lines[i]
+	    lim: int := line.lim
+	    chars: act := line.line
+	    zapc(chars, 0, lim+1, ' ')
+	    if deltah < 0
+	       then act$trim(chars, 0, hsize1)
+	       else for j: int in int$from_to_by(deltah, 1, -1) do
+			act$addh(chars, ' ')
+			end
+	       end
+	    line.lim := -1
+	    line.len := 0
+	    line.str := ""
+	    end
+	if deltav < 0
+	   then al$trim(lines, 0, vsize)
+	   else for i: int in int$from_to_by(deltav, 1, -1) do
+		    line: ldata :=
+			ldata${line: act$fill(0, hsize1, ' '),
+			       lim:  -1,
+			       len:  0,
+			       str:  ""}
+		    al$addh(lines, line)
+		    end
+	   end
+	if deltah < 0
+	   then act$trim(holder, 0, hsize1)
+		if hlim >= hsize1
+		   then hlim := hsize - 2 end
+	   else for i: int in int$from_to_by(deltah, 1, -1) do
+		    act$addh(holder, ' ')
+		    end
+	   end
+	% wait for output to finish, then set cursor
+	wait()
+	vpos := -1   % force positioning
+	set_cursor_pos(0, 0, true)
+	end clear
+
+    display_line = proc (s: string, lpos: int) returns (bool) signals (bounds)
+	line: ldata := lines[lpos]
+	   resignal bounds
+	if s = line.str
+	   then return(false) end
+	new: act := holder
+	nlim, newlen: int := _calc_hpos_copy(s, new)
+	if hlim >= newlen
+	   then zapc(new, newlen, hlim - newlen + 1, ' ') end
+	old: act := line.line
+	oldlen: int := line.len
+	olim: int := line.lim
+	excl: char := ' '
+	if oldlen >= hsize
+	   then excl := '!' end
+	mlim: int := nlim
+	mpos: int
+	if can_id_char cand newlen ~= oldlen
+	   then % try for ins/del char
+		if mlim > olim
+		   then mlim := olim end
+		% scan for difference
+		mpos := _diff_scan(new, old, 0, mlim)
+		delta: int := newlen - oldlen
+		if mpos <= mlim  cand  mpos + int$abs(delta) < hsize then
+		   % search for matching suffix
+		   ospos: int := oldlen
+		   nspos: int := newlen
+		   if nspos > nlim
+		      then ospos := ospos - (nspos - nlim)
+			   nspos := nlim
+		      end
+		   if ospos > olim
+		      then nspos := nspos - (ospos - olim)
+			   ospos := olim
+		      end
+		   % compare costs
+		   cost, padcnt: int
+		   if term = virt
+		      then if delta > 0
+			      then padcnt := vip_cnt -
+					     (vip_cnt * (mpos + (delta / 2))) /
+					     hsize1
+				   cost := string$size(vim_str) +
+					   delta * (string$size(vic_str) +
+						    string$size(vip_str) +
+						    padcnt) +
+					   string$size(vei_str)
+			      else padcnt := delc_cnt -
+					     (delc_cnt * mpos + hhalf) /
+					     hsize1
+				   cost := string$size(vdm_str) -
+					   delta * (string$size(delc_str) +
+						    padcnt) +
+					   string$size(ved_str)
+
+			      end
+		    elseif term = aaa cor term = bit
+		      then cost := 4
+		    elseif delta > 0
+		      then if term = zenith
+			      then if padding > 0
+				      then cost := 4 + (delc_cnt * delta) /
+						       padding
+				      else cost := 4
+				      end
+			    elseif term = hp
+			      then if padding > 0
+				      then cost := 4 + (4 * delta) / padding
+				      else cost := 4
+				      end
+			    elseif term = e19
+			      then cost := 3
+			    else cost := 2 * delta end
+		    elseif term = zenith cand delta <= -6
+		      then if padding > 0
+			      then cost := 11 + (delc_cnt * -delta) / padding
+			      else cost := 11
+			      end
+		    elseif term = e19 cand delta < -1
+		      then cost := 3
+		    else cost := -string$size(delc_str) * delta end
+		   sufpos: int := _find_matching_suffix(new, old, nspos, ospos)
+		   if cost < nspos - sufpos
+		      then % avoid moving cursor if possible
+			   if delta > 0 then sufpos := sufpos - delta end
+			   if vpos = lpos cand hpos >= sufpos cand hpos <= mpos
+			      then mpos := hpos
+			      else set_cursor_pos(lpos, mpos, false)
+			      end
+			   if delta > 0
+			      then % do insertion
+				   if term = zenith
+				      then outs("\033@")
+					   outa(new, mpos, delta)
+					   if padding > 0
+					      then pad((delc_cnt * delta) /
+						       padding)
+					      end
+					   outs("\033O")
+				    elseif term = hp
+				      then outs("\033Q")
+					   outa(new, mpos, delta)
+					   if padding > 0
+					      then pad((4 * delta) / padding)
+					      end
+					   outs("\033R")
+				    elseif term = aaa cor term = bit
+				      then ansi_seq(delta, '@')
+					   outa(new, mpos, delta)
+				    elseif term = e19
+				      then outs("\033i")
+					   outi(delta + 037)
+					   outa(new, mpos, delta)
+				    elseif term = virt
+				      then outs(vim_str)
+					   for ipos: int in int$from_to(mpos, mpos + delta - 1) do
+					       outs(vic_str)
+					       outc(new[ipos])
+					       outs(vip_str)
+					       outb(vip_pad, 1,
+						    vip_cnt -
+						    (vip_cnt * ipos + hhalf) /
+						    hsize1)
+					       end
+					   outs(vei_str)
+				    else for i: int in int$from_to_by(delta, 1, -1) do
+					     outs("\033P")
+					     end
+					 outa(new, mpos, delta)
+				    end
+				   ompos: int := mpos
+				   mpos := mpos + delta
+				   hpos := mpos
+				   % fix old
+				   oldlen := oldlen + delta
+				   olim := olim + delta
+				   excl := old[hsize1 - delta]
+				   if olim >= hsize1
+				      then olim := hsize - 2 end
+				   shiftc(old, ompos, olim - mpos + 1, delta)
+				   while olim >= 0 cand old[olim] = ' ' do
+				       olim := olim - 1
+				       end
+			      else % do deletion
+				   delta := -delta
+				   if term = aaa cor term = bit
+				      then ansi_seq(delta, 'P')
+				    elseif term = zenith cand delta >= 6
+				      then outs("\033<\033[")
+					   outn(delta)
+					   outs("P\033[?2h")
+					   if padding > 0
+					      then pad((delc_cnt * delta) /
+						       padding)
+					      end
+				    elseif term = e19 cand delta > 1
+				      then outs("\033d")
+					   outi(delta + 037)
+				    elseif term = virt
+				      then outs(vdm_str)
+					   for i: int in int$from_to_by(delta, 1, -1) do
+					       outs(delc_str)
+					       outb(delc_pad, 1, padcnt)
+					       end
+					   outs(ved_str)
+				    else for i: int in int$from_to_by(delta, 1, -1) do
+					     outs(delc_str)
+					     end
+				    end
+				   % fix old
+				   oldlen := oldlen - delta
+				   olim := olim - delta
+				   shiftc(old, mpos+delta, olim - mpos + 1, -delta)
+				   zapc(old, olim+1, delta, ' ')
+				   if excl ~= ' '
+				      then olim := hsize1 - delta
+					   old[olim] := excl
+					   excl := ' '
+				      end
+			      end
+			   if olim < mlim
+			      then mlim := olim end
+		      end
+		   end
+		if ~can_keol cand olim > nlim
+		   then mlim := olim
+			mpos := _diff_scan(new, old, mpos, mlim)
+		 elseif nlim > mlim
+		   then mlim := nlim
+			mpos := _diff_scan(new, old, mpos, mlim)
+		 end
+	   else if ~can_keol cand olim > mlim
+		   then mlim := olim end
+		mpos := _diff_scan(new, old, 0, mlim)
+	   end
+
+	% variables in the loop below
+	%	mpos - pos of matching group (after 1st assignment)
+	%	mlim - last interesting char on line
+	%	ompos - pos of first char in differing group
+
+	while mpos <= mlim do
+	    min_match = 4
+	    ompos: int := mpos
+	    mpos := _match_scan_skip(new, old, mpos, mlim, min_match)
+	    if hpos ~= ompos cor vpos ~= lpos
+	       then set_cursor_pos(lpos, ompos, false) end
+	    if overstrike  cand  ompos <= olim
+	       then for ompos in int$from_to(ompos, mpos - 1) do
+			if old[ompos] ~= ' '
+			   then outc(' ')
+				outs(left_str)
+			   end
+			outc(new[ompos])
+			end
+	       else outa(new, ompos, mpos-ompos)
+	       end
+	    hpos := mpos
+	    mpos := mpos + min_match
+	    if mpos > mlim
+	       then mpos := mlim + 1
+		    break
+	       end
+	    mpos := _diff_scan(new, old, mpos, mlim)
+	    end
+	if mlim < olim
+	   then % keol needed (only get here if can_keol)
+		if hpos ~= mpos cor vpos ~= lpos
+		   then set_cursor_pos(lpos, mpos, false) end
+		outs(keol_str)
+		excl := ' '
+	   end
+	dexcl: char := ' '      % desired excl place char
+	if newlen >= hsize
+	   then dexcl := '!' end
+	if dexcl ~= excl
+	   then if term = hp
+		   then set_cursor_pos(lpos, hsize1 - 1, false)
+			outc(dexcl)
+			outs("\033D\033Q")
+			outc(new[hsize1 - 1])
+			outs("\^@\033R")
+			hpos := hsize1
+		   else if term = bit
+			   then vpos := -1 end
+			set_cursor_pos(lpos, hsize1, false)
+			if overstrike
+			   then if can_keol
+				   then outs(keol_str)
+				   else outc(' ')
+					vpos := -1
+					set_cursor_pos(lpos, hpos, false)
+				   end
+			   end
+			outc(dexcl)
+			if term = virt
+			   then vpos := -1
+				set_cursor_pos(lpos, hpos, false)
+			 elseif hsize < 80
+			   then outs(left_str) end
+		   end
+	   end
+	flush()        % send stuff off
+	holder := old
+	hlim := olim
+	line.line := new
+	line.lim := nlim
+	line.len := newlen
+	line.str := s
+	return(true)
+	end display_line
+
+    redisplay_line = proc (lpos: int)
+	line: ldata := lines[lpos]
+	   except when bounds: return end
+	vpos := -1
+	s: string := line.str
+	zapc(line.line, 0, hsize1, '\177')
+	if line.len >= hsize
+	   then line.len := hsize1
+	   else line.len := hsize
+	   end
+	line.lim := hsize1
+	line.str := "\177"
+	display_line(s, lpos)
+	end redisplay_line
+
+    display_chars = proc (nvpos, ohpos, nhpos: int, chars: act, mhpos: int)
+	if nvpos ~= vpos  cor  ohpos ~= hpos
+	   then set_cursor_pos(nvpos, ohpos, false) end
+	if overstrike  cand  (nhpos < mhpos  cor  ohpos < mhpos)
+	   then if can_keol
+		   then outs(keol_str)
+			mhpos := 0
+		   else for ohpos in int$from_to(ohpos, int$min(nhpos, mhpos) - 1) do
+			    outc(' ')
+			    outs(left_str)
+			    outc(chars[ohpos])
+			    end
+			ohpos := ohpos + 1
+		   end
+	   end
+	outa(chars, ohpos, nhpos - ohpos)
+	hpos := nhpos
+	if hpos < mhpos
+	   then if can_keol
+		   then outs(keol_str)
+		   else for hpos in int$from_to(hpos + 1, mhpos) do
+			    outc(' ')
+			    end
+			set_cursor_pos(vpos, nhpos, false)
+		   end
+	   end
+	flush()
+	end display_chars
+
+    update_line = proc (s: string, lpos: int) signals (bounds)
+	line: ldata := lines[lpos]
+	   resignal bounds
+	nlim, newlen: int := _calc_hpos_copy(s, line.line)
+	if line.lim >= newlen
+	   then zapc(line.line, newlen, line.lim - newlen + 1, ' ') end
+	line.lim := nlim
+	line.len := newlen
+	line.str := s
+	end update_line
+
+    set_cursor_pos = proc (nvpos, nhpos: int, doit: bool)
+	if nhpos >= hsize
+	   then nhpos := hsize1 end
+	deltav, deltah: int
+	if vpos = nvpos cand hpos = nhpos
+	   then return
+	 elseif vpos >= 0
+	   then % look for easy vertical motion
+		deltav := nvpos - vpos
+		vstr: string
+		if deltav = -1 cand can_up
+		   then vstr := up_str
+		 elseif deltav = 1
+		   then vstr := down_str
+		 elseif deltav = 2 cand nhpos = hpos
+		   then vstr := down2_str
+		 elseif deltav = -2 cand nhpos = hpos cand can_up
+		   then vstr := up2_str
+		 elseif deltav ~= 0
+		   then exit absolute end
+		% look for easy horizontal motion
+		if nhpos = 0
+		   then if deltav ~= 0
+			   then outs(vstr) end
+			if hpos ~= 0
+			   then if term = virt
+				   then outs(vcr_str)
+				   else outc('\^M')
+				   end
+			   end
+		   else deltah := nhpos - hpos
+			if deltah = 0
+			   then outs(vstr)
+			 elseif deltah = -1 cand can_left
+			   then if deltav ~= 0
+				   then outs(vstr) end
+				outs(left_str)
+			 elseif deltah = 1 cand can_right
+			   then if deltav ~= 0
+				   then outs(vstr) end
+				outs(right_str)
+			 elseif deltah = 2 cand deltav = 0 cand can_right
+			   then outs(right2_str)
+			 elseif deltah = -2 cand deltav = 0 cand can_left
+			   then outs(left2_str)
+			 elseif can_tab cand
+				nhpos = hpos + 8 - (hpos // 8)
+			   then if deltav ~= 0
+				   then outs(vstr) end
+				if term = virt
+				   then outs(vta_str)
+				   else outc('\t')
+				   end
+			 else exit absolute end
+		   end
+		if doit
+		   then flush() end
+		vpos := nvpos
+		hpos := nhpos
+		return
+	 end except when absolute: end
+	if can_home cand nhpos = 0 cand nvpos = 0
+	   then outs(home_str)
+	 elseif term = vt52 cor term = zenith cor  term = vt100v cor
+		term = teleray cor term = e19 cor term = bit
+	   then outs("\033Y")
+		outi(nvpos + 040)
+		outi(nhpos + 040)
+	 elseif term = dasher
+	   then outc('\^P')
+		outi(nhpos)
+		outi(nvpos)
+	 elseif term = hp
+	   then outs("\033&a")
+		outn(nvpos)
+		outc('r')
+		outn(nhpos)
+		outc('C')
+	 elseif term = fox cor term = nfox
+	   then outs("\033X")
+		outi(nvpos + 040)
+		outs("\033Y")
+		outi(nhpos + 040)
+	 elseif term = virt
+	   then pf_seq(move_str, nvpos, nhpos)
+	 elseif term ~= aaa  cand  term ~= vt100a
+	   then outs("\033=")
+		outi(nvpos + 040)
+		outi(nhpos + 040)
+	 elseif vpos < 0
+	   then ansi_seq(nvpos + 1, ';')
+		if nhpos > 0
+		   then outn(nhpos + 1) end
+		outc('H')
+	 elseif deltav = 0
+	   then if deltah > 0
+		   then ansi_seq(deltah, 'C')
+		 elseif deltah >= -nhpos  cor  term = vt100a
+		   then ansi_seq(-deltah, 'D')
+		 else ansi_seq(nhpos + 1, 'G') end
+	 elseif hpos = nhpos
+	   then if deltav > 0
+		   then ansi_seq(deltav, 'B')
+		 elseif deltav >= -nhpos  cor  term = vt100a
+		   then ansi_seq(-deltav, 'A')
+		 else ansi_seq(nvpos + 1, 'd') end
+	 elseif nhpos = 0  cand  term = aaa
+	   then if deltav > 0
+		   then ansi_seq(deltav, 'E')
+		   else ansi_seq(-deltav, 'F')
+		   end
+	 else ansi_seq(nvpos + 1, ';')
+	      if nhpos > 0
+		 then outn(nhpos + 1) end
+	      outc('H')
+	 end
+	if doit
+	   then flush() end
+	vpos := nvpos
+	hpos := nhpos
+	end set_cursor_pos
+
+    get_cursor_pos = proc () returns (int, int)
+	return(vpos, hpos)
+	end get_cursor_pos
+
+    ansi_seq = proc (cnt: int, c: char)
+	outs("\033[")
+	if cnt > 1
+	   then outn(cnt) end
+	outc(c)
+	end ansi_seq
+
+    pf_seq = proc (s: string, x, y: int)
+	i: int := 0
+	while true do
+	    i := i + 1
+	    c: char := s[i]
+	    if c ~= '%'
+	       then outc(c)
+		    continue
+	       end
+	    i := i + 1
+	    c := s[i]
+	    if c = 'd'
+	       then if x >= 100
+		       then outi(x / 100 + 48) end
+		    if x >= 10
+		       then outi((x / 10) // 10 + 48) end
+		    outi(x // 10 + 48)
+		    x := y
+	     elseif c = '2'
+	       then outi(x / 10 + 48)
+		    outi(x // 10 + 48)
+		    x := y
+	     elseif c = '3'
+	       then outi(x / 100 + 48)
+		    outi((x / 10) // 10 + 48)
+		    outi(x // 10 + 48)
+		    x := y
+	     elseif c = '.'
+	       then outi(x)
+		    x := y
+	     elseif c = '+'
+	       then i := i + 1
+		    outi(x + c2i(s[i]))
+		    x := y
+	     elseif c = '>'
+	       then i := i + 2
+		    if x > c2i(s[i - 1])
+		       then x := x + c2i(s[i]) end
+	     elseif c = 'r'
+	       then x, y := y, x
+	     elseif c = 'i'
+	       then x := x + 1
+		    y := y + 1
+	     elseif c = 'n'
+	       then x := i_xor(x, 0140)
+		    y := i_xor(y, 0140)
+	     elseif c = 'B'
+	       then x := 16 * (x / 10) + (x // 10)
+	     elseif c = 'D'
+	       then x := x - 2 * (x // 16)
+	     else outc(c)
+	     end
+	    end except when bounds: end
+	end pf_seq
+
+    get_padding = proc () returns (bool)
+	return(do_pad)
+	end get_padding
+
+    get_screen_size = proc () returns (int, int)
+	return(vsize, hsize)
+	end get_screen_size
+
+    fetch = proc (lpos: int) returns (string) signals (bounds)
+	return(lines[lpos].str)
+	   resignal bounds
+	end fetch
+
+    id_lines_poss = proc () returns (bool)
+	return(can_id_line cand do_scroll)
+	end id_lines_poss
+
+    scrolling_poss = proc () returns (bool)
+	return(can_scroll cand do_scroll)
+	end scrolling_poss
+
+    should_id_lines = proc (top, bot, delta, num_saved: int) returns (bool)
+	return(id_cost(top, bot, delta) < num_saved * _guess)
+	end should_id_lines
+
+    scroll = proc (top, bot, delta: int)
+	if ~can_id_line cor ~do_scroll
+	   then return end
+	d: int := int$abs(delta)
+	pos: int := bot - d + 1
+	if term = vt100v  cor  term = vt100a
+	   then % first set scroll region
+		if term = vt100v
+		   then outs("\033<") end
+		outs("\033[")
+		outn(top+1)
+		if small cor bot ~= vsize1
+		   then outc(';')
+			outn(bot+1)
+		   end
+		% finish command, and position cursor
+		outs("r\033[")
+		sss: string
+		if delta < 0
+		   then outn(bot+1)
+			sss := "\033D"
+		   else outn(top+1)
+			sss := "\033M"
+		   end
+		outc('f')
+		pcnt: int := 0
+		if padding > 0
+		   then pcnt := 48 / padding end
+		for i: int in int$from_to_by(d, 1, -1) do
+		    outs(sss)
+		    if pcnt > 0
+		       then pad(pcnt) end
+		    end
+		% reset scroll region
+		outs("\033[;r")
+		if term = vt100v
+		   then outs("\033[?2l") end
+		vpos := 0
+		hpos := 0
+	 elseif term = e19
+	   then set_cursor_pos(top, 0, false)
+		if delta = -1 cand bot = vsize1
+		   then outs(dell_str)
+		 elseif delta = 1 cand bot = vsize1 cand ~small
+		   then outs(insl_str)
+		 else outs("\033s")
+		      outi(0100 - delta)
+		      outi(bot - top + 040)
+		 end
+	 elseif term = virt cand id_scroll
+	   then % set scroll region
+		pf_seq(vcs_str, top, bot)
+		sss: string
+		if delta < 0
+		   then pf_seq(move_str, bot, 0)
+			sss := scr_str
+		   else pf_seq(move_str, top, 0)
+			sss := rev_str
+		   end
+		for i: int in int$from_to_by(d, 1, -1) do
+		    outs(sss)
+		    end
+		% reset scroll region
+		pf_seq(vcs_str, 0, vsize1)
+		vpos := -1
+	 else % these do it with ins/del lines
+	      if delta < 0
+		 then % are scrolling up, so go to top and delete
+		      set_cursor_pos(top, 0, false)
+		      delete_lines(d)
+		      if bot < vsize1
+			 then % insertion necessary ?
+			      set_cursor_pos(pos, 0, false)
+			      insert_lines(d)
+		       elseif term = hp cor (term = virt cand small)
+			 then set_cursor_pos(pos, 0, false)
+			      outs(keos_str)
+		       end
+		 else % scrolling down, delete, then insert
+		      if bot < vsize1
+			 then % deletion necessary ?
+			      set_cursor_pos(pos, 0, false)
+			      delete_lines(d)
+		       elseif small
+			 then set_cursor_pos(pos, 0, false)
+			      outs(keos_str)
+		       end
+		      set_cursor_pos(top, 0, false)
+		      insert_lines(d)
+		 end
+	 end
+	flush()
+	numshift: int := pos - top
+	if delta < 0
+	   then repll(temp, 0, al$size(temp), lines, top, d)
+		for ltemp: ldata in al$elements(temp) do
+		    zapc(ltemp.line, 0, ltemp.lim+1, ' ')
+		    ltemp.lim := -1
+		    ltemp.len := 0
+		    ltemp.str := ""
+		    end
+		shiftl(lines, top + d, numshift, delta)
+		repll(lines, pos, d, temp, 0, d)
+	   else repll(temp, 0, al$size(temp), lines, pos, d)
+		for ltemp: ldata in al$elements(temp) do
+		    zapc(ltemp.line, 0, ltemp.lim+1, ' ')
+		    ltemp.lim := -1
+		    ltemp.len := 0
+		    ltemp.str := ""
+		    end
+		shiftl(lines, top, numshift, delta)
+		repll(lines, top, d, temp, 0, d)
+	   end
+	end scroll
+
+    should_scroll = proc (delta, num_saved, num_saved0: int) returns (bool)
+		      signals (clear, id_lines)
+	if num_saved >= num_saved0
+	   then if delta > 0 cor can_rev_idx
+		   then cost: int
+			if delta > 0
+			   then cost := string$size(scr_str)
+			   else cost := string$size(rev_str)
+			   end
+			cost := cost * int$abs(delta) + num_saved0 * _guess
+			if cost < num_saved * _guess
+			   then if can_id_line cand
+				   id_cost(0, vsize1, -delta) < cost
+				   then signal id_lines end
+				return(true)
+			   end
+		   end
+		if can_id_line cand id_cost(0, vsize1, -delta) < num_saved * _guess
+		   then signal id_lines end
+	   end
+	if ~can_keol cand num_saved0 < 5
+	   then signal clear end
+	return(false)
+	end should_scroll
+
+    full_scroll = proc (delta: int) returns (bool)
+	if ~can_scroll cor ~do_scroll
+	   then return(false)
+	 elseif delta > 0
+	   then if small cand term ~= virt
+		   then set_cursor_pos(23, 0, false)
+		   else set_cursor_pos(vsize1, 0, false)
+		   end
+		for i: int in int$from_to_by(delta, 1, -1) do
+		    outs(scr_str)
+		    end
+		flush()
+		numshift: int := vsize - delta
+		repll(temp, 0, al$size(temp), lines, 0, delta)
+		for ltemp: ldata in al$elements(temp) do
+		    zapc(ltemp.line, 0, ltemp.lim+1, ' ')
+		    ltemp.lim := -1
+		    ltemp.len := 0
+		    ltemp.str := ""
+		    end
+		shiftl(lines, delta, numshift, -delta)
+		repll(lines, numshift, delta, temp, 0, delta)
+	 elseif ~can_rev_idx
+	   then return(false)
+	 else delta := -delta
+	      set_cursor_pos(0, 0, false)
+	      for i: int in int$from_to_by(delta, 1, -1) do
+		  outs(rev_str)
+		  end
+	      % Heath's lose with long 25th lines!
+	      if term = zenith
+		 then outs(keol_str) end
+	      if small
+		 then set_cursor_pos(vsize1, hsize1, false)
+		      outs(keos_str)
+		 end
+	      flush()
+	      numshift: int := vsize - delta
+	      repll(temp, 0, al$size(temp), lines, numshift, delta)
+	      for ltemp: ldata in al$elements(temp) do
+		  zapc(ltemp.line, 0, ltemp.lim+1, ' ')
+		  ltemp.lim := -1
+		  ltemp.len := 0
+		  ltemp.str := ""
+		  end
+	      shiftl(lines, 0, numshift, delta)
+	      repll(lines, 0, delta, temp, 0, delta)
+	 end
+	return(true)
+	end full_scroll
+
+    % internal routines
+
+    add_pad = proc (str: string, cnt: int) returns (string)
+	nulsiz = 20
+	nuls = string$sc2s(sequence[char]$fill(nulsiz, '\^@'))
+	if padding = 0  cor  padding > cnt
+	   then return(str) end
+	cnt := cnt / padding
+	while cnt > nulsiz do
+	    str := str || nuls
+	    cnt := cnt - nulsiz
+	    end
+	return(str || string$substr(nuls, 1, cnt))
+	end add_pad
+
+    id_cost = proc (top, bot, delta: int) returns (int)
+	if term = vt100v  cor  term = vt100a
+	   then delta := 2 * int$abs(delta)
+		if padding > 0
+		   then delta := delta + (delta * 24) / padding end
+		if term = vt100v
+		   then delta := delta + 22
+		   else delta := delta + 15
+		   end
+		return(delta)
+	 elseif term = aaa cor term = bit
+	   then delta := 4
+	 elseif term = e19
+	   then if delta = 1 cand bot = vsize1
+		   then return(2)
+		   else return(4)
+		   end
+	 elseif term = zenith cand delta >= 6
+	   then if padding > 0
+		   then delta := (int$abs(delta) * dell_cnt) / padding + 11
+		   else delta := 11
+		   end
+	 elseif term = virt cand id_scroll
+	   then if delta < 0
+		   then top := string$size(scr_str)
+		   else top := string$size(rev_str)
+		   end
+		return(2 * string$size(vcs_str) + string$size(move_str) +
+		       int$abs(delta) * top)
+	 elseif term = virt
+	   then bot := bot - int$abs(delta) + 1
+		if delta < 0
+		   then delta := -delta
+			top, bot := bot, top
+		   end
+		if bot = vsize1
+		   then bot := 0
+		   else bot := string$size(dell_str) +
+			       dell_cnt - (dell_cnt * bot + vhalf) / vsize1
+		   end
+		if top = vsize1
+		   then top := 0
+		   else top := string$size(insl_str) +
+			       insl_cnt - (insl_cnt * top + vhalf) / vsize1
+		   end
+		return(delta * (top + bot))
+	 else delta := string$size(insl_str) * int$abs(delta) end
+	if bot < vsize1
+	   then return(2 * delta)
+	   else return(delta)
+	   end
+	end id_cost
+
+    insert_lines = proc (n: int)
+	if term = zenith cand n >= 6
+	   then % use ANSI mode
+		outs("\033<\033[")
+		outn(n)
+		outs("L\033[?2h")
+		if padding > 0
+		   then pad((n * dell_cnt) / padding) end
+	 elseif term = aaa cor term = bit
+	   then ansi_seq(n, 'L')
+	 elseif term = virt cand insl_cnt > 0
+	   then padcnt: int := insl_cnt - (insl_cnt * vpos + vhalf) / vsize1
+		for n in int$from_to_by(n, 1, -1) do
+		    outs(insl_str)
+		    outb(insl_pad, 1, padcnt)
+		    end
+	 else for n in int$from_to_by(n, 1, -1) do
+		  outs(insl_str)
+		  end
+	 end
+	end insert_lines
+
+    delete_lines = proc (n: int)
+	if term = zenith cand n >= 6
+	   then % use ANSI mode
+		outs("\033<\033[")
+		outn(n)
+		outs("M\033[?2h")
+		if padding > 0
+		   then pad((n * dell_cnt) / padding) end
+	 elseif term = aaa cor term = bit
+	   then ansi_seq(n, 'M')
+	 elseif term = virt cand dell_cnt > 0
+	   then padcnt: int := dell_cnt - (dell_cnt * vpos + vhalf) / vsize1
+		for n in int$from_to_by(n, 1, -1) do
+		    outs(dell_str)
+		    outb(dell_pad, 1, padcnt)
+		    end
+	 else for n in int$from_to_by(n, 1, -1) do
+		  outs(dell_str)
+		  end
+	 end
+	end delete_lines
+
+    end screen

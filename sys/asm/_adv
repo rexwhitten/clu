@@ -1,0 +1,202 @@
+; Copyright Massachusetts Institute of Technology 1980, 1989
+
+_adv = cluster [t: type] is create, get_low, set_low, get_size, set_size,
+			    get_start, set_start, get_predict, set_predict,
+			    get_vector, set_vector, equal, _gcd
+
+tvec = _vec[t]
+
+create = qproc (low, pred: int, v: tvec) returns (cvt) signals (bounds)
+	movem	pred,n1/n4
+	ifvc	move	n4,n6			; check low bound
+		subq	2,n6
+		bvs	next
+		move	(rr),n3			; get size
+		asr	1,n3
+		add	n3,n6			; check high
+	then	iflt	asr	1,n1
+		then	neg	n1		; get abs
+		end
+		ifgt	cmpi	017,,0170000,n1	; truncate
+		then	move	017,,0170000,n1
+		end
+		moveb	%advb,n2
+		loop
+			cmpi	0377,n1		; normalize
+			ble	next
+			addqb	1,n2
+			addq	1,n1
+			asr	1,n1
+		end
+		aslw	8,n2
+		orw	n2,n1
+		swap	n1
+		movew	n0,n1
+		moveq	dv%blen,n2		; get byte count
+		subq	3,n3			; get max
+		moveaw	3,r2			; get lcnt
+		movea	heaphi,rr		; alloc
+		iflt	sub	n2,freecnt
+		then	jsr	memout
+		end
+		add	n2,heaphi
+		adda	r2,r1			; get rel
+		movem	n1/n3/n4/r1/r2,(rr)	; initialize
+		return(rr)
+	end
+	signal	bounds
+	end create
+
+get_low = qproc (adv: cvt) returns (int)
+	movea	dv%low(rr),rr
+	return(rr)
+	end get_low
+
+set_low = qproc (adv: cvt, low: int) signals (bounds)
+	move	rr,n1
+	ifvc	subq	2,n1				; check low bound
+	then	movea	adv,r1
+		move	dv%max(r1),n2			; get size
+		addq	3,n2
+		ifvc	add	n1,n2			; check new high bound
+		then	move	rr,dv%low(r1)		; set new low
+			return
+		end
+	end
+	signal 	bounds
+	end set_low
+
+get_size = qproc (adv: cvt) returns (int)
+	movea	dv%max(rr),rr
+	addq	3,rr
+	return(rr)
+	end get_size
+
+set_size = qproc (adv: cvt, size: int) signals (bounds)
+	ifge	cmpa	n0,rr				; check new size >= 0
+	then	movea	adv,r1
+		move	rr,n1
+		ifvc	add	dv%low(r1),n1		; check new high
+		then	move	rr,n3			; get new max
+			subq	3,n3
+			move	dv%lcnt(r1),n2		; get lcnt
+			movea	dv%rel(r1),r2		; get rel
+			suba	n2,r2			; convert to ref
+			move	(r2),n1			; get vec size
+			sub	n2,n1			; - lcnt
+			addq	1,n1			; + 1
+			sub	n3,n1
+			sub	n3,n1			; - max = new hcnt
+			ifgt	bvs	next
+				asr	2,n1		; must be > 0
+			then	move	n3,dv%max(r1)	; set max
+				movew	n1,dv%hcnt(r1)	; set hcnt
+				return
+			end
+		end
+	end
+	signal	bounds
+	end set_size
+
+get_start = qproc (adv: cvt) returns (int)
+	move	dv%lcnt(rr),n1
+	addq	3,n1
+	asr	1,n1
+	return(n1)
+	end get_start
+
+set_start = qproc (adv: cvt, strt: int) signals (bounds)
+	move	rr,n1
+	ifvc	subq	3,n1				; check strt > 0
+		blt	next
+		add	rr,n1				; get new lcnt
+	then	movea	adv,r1
+		move	dv%lcnt(r1),n2			; get current lcnt
+		sub	n1,n2				; get difference
+		move	n2,n4
+		asr	1,n2
+		ifvc	add	dv%max(r1),n2		; get new max
+			bvs	next
+			move	n2,n3
+			addq	3,n3			; size must be >= 0
+			blt	next
+			add	dv%low(r1),n3		; check new high
+		then	sub	n4,dv%rel(r1)		; adjust rel
+			move	n2,dv%max(r1)		; set new max
+			move	n1,dv%lcnt(r1)		; set new lcnt
+			return
+		end
+	end
+	signal	bounds
+	end set_start
+
+get_predict = qproc (adv: cvt) returns (int)
+	moveq	0,n1
+	moveb	dv%predm(rr),n1		; get predict
+	moveb	(rr),n2
+	subb	%advb,n2
+	asl	n2,n1
+	add	n1,n1
+	addq	1,n1
+	return(n1)
+	end get_predict
+
+set_predict = qproc (adv: cvt, pred: int)
+	move	rr,n1
+	iflt	asr	1,n1
+	then	neg	n1		; get abs
+	end
+	ifgt	cmpi	017,,0170000,n1	; truncate
+	then	move	017,,0170000,n1
+	end
+	moveb	%advb,n2
+	loop
+		cmpi	0377,n1		; normalize
+		ble	next
+		addqb	1,n2
+		addq	1,n1
+		asr	1,n1
+	end
+	movea	adv,r1
+	moveb	n2,(r1)			; set it
+	moveb	n1,dv%predm(r1)
+	end set_predict
+
+get_vector = qproc (adv: cvt) returns (tvec)
+	movea	dv%rel(rr),r1		; get rel
+	suba	dv%lcnt(rr),r1		; convert to ref
+	return(r1)
+	end get_vector
+
+set_vector = qproc (adv: cvt, v: tvec) signals (bounds)
+	movea	adv,r1
+	move	(rr),n2				; get size
+	asr	1,n2
+	move	n2,n3
+	subq	3,n2				; get max
+	moveq	3,n4
+	ifvc	add	dv%max(r1),n3		; check new high
+	then	movew	n0,dv%hcnt(r1)		; set hcnt
+		move	n4,dv%lcnt(r1)		; set lcnt
+		move	n2,dv%max(r1)		; set max
+		addq	3,rr			; get rel
+		move	rr,dv%rel(r1)		; set rel
+		return
+	end
+	signal	bounds
+	end set_vector
+
+equal = qproc (adv1, adv2: cvt) returns (bool)
+	moveq	0,n1
+	cmpa	adv1,rr
+	seq	n1
+	return(n1)
+	end equal
+
+_gcd = proc (adv: cvt, tab: gcd_tab) returns (int)
+			where t has _gcd: proctype (t, gcd_tab) returns (int)
+	gcd_tab$%insert(rr, dv%blen, <6: <7: t$_gcd>>, adv)
+	return(rr)
+	end _gcd
+
+end _adv

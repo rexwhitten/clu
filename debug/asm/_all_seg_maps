@@ -1,0 +1,15 @@
+;; Copyright Massachusetts Institute of Technology 1984, 1989
+
+_all_seg_maps = iter () yields (_seg_map)
+	var	nxtseg
+
+	movea	schain, rr		;; Get starting segmap.
+	qloop	move	nxtmap(rr), nxtseg
+		yield (rr)
+		movea	nxtseg, rr	;; Get next map.
+		move	rr, n1
+		bne	this		;; End if zero.
+		end
+	end _all_seg_maps
+
+		

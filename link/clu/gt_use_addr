@@ -1,0 +1,20 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+Get_Use_Address = proc (Offset: int, UP_Use_List: use_list, Env: lnk_env)
+		    returns (address)
+		    signals (not_fixed_yet(address));
+    begin
+	return (use$Get_Address(UP_Use_List[Offset]));
+	   except when Not_Possible:
+		       Should_Never_Happen
+			   [null]("Can\'t get UP_Use address.", nil);
+		       return (address$Make_Null());
+		  end;
+	   resignal Not_Fixed_Yet;
+	end;
+       except when Bounds:
+		   Should_Never_Happen
+		       [int]("UP_Use list index out of bounds", Offset);
+	      end;
+
+    end Get_Use_Address;

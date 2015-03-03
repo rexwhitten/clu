@@ -1,0 +1,123 @@
+; Copyright Massachusetts Institute of Technology 1985, 1989
+
+; Real cluster for M68000 - not implemented yet.
+
+real = cluster is add, sub, mul, minus, div, power, abs, min, max,
+		  i2r, r2i, trunc, exponent, mantissa, parse, unparse,
+		  lt, le, ge, gt, equal, similar, copy, print,
+		  encode, decode, _gcd
+
+rep = int
+
+add = proc (x, y: cvt) returns (cvt) signals (overflow, underflow)
+        return (0)
+	end add
+
+sub = proc (x, y: cvt) returns (cvt) signals (overflow, underflow)
+        return (0)
+	end sub
+
+minus = proc (x: cvt) returns (cvt)
+        return (0)
+	end minus
+	
+mul = proc (x, y: cvt) returns (cvt) signals (overflow, underflow)
+        return (0)
+	end mul
+	
+div = proc (x, y: cvt) returns (cvt)
+			signals (zero_divide, overflow, underflow)
+        return (0)
+	end div
+	
+power = proc (x, y: cvt) returns (cvt)
+		  signals (zero_divide, complex_result, overflow, underflow)
+        return (0)
+	end power
+	
+abs = proc (x: cvt) returns (cvt)
+        return (0)
+	end abs
+
+min = proc (x1, x2: cvt) returns (int)
+        return (0)
+	end min
+
+max = proc (x1, x2: cvt) returns (int)
+        return (0)
+	end max
+
+i2r = proc (i: int) returns (cvt) signals (overflow)
+        return (0)
+	end i2r
+	
+r2i = proc (x: cvt) returns (int) signals (overflow)
+        return (0)
+	end r2i
+
+trunc = proc (x: cvt) returns (int) signals (overflow)
+        return (0)
+	end trunc
+	
+exponent = proc (x: cvt) returns (int) signals (undefined)
+        return (0)
+	end exponent
+	
+mantissa = proc (x: cvt) returns (cvt)
+        return (0)
+	end mantissa
+	
+parse = proc (s: string) returns (cvt)
+			  signals (bad_format, overflow, underflow)
+        return (0)
+	end parse
+
+unparse = proc (x: cvt) returns (cvt)
+    return (0)
+    end unparse
+
+lt = proc (x1, x2: cvt) returns (bool)
+        return (false)
+	end lt
+	
+le = proc (x1, x2: cvt) returns (bool)
+        return (false)
+	end le
+	
+ge = proc (x1, x2: cvt) returns (bool)
+        return (false)
+	end ge
+	
+gt = proc (x1, x2: cvt) returns (bool)
+        return (false)
+	end gt
+	
+equal = proc (x1, x2: cvt) returns (bool)
+        return (true)
+	end equal
+	
+similar = proc (x1, x2: cvt) returns (bool)
+        return (true)
+	end similar
+	
+copy = proc (x: cvt) returns (cvt)
+        return (0)
+	end copy
+	
+print = proc (x: cvt, ps: pstream)
+	end print
+	
+encode = proc (r: cvt, ist: istream) signals (not_possible(string))
+        signal not_possible ("not implemented yet")
+	end encode
+
+decode = proc (ist: istream) returns (cvt)
+			     signals (end_of_file, not_possible(string))
+        signal not_possible ("not implemented yet")
+	end decode
+
+_gcd = proc (r: cvt, tab: gcd_tab) returns (int)
+        return (0)
+	end _gcd
+
+end real

@@ -1,0 +1,87 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+#extend
+
+mach_word = cluster is
+	cons, i_to_w, similar, w_to_i, w_to_is,
+	get_byte0, get_byte1, get_byte2, get_byte3,
+	bytes, hasher, unparse, print, _gcd;
+
+    rep = struct[
+	      a_R:      int,     %% Right (or Low)
+	      b_L:      int      %% Left  (or High)
+		 ];
+
+    vHalf_Shift = 0200000		%% 16 bits.
+    vHalf_Mask  = vHalf_Shift - 1
+
+    Cons = proc (LH: int, RH: int) returns (cvt) signals (overflow);
+	if ((((LH / vHalf_Shift) ~= 0) cand ((-LH / vHalf_Shift) ~= 0)) cor
+	    (((RH / vHalf_Shift) ~= 0) cand ((-RH / vHalf_Shift) ~= 0)))
+	   then signal Overflow;
+	   end;
+	return (rep${
+		    a_R:      RH,
+		    b_L:      LH
+		     });
+	end Cons;
+
+    I_to_W = proc (W: int) returns (cvt);
+	return(rep${
+		   a_R:      W // vHalf_Shift,
+		   b_L:      W /  vHalf_Shift
+		    });
+	end I_to_W;
+
+    Similar = proc (W1, W2: cvt) returns (bool);
+	return (rep$Similar(W1, W2));
+	end Similar;
+
+    W_to_I = proc (W: cvt) returns (int) signals (overflow);
+	return ( (W.b_L * vHalf_Shift) + I_And(W.a_R, vHalf_Mask) );
+	end W_to_I;
+
+    W_to_Is = proc (W: cvt) returns (int, int);
+	return (W.b_L, W.a_R);
+	end W_to_Is;
+
+    Get_Byte0 = proc (W: cvt) returns (int);
+	return (I_Get(W.a_R, 7, 8));
+	end Get_Byte0;
+
+    Get_Byte1 = proc (W: cvt) returns (int);
+	return (I_Get(W.a_R, 15, 8));
+	end Get_Byte1;
+
+    Get_Byte2 = proc (W: cvt) returns (int);
+	return (I_Get(W.b_L, 7, 8));
+	end Get_Byte2;
+
+    Get_Byte3 = proc (W: cvt) returns (int);
+	return (I_Get(W.b_L, 15, 8));
+	end Get_Byte3;
+
+    Bytes = iter (W: cvt) yields (int);
+	yield (I_Get(W.a_R,  7, 8));
+	yield (I_Get(W.a_R, 15, 8));
+	yield (I_Get(W.b_L,  7, 8));
+	yield (I_Get(W.b_L, 15, 8));
+	end Bytes;
+
+    Hasher = proc (W: cvt, Size: int) returns (int);
+	return ((W.b_L + W.a_R) // Size);
+	end Hasher;
+
+    Unparse = proc (W: cvt) returns (string);
+	return ( i_HUnparse(W.b_L) || i_HUnparse(W.a_R) );
+	end Unparse;
+
+    Print = proc (W: cvt, S: pstream);
+	rep$Print(W, S);
+	end Print;
+
+    _gcd = proc (MW: cvt, Tab: gcd_tab) returns (int);
+	return (rep$_gcd(MW, Tab));
+	end _gcd;
+
+    end mach_word;

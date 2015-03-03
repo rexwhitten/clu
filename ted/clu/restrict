@@ -1,0 +1,34 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+% Option to restrict buffer being used to portion between mark and cursor.
+
+restrict_buf_option = proc (e: env, c: char)
+			signals (errmsg(string), stop(env, string))
+    b: buf := e.buffer
+    line, pos: int := buf$get_cursor(b)
+    mline, mpos: int := buf$get_mark(b)
+    low, high: int := buf$get_frame(b)
+    if line < low  cor  mline < low  cor  mline > high then
+       signal errmsg("Text cannot include file boundaries")
+       end
+    ne: env, name: string := winset$push(e, "Restrict-" || e.name, "")
+    update_title(ne, "---- Buffer: " || name || " [] (^^ to exit)")
+    nb: buf := ne.buffer
+    buf$replace(nb, buf$sub_buf(b, mline, mpos))
+    empty: bool := buf$empty(nb)
+    ted(ne)
+    ccount: int := ne.change_count
+    winset$pop(ne)
+    buf$set_cursor(b, line, pos)
+    bufset$kill_buf(e, name)
+       except when errmsg (*): end
+    if (buf$any_changed(nb)  cor
+	(~empty  cand  buf$empty(nb))  cor
+	~string$empty(ne.fname))  cand
+       mconfirm(e, "Install changes", true)  cand
+       env$delete1(e, mline, mpos)
+       then env$insert_buf1(e, nb)
+	    if line < mline  cor  (line = mline  cand  pos < mpos)
+	       then buf$set_cursor(b, line, pos) end
+	    env$bump_change(e, ccount)
+       end resignal errmsg
+    end restrict_buf_option

@@ -1,0 +1,120 @@
+UNPRESS is a program for displaying the contents of PRESS files
+for purposes of debugging them.  It shows all the formatting
+commands, etc.  Hence, it is not useful for approximating the
+appearance of the text in a PRESS file!  UNPRESS takes a command
+line of the following format:
+
+	UNPRESS filename range-specs ^ output
+
+Where:
+	filename = name of the file to un-press
+	^ output = put output in the file "output"; if this part
+		is omitted, then the standard output is used.
+	range-specs = optional list of pages to un-press; if
+		omitted, all pages are done (i.e., it defaults
+		to 1-end); if present, this consists of a
+		comma-separated list of range-spec's, where
+		a range-spec is one of the following:
+
+		mm-nn  - do pages mm through (including) nn
+		mm-end - pages mm through the end
+		mm     - do page mm
+
+		mm and nn are decimal integers.
+
+Spaces and tabs may be used everywhere except in the middle of
+filenames (unless quoted with \) or in the middle of a number.
+
+Examples:
+
+	unpress foo.press
+	unpress foo.press 1-3,8,5-6,12-end,10
+	unpress foo.press^foo.unpress
+	unpress foo.press 10-12^foo.unpress
+
+Explanation of non-obvious things in the output:
+
+NOTE: This assumes you are familiar with and have a copy of the
+document from Xerox describing Press file format in detail.
+
+1 WORD = 16 BITs; 1 BYTE = 8 BITs.
+1 RECORD = 512 BYTEs = 256 WORDs.
+
+Numbers printed are decimal unless otherwise noted.
+
+Strings are generally presented in brackets ([, ]).  To avoid
+presentation ambiguity, control chars are shown as #letter
+instead of ^letter, with ## meaning a # sign.  It is assumed
+that characters with octal codes 200 through 377 are bad in
+strings.
+
+Document, Part, and Font directory stuff should be obvious;
+normally there is nothing interesting to say about the Part
+directory.
+
+Printed page part:
+
+	The padding is the number of WORDs of entity list padding.
+	The field after padding is the address of the word
+		just before the padding (the length word of the
+		last entity) expressed as record/offset (in WORDs).
+	The entities are presented in the order they would be printed.
+	The DL and EL fields give the ranges of the DL and EL of
+		the entity as address in the file (not offsets
+		into the part), as record/offset, with offset in
+		BYTEs for DL, and WORDs for EL.  In addition,
+		the offset of the last word containing DL items
+		is printed in parentheses, for easy cross
+		checking with the EL ranges.
+
+Entity list command abbreviations:
+
+ALT - Alternative; the alternative flags are presented in octal,
+	and then the bytes of EL and DL given in octal (they are
+	not further interpreted)
+Avail - An available code; its octal value is printed
+CS - Show characters short (the relevant characters are
+	displayed in brackets).
+F - Set font; font number given
+NOP - No-op
+ONLY - Only on copy
+RS - Reset space
+SAS - Show characters and skip; the shown characters are
+	displayed in brackets, and the octal code of the skipped
+	character follows
+SB - Set brightness; value given
+SC - Show characters; characters are displayed in brackets
+SCI - Show character immediate; its octal value is given
+SD - Show dots; as in show object
+SDO - Show dots opaque; as in show object
+SH - Set hue; value given
+SKC - Skip characters; displays the count (decimal) and the
+	skipped characters in octal
+SKCB - Skip control bytes; gives the count (decimal) and the
+	bytes skipped in octal
+SKCBI - Skip control bytes immediate; the count is given
+	(decimal), and the skipped bytes displayed in octal
+SKCS - Skip characters short; the count is given (decimal)
+	followed by the skipped bytes (in octal)
+SO - Show object; the length is given (decimal) and the bytes
+	displayed in octal
+SP - Space
+Spare - A spare code; its value is printed
+SR - Show rectangle; followed by width and height, in that order
+SS - Set saturation; value given
+SSX - Set space X; the value is supplied
+SSXS - Set space X short, with value
+SSY - Set space Y; the value is supplied
+SSYS - Set space Y short, with value
+X - Set X
+Y - Set Y
+
+
+Limitations:
+
+Does not hack external file directory parts (but will describe
+their location).
+
+Does not hack the second format of font directory entries (will
+probably die grossly).  (These are the ones that gives explicit
+pictures of characters rather than names of fonts.)

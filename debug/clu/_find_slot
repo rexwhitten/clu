@@ -1,0 +1,21 @@
+%% Copyright Massachusetts Institute of Technology 1981, 1989
+
+%%% If Call_Addr is a call slot of the routine described by Caller_Inf then
+%%% return its slot number (counting starts at 1).
+%%% (SEP/Nov  6 1984)
+
+_Find_Slot = proc (Caller_Inf: _rtn_info, Call_Addr: _obj)
+	       returns (int) signals (not_found);
+    Flag: bool := _Enter_System();
+    Caller: _obj := Caller_Inf.Routine;
+    I: int := 0;
+    for Callee, Slot: _obj in _Call_Slots(Caller, Caller_Inf) do
+	I := I + 1;
+	if (Call_Addr = Slot)
+	   then _Exit_System(Flag);
+		return (I);
+	   end;
+	end;
+    _Exit_System(Flag);
+    signal Not_Found;
+    end _Find_Slot;

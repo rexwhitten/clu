@@ -1,0 +1,260 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+inst_except = cluster is
+	create, similar, get_key, get_ranges, add_range,
+	update_ranges_address,
+	output_ranges, output_entry, print, get_except_str,
+	failure_address, others_address,
+	prepare_to_dump, _gcd;
+
+    rep = record[
+	      Name:         excpt_str,
+	      Dummy_Rng:    space_block,
+	      Base_Addr:    address,
+	      Cur_Addr:	    address,
+	      Last_Addr:    address,
+	      First_Block:  bool,
+	      Rngs:         ara
+		 ];
+
+    addrs = sequence[address];
+    ara = array[range_addr];
+
+    Create = proc (Ex_S: excpt_str) returns (cvt);
+	return ( rep${ Name:         Ex_S,
+		       Dummy_Rng:    space_block$Make_Null(),
+		       Base_Addr:    address$Make_Null(),
+		       Cur_Addr:     address$Make_Null(),
+		       Last_Addr:    address$Make_Null(),
+		       First_Block:  true,
+		       Rngs:         ara$New()
+		      } );
+	end Create;
+
+    Similar = proc (I_E1, I_E2: cvt) returns (bool);
+	return (string$Similar(I_E1.Name.Str, I_E2.Name.Str));
+	end Similar;
+
+    Get_Key = proc (E: cvt) returns (string);
+	return (E.Name.Str);
+	end Get_Key;
+
+    Get_Except_Str = proc (E: cvt) returns (excpt_str);
+	return (E.Name);
+	end Get_Except_Str;
+
+    Get_Ranges = proc (E: cvt) returns (ara);
+	return (E.Rngs);
+	end Get_Ranges;    
+
+    Add_Range = proc (E: cvt, RA: range_addr);
+	mOne = -1;
+	%% Must put in correct place (ordered by start address), and
+	%% split up into disjoint ranges.
+	%% Compiler gives them in order of handler address.  Enclosed
+	%% ranges will come first (including others handlers).
+	Ranges: ara := E.Rngs;
+	Rng: range :=  RA.Range;
+	Indx: int := 0;
+	Yet_to_be_Split: bool := true;
+	for I: int in int$From_to_By(ara$Size(Ranges), 1, mOne) do
+	    T_RA: range_addr := Ranges[I];
+	    if (Rng > T_RA.Range)
+	       then Indx := I;			%% Found the correct slot;
+		    break;			%% Done.
+	     elseif (Rng = T_RA.Range)
+	       then return;             %% Range already covered.
+	     elseif (range$Includes(Rng, T_RA.Range))
+	       then if (Yet_to_be_Split)	%% If still have original, make copy.
+		       then RA := range_addr${ Range:  range$Copy(RA.Range),
+					       Addr:   RA.Addr };
+			    Rng := RA.Range;
+			    Yet_to_be_Split := false;
+		       end;
+		    Split_RA(Ranges, I, RA, T_RA);	%% Split the range.
+		    if (range$Empty(Rng))
+		       then return;            %% No range left.
+		       end;
+	     end;
+	    end;
+	%% Now have the correct slot;
+	Put_in_RA(Ranges, Indx, RA);		%% Put it in.
+	end Add_Range;
+
+    Put_in_RA = proc (Ranges: ara, I: int, RA: range_addr);
+	TRA: range_addr;
+	ara$AddH(Ranges, RA);		%% Make room.
+	for J: int in int$From_To((I+1), ara$Size(Ranges)) do
+	    TRA := Ranges[J];
+	    Ranges[J] := RA;
+	    RA := TRA;
+	    end;
+	end Put_in_RA;
+
+    Split_RA = proc (Ranges: ara, I: int, RA: range_addr, Inc_RA: range_addr);
+	%% Inc_RA is included in RA and has different range.
+	%% I is the index of Inc_RA in Ranges;
+	own Addr_Size: int := mach_constants$Address_Size();
+	Rng: range :=  RA.Range;
+	IRng: range := Inc_RA.Range;
+	if (Rng.End_Addr ~= IRng.End_Addr)
+	   then New_Rng: range := range$Cons(
+				      %address$Advance(IRng.End_Addr, Addr_Size),
+				      address$Advance(IRng.End_Addr, 1),
+				      Rng.End_Addr);
+		New_RA: range_addr := range_addr${ Range:      New_Rng,
+						   Addr:       RA.Addr };
+		Put_in_RA(Ranges, I, New_RA);
+	   end;
+	%Rng.End_Addr := address$Advance(IRng.Start_Addr, -Addr_Size);
+	Rng.End_Addr := address$Advance(IRng.Start_Addr, -1);
+	end Split_RA;
+
+    Update_Ranges_Address = proc (E: cvt, Env: lnk_env, Debugging: bool);
+	own Vec_Head_Size: int := mach_constants$Vec_Head_Size();
+	own Address_Size:  int := mach_constants$Address_Size();
+	Locs: locates := Env.Locates;
+	Len: int := ara$Size(E.Rngs);
+	if ((Len > 0) cor
+	    E.First_Block)
+	   then Size: int := (Vec_Head_Size +        %% Header.
+			      (3 *                   %% Entries.
+			       (Len * Address_Size))
+			      );
+		if (Debugging)
+		   then Size := Size + Address_Size; %% Forwards chain pointer.
+			if (E.First_Block cand Env.Options.Output_to_File)
+			   then %% Dummy block is sequence of single, zero element.
+				%% Zero element is null chain pointer.
+				%% Needed as initial exception block will be read only.
+				E.Dummy_Rng := space_block$Create(1, Env);
+				space_blocks$AddH(Env.Space_Blocks, E.Dummy_Rng);
+			   end;
+		   end;
+		Addr: address := locate$Address_Advance(Env.Locates.Excepts, Size);
+		if (E.First_Block)
+		   then E.Base_Addr := Addr;
+		   end;
+		E.Cur_Addr := Addr;
+	   end;
+	end Update_Ranges_Address;
+
+    Output_Ranges = proc (E: cvt, Type_It: bool, Env: lnk_env);
+	own Zero_Address: address := address$Make_Specific(0);
+	Link_Addr: address;
+	Len: int := ara$Size(E.Rngs);
+	if ((Len > 0) cor
+	    E.First_Block
+	    )
+	   then if (Type_It)
+		   then stream$PutL(Env.Options.List_Stream,
+				    (out_link_chan$Cur_Addr_to_String(Env.Output) ||
+				     ": " || E.Name.Str));
+			   except when Not_Possible(*): end;
+		   end;
+		Size: int := Len * 3;			%% Three addresses per entry.
+		if (Env.Options.Debugging)
+		   then Output_Vec_Head((Size+1), Env);	%% Include forward pointer.
+			PAddr: address := E.Last_Addr;	%% Previous pointer.
+			CAddr: address := E.Cur_Addr;	%% Current  pointer.
+			if (E.First_Block)
+			   then if (Env.Options.Output_to_File)
+				   then %% Chain to dummy except block.
+					Output_Address(E.Dummy_Rng.Address,
+						       Env);
+					E.Last_Addr := E.Dummy_Rng.Address;
+				   else Output_Address(Zero_Address,	%% Write null pointer.
+						       Env);
+					E.Last_Addr := E.Cur_Addr;
+				   end;
+				E.First_Block := false;
+			   else rewrites$AddH(Env.Mach_Dependent.Rewrites,
+					      rewrite$Create(	%% Rewrite old pointer.
+						  address$Advance(E.Last_Addr, 4),
+						  E.Cur_Addr));
+				Output_Address(Zero_Address,	%% Write null pointer.
+					       Env);
+				E.Last_Addr := E.Cur_Addr;
+			   end;
+		   else
+			Output_Vec_Head(Size, Env);
+		   end;
+		for RA: range_addr in ara$Elements(E.Rngs) do
+		    Output_Address(RA.Range.Start_Addr, Env);
+		    Output_Address(RA.Range.End_Addr, Env);
+		    Output_Address(RA.Addr, Env);
+		    if (Type_It)
+		       then List_Stream: stream := Env.Options.List_Stream;
+			    Locs: locates := Env.Locates;
+			    stream$PutS(List_Stream, "  From ");
+			    stream$PutS(List_Stream, 
+					address$HUnparse(
+					    address$Fix_Address(RA.Range.Start_Addr, Locs)));
+			    stream$PutS(List_Stream, " to ");
+			    stream$PutS(List_Stream,
+					address$HUnparse(
+					    address$Fix_Address(RA.Range.End_Addr, Locs)));
+			    stream$PutS(List_Stream, " at ");
+			    stream$PutL(List_Stream,
+					address$HUnparse(
+					    address$Fix_Address(RA.Addr, Locs)));
+		       end;
+		       except when Not_Possible(*): end;
+		    end;
+	   end;
+	end Output_Ranges;
+
+    Output_Entry = proc (E: cvt, Type_It: bool, Env: lnk_env);
+	Output_Reference(E.Name.Const.Address, Env);
+	Output_Reference(E.Base_Addr, Env);
+	if (Type_It)
+	   then stream$PutS(Env.Options.List_Stream, E.Name.Str);
+		stream$PutS(Env.Options.List_Stream, " at ");
+		stream$PutL(Env.Options.List_Stream,
+			    address$HUnparse(
+				address$Fix_Address(E.Base_Addr, Env.Locates))
+			    );
+	   end;
+	   except when Not_Possible(*): end;
+	end Output_Entry;
+
+    Print = proc (E: cvt, S: pstream);
+	rep$Print(E, S);
+	end Print;
+
+    Failure_Address = proc (Env: lnk_env) returns (address)
+			signals (not_possible);
+	for I_E: inst_except in inst_excepts$Elements(Env.Inst_Excepts) do
+	    if ("failure" = down(I_E).Name.Str)
+	       then return (down(I_E).Base_Addr);
+		       resignal Not_Possible;
+
+	       end;
+	    end;
+	return (address$Make_Null());
+	end Failure_Address;
+
+    Others_Address = proc (Env: lnk_env) returns (address)
+		       signals (not_possible);
+	I_Es: inst_excepts := Env.Inst_Excepts;
+	return (down(I_Es.First).Base_Addr);
+	   resignal Not_Possible;
+	end Others_Address;
+
+    Prepare_to_Dump = proc (E: cvt, Locs: locates);
+	E.Base_Addr := address$Fix_Address(E.Base_Addr, Locs);
+	   except when Not_Possible:
+		  end;
+	E.Last_Addr := address$Fix_Address(E.Last_Addr, Locs);
+	   except when Not_Possible:
+		  end;
+	E.Cur_Addr  := address$Fix_Address(E.Cur_Addr,  Locs);
+	   except when Not_Possible:
+		  end;
+	ara$Trim(E.Rngs, 1, 0);
+	end Prepare_to_Dump;
+
+    _gcd = proc (IE: cvt, Tab: gcd_tab) returns (int);
+	return (rep$_gcd(IE, Tab));
+	end _gcd;
+    end inst_except;

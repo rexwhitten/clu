@@ -1,0 +1,5 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+Output_Owns = proc (Env: lnk_env);
+    %% Only thing output for owns is entry in seg map and header at end of BSS section.
+    end Output_Owns;

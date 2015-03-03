@@ -1,0 +1,316 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+run_incsrch = proc (e: env, c: char)
+		signals (errmsg (string), stop(env, string))
+    help = "^D: read default\n" ||
+	   "^H: flip direction\n" ||
+	   "^L: redisplay\n" ||
+	   "^O: count occurrences of string in rest of buffer\n" ||
+	   "^S: search forward # times for default\n" ||
+	   "^U: read numeric argument\n" ||
+	   "^Y: flip case\n" ||
+	   " all other chars enter incremental search mode"
+    se: env := get_string_arg_env (e)
+       resignal errmsg
+    env$choose_window (e)
+    dir: int := 1               % > 0 means forward, < 0 means reverse
+    if e.this_arg < 0
+       then dir := -1 end
+    while true do
+	dir_string, case_string: string
+	if dir < 0
+	   then dir_string := "---- Reverse search; Default = '"
+	   else dir_string := "---- Forward search; Default = '"
+	   end
+	if env$fetch_num (e, "ignore_case", 0) = 0
+	   then case_string := "'; Case matters; ? for help"
+	   else case_string := "'; Case ignored; ? for help"
+	   end
+	default: string := env$fetch_str (e, "search", "")
+	se.title := dir_string || default || case_string
+	env$display (e)
+	c := _getc ()
+	if c = ctrld then
+	   winset$remove (se)
+	   env$store_str (e,
+			  "search",
+			  get_string_arg (e, "New default", default))
+	      resignal errmsg
+	   se := get_string_arg_env (e)
+	 elseif c = ctrlh then
+	   dir := -dir
+	 elseif c = ctrll then
+	   env$clear (e)
+	   env$display (e)
+	 elseif c = ctrlo then
+	   winset$remove (se)
+	   cs_occurrences (e, dir)
+	      resignal errmsg
+	   return
+	 elseif c = ctrlu then
+	   run_ctrlu (e, 'x')
+	   continue
+	 elseif c = ctrly then
+	   cs_flip_case (e)
+	 elseif c = '?' then
+	   type_string (e, help, "---- Help for incremental search (initial mode)")
+	 else cs_inc_search (e, se, c, dir)
+	      winset$remove (se)
+	      return
+	 end
+	e.next_arg := 1
+	end
+       except when errmsg (msg: string):
+		   winset$remove (se)
+		   signal errmsg (msg)
+	      end
+    end run_incsrch
+
+cs_occurrences = proc (e: env, dir: int) signals (errmsg (string))
+    err: string := ""
+    s: string := get_string_arg (e, "Count occurrences of",
+				 env$fetch_str (e, "search", ""))
+       resignal errmsg
+    count: int := 0
+    b: buf := e.buffer
+    line, pos: int := buf$get_cursor (b)
+    case_flag: bool := env$fetch_num(e, "ignore_case", 0) = 0
+    top_display (e, "Counting occurrences of '" || s || "'")
+    while string_search (b, s, dir, case_flag) do
+	count := count+1
+	end
+    buf$set_cursor (b, line, pos)
+    top_display (e, int$unparse (count) || " occurrences found.")
+    end cs_occurrences
+
+cs_inc_search = proc (e1, e: env, c: char, dir: int) signals (errmsg (string))
+    help = "^G:  erase string, quit if empty\n" ||
+	   "^H:  flip direction and search # times\n" ||
+	   "^L:  redisplay\n" ||
+	   "^Q:  quote next char\n" ||
+	   "^S:  search # times\n" ||
+	   "^U:  read numeric argument\n" ||
+	   "^Y:  flip case flag and search # times\n" ||
+	   "del: delete # chars from end of target, move cursor\n" ||
+	   "cr:  quit, leaving cursor in current position\n" ||
+	   "lf:  add # newlines to end of search string and search\n" ||
+	   " ?:  display this help\n" ||
+	   "other control chars, esc: quit and execute as next command\n" ||
+	   "all others: add # chars to end of search string and search"
+    ai = array[int]
+    own lstack: ai := ai$new () % stack of matching line positions
+    own pstack: ai := ai$new () % stack of matching char positions
+    own dstack: ai := ai$new () % stack of directions
+    own cstack: act := act$new () % stack of characters
+    b1: buf := e1.buffer        % main buffer
+    b: buf := e.buffer          % command buffer
+    line, pos: int := buf$get_cursor (b1)
+    ai$trim(lstack, 1, 0)
+    ai$trim(pstack, 1, 0)
+    ai$trim(dstack, 1, 0)
+    act$trim(cstack, 1, 0)
+    fsize: int := 0             % size of stack of found stuff
+    csize: int := 0             % char stack size (>= fsize)
+    if c = ctrls cor c = ctrlh then     % hack insertion of default
+       ss: string := env$fetch_str(e1, "search", "")
+       env$insert1 (e, ss)
+       for cc: char in string$chars (ss) do act$addh (cstack, cc) end
+       csize := string$size (ss)
+       end
+
+    case_flag: bool := env$fetch_num(e1, "ignore_case", 0) = 0
+    changed: bool := true
+
+    % loop processing commands -- assumes command character in c
+    while true do
+
+	success: bool := true
+
+	% command cases
+	if c = ctrls cand fsize > 0 cand fsize < csize then
+	   _bell()
+	   success := false
+	 elseif c = ctrls cor c = ctrlh cor c = ctrly then
+	   if c = ctrly then
+	      cs_flip_case (e1)
+	      case_flag := ~case_flag
+	      changed := true
+	      if fsize > 0 then
+		 line := ai$bottom (lstack)
+		 pos := ai$bottom (pstack)
+		 ai$trim (lstack, 1, 0)
+		 ai$trim (pstack, 1, 0)
+		 ai$trim (dstack, 1, 0)
+		 fsize := 0
+		 buf$set_cursor (b1, line, pos)
+		 end
+	    elseif c = ctrlh then
+	      changed := true
+	      dir := -dir
+	    end
+	   arg: int := e1.next_arg
+	   if arg < 0 then
+	      changed := true
+	      arg := -arg
+	      dir := -dir
+	      end
+	   if csize ~= 0 then   % search only if target not empty
+	      if ~_pending_chars () then top_display (e1, "Searching ...") end
+	      target: string := string$substr (ac2s (cstack), 1, fsize)
+	      line3: int := line
+	      pos3: int := pos
+	      for i: int in int$from_to (fsize + 1, csize) do
+		  target := string$append (target, cstack[i])
+		  success := string_search (b1, target, dir, case_flag)
+		  if ~success then
+		     _bell ()
+		     changed := true
+		     buf$set_cursor (b1, line3, pos3)
+		     break
+		     end
+		  ai$addh (lstack, line3)
+		  ai$addh (pstack, pos3)
+		  ai$addh (dstack, dir)
+		  fsize := fsize + 1
+		  line3, pos3 := buf$get_cursor (b1)
+		  line2, pos2: int := buf$new_cursor (b1, 0, -dir*fsize)
+		  if dir < 0 cand ~(line2 = line cand pos2 = pos) then
+		     buf$new_cursor (b1, 0, 1)
+		     end
+		  end
+	      if success cand fsize = csize then
+		 for i: int in int$from_to_by(arg, 1, -1) do
+		     success := string_search (b1, target, dir, case_flag)
+		     if ~success then
+			_bell ()
+			break
+			end
+		     end
+		 line, pos := buf$get_cursor (b1)
+		 end
+	      end
+	 elseif c = ctrlg then
+	   if csize = 0 then signal errmsg (quit_msg)
+	    elseif csize > fsize then changed := true
+	    end
+	   act$trim (cstack, 1, 0)
+	   csize := 0
+	   if fsize > 0 then
+	      line := ai$bottom (lstack)
+	      pos := ai$bottom (pstack)
+	      ai$trim (lstack, 1, 0)
+	      ai$trim (pstack, 1, 0)
+	      ai$trim (dstack, 1, 0)
+	      fsize := 0
+	      buf$set_cursor (b1, line, pos)
+	      end
+	   env$delete1 (e, 1, 1)
+	 elseif c = ctrll then
+	   env$clear (e1)
+	   env$display (e1)
+	 elseif c = ctrlu then
+	   run_ctrlu (e1, 'x')
+	   c := _getc ()
+	   continue
+	 elseif c = del then
+	   for i: int in int$from_to_by(e1.next_arg, 1, -1) do
+	       if csize = 0
+		  then _bell ()
+		       break
+		  end
+	       l1, p1: int := buf$add_cursor (b, 0, -1)
+	       env$delete1 (e, l1, p1)
+	       act$remh (cstack)
+	       csize := csize - 1
+	       if csize = fsize then
+		  changed := true
+		elseif csize < fsize then
+		  fsize := fsize - 1
+		  dir := ai$remh (dstack)
+		  buf$set_cursor (b1, ai$remh (lstack), ai$remh (pstack))
+		end
+	       end
+	 elseif c = '?' then
+	   type_string (e1, help,
+			"---- Help for incremental search (searching mode)")
+	 elseif (c < ' ' cand c ~= ctrli cand c ~= ctrlj cand c ~= ctrlq) then
+	   if csize ~= 0 then
+	      env$store_str(e1, "search", ac2s (cstack))
+	      end
+	   if c ~= ctrlm then _push_pending_char (c) end
+	   return
+	 else if c = ctrlq then c := cs_get_quote (e1) end
+	      succ: bool := csize = fsize
+	      if succ cand ~_pending_chars () then
+		 top_display (e1, "Searching ...")
+		 end
+	      for i: int in int$from_to_by(e1.next_arg, 1, -1) do
+		  act$addh (cstack, c)
+		  env$insert1 (e, c2s (c))
+		  csize := csize + 1
+		  if succ then
+		     l, p: int := buf$get_cursor (b1)
+		     line2, pos2: int := buf$new_cursor (b1, 0, -dir*fsize)
+		     if dir < 0 cand ~(line2 = line cand pos2 = pos) then
+			buf$new_cursor (b1, 0, 1)
+			end
+		     ss: string := ac2s (cstack)
+		     succ := string_search (b1, ss, dir, case_flag)
+		     if succ
+			then ai$addh (lstack, l)
+			     ai$addh (pstack, p)
+			     ai$addh (dstack, dir)
+			     fsize := fsize + 1
+			     line, pos := buf$get_cursor (b1)
+			else _bell ()
+			     buf$set_cursor (b1, l, p)
+			     changed := true
+			     success := false
+			end
+		     end
+		  end
+	 end
+	if ~success cand _in_macro() then signal errmsg("Not found!") end
+	if changed then
+	   dir_string, case_string: string
+	   if fsize < csize
+	      then if dir < 0
+		      then dir_string := "---- Failing reverse search"
+		      else dir_string := "---- Failing forward search"
+		      end
+	    elseif dir < 0
+	      then dir_string := "---- Reverse search"
+	    else dir_string := "---- Forward search" end
+	   if case_flag
+	      then case_string := "; Case matters."
+	      else case_string := "; Case ignored."
+	      end
+	   e.title := dir_string || case_string
+	   changed := false
+	   end
+	   if ~_pending_chars () then
+	      if success
+		 then top_display (e1, "")
+		 else top_display (e1, "Not found.")
+		 end
+	      env$display (e1)
+	      end
+	   c := _getc ()
+	   e1.next_arg := 1
+	   end
+    end cs_inc_search
+
+cs_get_quote = proc (e: env) returns (char)
+    if _pending_wait()
+       then return (_getc ()) end
+    top_display (e, "Quote: ")
+    env$display (e)
+    c: char := _getc ()
+    top_display (e, string$append ("Quote: ", c))
+    return (c)
+    end cs_get_quote
+
+cs_flip_case = proc (e: env) signals (errmsg (string))
+    case: int := env$fetch_num(e, "ignore_case", 0)
+    if case = 0 then case := 1 else case := 0 end
+    env$store_num(e, "ignore_case", case)
+    end cs_flip_case

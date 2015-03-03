@@ -1,0 +1,8 @@
+%% Copyright Massachusetts Institute of Technology 1980, 1989
+
+Const_String_Hash = proc (CS: constant, Size: int) returns (int);
+    if (constant$Is_Address(CS))
+       then return (address$Hasher(CS.Address, Size));
+       else return (Hash(constant$Get_String(CS), Size));
+       end;
+    end Const_String_Hash;

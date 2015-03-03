@@ -1,0 +1,97 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                     %
+%  variable        type    def     meaning                            %
+%                                                                     %
+%  box_string      str     %       string to draw box with            %
+%  box_indent      num     -64     N<0: center in field of -N         %
+%                                  N>=0: indent box N from left       %
+%  box_vspace      num     1       lines between top/bottom and text  %
+%  box_vwidth      num     1       width of top/bottom                %
+%  box_hspace      num     2       spaces between sides and text      %
+%  box_hwidth      num     1       N<0: fill field if centered        %
+%                                  N>=0: width of sides               %
+%                                                                     %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+construct_box = proc (e: env, c: char)
+		  signals (errmsg(string), stop(env, string))
+    spaces = "                                                  "
+    box: string := env$fetch_str(e, "box_string", "%")
+    for c in string$chars(box) do
+	if c < ' '  cor  c >= del
+	   then signal errmsg("box_string contains control chars!") end
+	end
+    arg: int := e.this_arg
+    b: buf := e.buffer
+    line, pos: int := buf$get_cursor(b)
+    aline, zline: int := buf$get_frame(b)
+    if arg < 0
+       then line := int$max(line - arg + 1, aline)
+	    arg := -arg
+       end
+    eline: int := int$min(line + arg - 1, zline)
+    max: int := 0
+    for i: int in int$from_to(line, eline) do
+	s: string := b[i]
+	max := int$max(_calc_hpos(s, string$size(s) + 1), max)
+	end
+    indent: int := env$fetch_num(e, "box_indent", -64)
+    if string$empty(box) then box := "%" end
+    vspace: int := int$max(env$fetch_num(e, "box_vspace", 1), 0)
+    vwidth: int := int$max(env$fetch_num(e, "box_vwidth", 1), 0)
+    hspace: int := int$max(env$fetch_num(e, "box_hspace", 2), 0)
+    hwidth: int := env$fetch_num(e, "box_hwidth", 1)
+    mmax: int := max + 2 * hspace
+    if hwidth < 0  cand  indent < 0
+       then hwidth := -(mmax + indent) / 2 end
+    if hwidth < 0 then hwidth := 0 end
+    max := mmax + 2 * hwidth
+    while string$size(box) < max do
+	box := box || box
+	end
+    box := string$substr(box, 1, max)
+    mbox: string := spaces
+    while string$size(mbox) < mmax do
+	mbox := mbox || mbox
+	end
+    mbox := string$substr(box, 1, hwidth) ||
+	    string$substr(mbox, 1, mmax) ||
+	    string$rest(box, hwidth + mmax + 1)
+    pbox: string := string$substr(mbox, 1, hwidth + hspace)
+    if indent < 0
+       then indent := -(max + indent) / 2 end
+    if indent > 0
+       then s: string := string$substr(spaces, 1, indent)
+	    box := s || box
+	    mbox := s || mbox
+	    pbox := s || pbox
+       end
+    buf$set_cursor(b, line, 1)
+    for i: int in int$from_to_by(vwidth, 1, -1) do
+	buf$insert(b, box)
+	buf$insert(b, "\n")
+	end
+    for i: int in int$from_to_by(vspace, 1, -1) do
+	buf$insert(b, mbox)
+	buf$insert(b, "\n")
+	end
+    voff: int := vwidth + vspace
+    for line in int$from_to(line + voff, eline + voff) do
+	s: string := pbox || b[line]
+	b[line] := s || string$rest(mbox,
+				    _calc_hpos(s, string$size(s) + 1) + 1)
+	   except when bounds: b[line] := s end
+	end
+    buf$set_cursor(b, line, max_int)
+    for i: int in int$from_to_by(vspace, 1, -1) do
+	buf$insert(b, "\n")
+	buf$insert(b, mbox)
+	end
+    for i: int in int$from_to_by(vwidth, 1, -1) do
+	buf$insert(b, "\n")
+	buf$insert(b, box)
+	end
+    buf$new_cursor(b, 0, 1)
+    env$maybe_change(e)
+    end construct_box

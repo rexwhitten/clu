@@ -1,0 +1,679 @@
+% Copyright Massachusetts Institute of Technology 1981, 1989
+
+qs = sequence[string]
+qo = sequence[_obj]
+
+%%% Return info. about all active and suspended frames which are not part of
+%%% the debugger itself. For each frame, yield the _break_info, the return
+%%% address (call slot), the _rtn_info for the callee and a flag indicating
+%%% whether the frame is a suspended iterator.
+%%% (SEP/Nov  7 1984)
+
+_frames = iter () yields (_frame, _obj, _rtn_info, bool)
+    tab: _frm_table := _get_frm_table()
+    frm: _frame := _frame$current()
+    addr: _obj
+    rtn: _rtn_info
+    n: string := "apply_proc"
+    first: bool := true
+    while true do
+	if n = "apply_proc"  cor  n = "apply_iter"  cor  n = "_listen"
+	   then while n ~= "_listen" do
+		    addr := frm.addr
+		    frm := frm.prev
+		    rtn := _frm_table$lookup(tab, addr)
+		    n := rtn.name
+		    end
+		nn: string := _frm_table$lookup(tab, frm.addr).name
+		stop: bool := nn = "_debugger"  cor
+			      nn = "_enter_debugger"  cor
+			      nn = "_quit_interrupt"
+		if stop  cor  ~first
+		   then yield(frm, addr, rtn, false) end
+		first := false
+		while n[1] = '_' do
+		    addr := frm.addr
+		    frm := frm.prev
+		    rtn := _frm_table$lookup(tab, addr)
+		    if stop cor string$indexs("_dbg_trace", n) = 1
+		       then break end
+		    n := rtn.name
+		    end
+	   end
+	for ifrm: _frame, iaddr: _obj in _iframes(frm, addr, rtn, true) do
+	    yield(ifrm, iaddr, _frm_table$lookup(tab, iaddr), true)
+	    end
+	yield(frm, addr, rtn, false)
+	addr := frm.addr
+	frm := frm.prev
+	rtn := _frm_table$lookup(tab, addr)
+	n := rtn.name
+	end except when none: end
+    end _frames
+
+%%% Yield all suspended iterator frames whose root is frm (i.e. their caller or
+%%% their caller's caller or ... is frm). If all = false, optimized iterators
+%%% aren't recursively searched for suspended frames.
+%%% (SEP/Nov  7 1984)
+
+_iframes = iter (frm: _frame, addr: _obj, rtn: _rtn_info, all: bool)
+							yields (_frame, _obj)
+    for pos: int, lfrm: _frame, laddr: _obj in _frame$iters(frm, addr, rtn) do
+	if ~all  cand  pos = 0  cand  _rtn_info$is_iter(rtn)
+	   then continue end
+	while true do
+	    lrtn: _rtn_info := _frm_table$lookup(_get_frm_table(), laddr)
+	    for ifrm: _frame, iaddr: _obj in _iframes(lfrm, laddr, lrtn, false) do
+		yield(ifrm, iaddr)
+		end
+	    yield(lfrm, laddr)
+	    laddr := lfrm.loop
+	    lfrm := lfrm.prev
+	    if lfrm = frm
+	       then break end
+	    end
+	end
+    end _iframes
+
+%%% Print the stack, ommitting intermediate internal deubgger frames. For each
+%%% frame, the frame number (followed by a ':' for a normal frame or ';' for a
+%%% suspended iterator), the name of the callee and the callee's arguments are
+%%% shown. [user-interface routine]
+%%% (SEP/Nov  7 1984)
+frames = proc ()
+    trcflg: bool := _enter_system()
+    pp: pstream := pstream$primary_output()
+    flat: bool := pp.flat
+    pp.flat := true
+    pstream$pause(pp, "")
+    num: int := 0
+    for frm: _frame, addr: _obj, rtn: _rtn_info, iflg: bool in _frames() do
+	num := num + 1
+	pstream$putright(pp, int$unparse(num), 3)
+	if iflg
+	   then pstream$text(pp, "; ")
+	   else pstream$text(pp, ": ")
+	   end
+	pstream$text(pp, rtn.name)
+	pstream$text(pp, "(")
+	names: qs := rtn.args_names
+	z: int := qs$size(names)
+	max: int := z + 1
+	if _rtn_info$is_iter(rtn)
+	   then max := max + 1 end
+	for i: int in int$from_to(1, z - 1) do
+	    pstream$text(pp, names[i])
+	    pstream$text(pp, ": ")
+	    _obj$print(frm[max - i], pp)
+	    pstream$text(pp, ", ")
+	    end
+	if z > 0
+	   then pstream$text(pp, qs$top(names))
+		pstream$text(pp, ": ")
+		if _rtn_info$is_parameterized(rtn)
+		   then _obj$print(frm[-2], pp)
+		   else _obj$print(frm[-1], pp)
+		   end
+	   end
+	pstream$pause(pp, ")")
+	end
+    pp.flat := flat
+    _exit_system(trcflg)
+    end frames
+
+%%% Like frames() except that only the argument names, and not the argument
+%%% values, are shown. [user-interface routine]
+%%% (SEP/Nov  7 1984)
+
+fratm = proc ()
+    trcflg: bool := _enter_system()
+    pp: pstream := pstream$primary_output()
+    flat: bool := pp.flat
+    pp.flat := true
+    pstream$pause(pp, "")
+    num: int := 0
+    for frm: _frame, addr: _obj, rtn: _rtn_info, iflg: bool in _frames() do
+	num := num + 1
+	pstream$putright(pp, int$unparse(num), 3)
+	if iflg
+	   then pstream$text(pp, "; ")
+	   else pstream$text(pp, ": ")
+	   end
+	pstream$text(pp, rtn.name)
+	pstream$text(pp, "(")
+	names: qs := rtn.args_names
+	z: int := qs$size(names)
+	for i: int in int$from_to(1, z) do
+	    pstream$text(pp, names[i])
+	    if i < z
+	       then pstream$text(pp, ", ") end
+	    end
+	pstream$pause(pp, ")")
+	end
+    pp.flat := flat
+    _exit_system(trcflg)
+    end fratm
+
+%%% Display the current stack, showing the name of the callee and the current
+%%% slot of execution in the callee (there won't be one for a suspended
+%%% iterator or an iterator in the process of yielding). [user-interface
+%%% routine]
+%%% (SEP/Nov  7 1984)
+
+frasl = proc ()
+    trcflg: bool := _enter_system()
+    pp: pstream := pstream$primary_output()
+    flat: bool := pp.flat
+    pp.flat := true
+    pstream$pause(pp, "")
+    num: int := 0
+    for frm: _frame, addr: _obj, rtn: _rtn_info, iflg: bool in _frames() do
+	num := num + 1
+	pstream$putright(pp, int$unparse(num), 3)
+	if iflg
+	   then pstream$text(pp, "; ")
+	   else pstream$text(pp, ": ")
+	   end
+	pstream$text(pp, rtn.name)
+	i: int := 0
+	for callee, slot: _obj in _call_slots(rtn.raw_routine, rtn) do
+	    i := i + 1
+	    if addr = slot
+	       then pstream$text(pp, "  at slot ")
+		    pstream$text(pp, int$unparse(i))
+		    break
+	       end
+	    end
+	pstream$pause(pp, "")
+	end
+    pp.flat := flat
+    _exit_system(trcflg)
+    end frasl
+
+%%% Similar to frames() except that this has an argument which specifies the
+%%% number of frames to print and the print format is less compact (arguments
+%%% are spaced over multiple lines). [user-interface routine]
+%%% (SEP/Nov  7 1984)
+
+lframes = proc (num: int)
+    if num <= 0
+       then return end
+    trcflg: bool := _enter_system()
+    pp: pstream := pstream$primary_output()
+    flat: bool := pp.flat
+    pp.flat := true
+    pstream$pause(pp, "")
+    cnt: int := 0
+    for frm: _frame, addr: _obj, rtn: _rtn_info, iflg: bool in _frames() do
+	cnt := cnt + 1
+	pstream$putright(pp, int$unparse(cnt), 3)
+	if iflg
+	   then pstream$text(pp, "; ")
+	   else pstream$text(pp, ": ")
+	   end
+	pstream$pause(pp, rtn.name)
+	names: qs := rtn.args_names
+	z: int := qs$size(names)
+	max: int := z + 1
+	if _rtn_info$is_iter(rtn)
+	   then max := max + 1 end
+	for i: int in int$from_to(1, z - 1) do
+	    pstream$putspace(pp, 8)
+	    pstream$text(pp, names[i])
+	    pstream$text(pp, ": ")
+	    pstream$putspace(pp, 8 - string$size(names[i]))
+	       except when negative_field_width: end
+	    _obj$print(frm[max - i], pp)
+	    pstream$pause(pp, "")
+	    end
+	if z > 0
+	   then pstream$putspace(pp, 8)
+		pstream$text(pp, qs$top(names))
+		pstream$text(pp, ": ")
+		pstream$putspace(pp, 8 - string$size(qs$top(names)))
+		   except when negative_field_width: end
+		if _rtn_info$is_parameterized(rtn)
+		   then _obj$print(frm[-2], pp)
+		   else _obj$print(frm[-1], pp)
+		   end
+		pstream$pause(pp, "")
+	   end
+	if cnt = num
+	   then break end
+	end
+    pp.flat := flat
+    _exit_system(trcflg)
+    end lframes
+
+%%% Display frame number num, complete with local variables. [user-interface
+%%% routine]
+%%% (SEP/Nov  7 1984)
+frame = proc (num: int)
+    trcflg: bool := _enter_system()
+    cnt: int := 0
+    frm: _frame
+    addr: _obj
+    rtn: _rtn_info
+    iflg: bool
+    for frm, addr, rtn, iflg in _frames() do
+	cnt := cnt + 1
+	if cnt >= num
+	   then break end
+	end
+    if cnt = 0
+       then _exit_system(trcflg)
+	    return
+       end
+    pp: pstream := pstream$primary_output()
+    flat: bool := pp.flat
+    pp.flat := true
+    pstream$pause(pp, "")
+    pstream$putright(pp, int$unparse(cnt), 3)
+    if iflg
+       then pstream$text(pp, "; ")
+       else pstream$text(pp, ": ")
+       end
+    pstream$pause(pp, rtn.name)
+    names: qs := rtn.args_names
+    z: int := qs$size(names)
+    max: int := z + 1
+    if _rtn_info$is_iter(rtn)
+       then max := max + 1 end
+    for i: int in int$from_to(1, z - 1) do
+	pstream$putspace(pp, 8)
+	pstream$text(pp, names[i])
+	pstream$text(pp, ": ")
+	pstream$putspace(pp, 8 - string$size(names[i]))
+	   except when negative_field_width: end
+	_obj$print(frm[max - i], pp)
+	pstream$pause(pp, "")
+	end
+    max := 0
+    if _rtn_info$is_parameterized(rtn)
+       then max := 1 end
+    if z > 0
+       then pstream$putspace(pp, 8)
+	    pstream$text(pp, qs$top(names))
+	    pstream$text(pp, ": ")
+	    pstream$putspace(pp, 8 - string$size(qs$top(names)))
+	       except when negative_field_width: end
+	    max := max + 1
+	    _obj$print(frm[-max], pp)
+	    pstream$pause(pp, "")
+       end
+    names := rtn.locals_names
+    z := qs$size(names)
+    if z > 0
+       then pstream$pause(pp, "") end
+    for i: int in int$from_to(1, z) do
+	pstream$putspace(pp, 8)
+	pstream$text(pp, names[i])
+	pstream$text(pp, ": ")
+	pstream$putspace(pp, 8 - string$size(names[i]))
+	   except when negative_field_width: end
+	_obj$print(frm[-(max + i)], pp)
+	pstream$pause(pp, "")
+	end
+    pp.flat := flat
+    _exit_system(trcflg)
+    end frame
+
+%%% Return argument 'name' of frame number num.
+%%% (SEP/Nov  7 1984)
+
+_arg_fetch = proc (name: string, num: int) returns (_obj) signals (none)
+    cnt: int := 0
+    for frm: _frame, addr: _obj, rtn: _rtn_info, iflg: bool in _frames() do
+	cnt := cnt + 1
+	if cnt < num
+	   then continue end
+	names: qs := rtn.args_names
+	z: int := qs$size(names)
+	max: int := z + 1
+	if _rtn_info$is_iter(rtn)
+	   then max := max + 1 end
+	for i: int in int$from_to(1, z - 1) do
+	    if names[i] = name
+	       then return(frm[max - i]) end
+	    end
+	if z > 0  cand  qs$top(names) = name
+	   then if _rtn_info$is_parameterized(rtn)
+		   then return(frm[-2])
+		   else return(frm[-1])
+		   end
+	   end
+	if num > 0
+	   then signal none end
+	end
+    signal none
+    end _arg_fetch
+
+%%% Set argument 'name' to have value val in frame num.
+%%% (SEP/Nov  7 1984)
+
+_arg_store = proc (name: string, num: int, val: _obj) signals (none)
+    cnt: int := 0
+    for frm: _frame, addr: _obj, rtn: _rtn_info, iflg: bool in _frames() do
+	cnt := cnt + 1
+	if cnt < num
+	   then continue end
+	names: qs := rtn.args_names
+	z: int := qs$size(names)
+	max: int := z + 1
+	if _rtn_info$is_iter(rtn)
+	   then max := max + 1 end
+	for i: int in int$from_to(1, z - 1) do
+	    if names[i] = name
+	       then frm[max - i] := val
+		    return
+	       end
+	    end
+	if z > 0  cand  qs$top(names) = name
+	   then if _rtn_info$is_parameterized(rtn)
+		   then frm[-2] := val
+		   else frm[-1] := val
+		   end
+		return
+	   end
+	if num > 0
+	   then signal none end
+	end
+    signal none
+    end _arg_store
+
+%%% Return local variable 'name' in frame num.
+%%% (SEP/Nov  7 1984)
+
+_var_fetch = proc (name: string, num: int) returns (_obj) signals (none)
+    cnt: int := 0
+    for frm: _frame, addr: _obj, rtn: _rtn_info, iflg: bool in _frames() do
+	cnt := cnt + 1
+	if cnt < num
+	   then continue end
+	max: int := 0
+	if _rtn_info$is_parameterized(rtn)
+	   then max := 1 end
+	if rtn.num_args > 0
+	   then max := max + 1 end
+	names: qs := rtn.locals_names
+	for i: int in qs$indexes(names) do
+	    if names[i] = name
+	       then return(frm[- (max + i)]) end
+	    end
+	if num > 0
+	   then signal none end
+	end
+    signal none
+    end _var_fetch
+
+%%% Set local variable 'name' to have value val in frame num.
+%%% (SEP/Nov  7 1984)
+_var_store = proc (name: string, num: int, val: _obj) signals (none)
+    cnt: int := 0
+    for frm: _frame, addr: _obj, rtn: _rtn_info, iflg: bool in _frames() do
+	cnt := cnt + 1
+	if cnt < num
+	   then continue end
+	max: int := 0
+	if _rtn_info$is_parameterized(rtn)
+	   then max := 1 end
+	if rtn.num_args > 0
+	   then max := max + 1 end
+	names: qs := rtn.locals_names
+	for i: int in qs$indexes(names) do
+	    if names[i] = name
+	       then frm[-(max + i)] := val
+		    return
+	       end
+	    end
+	if num > 0
+	   then signal none end
+	end
+    signal none
+    end _var_store
+
+%%% Return own variable 'name' in frame num.
+%%% (SEP/Nov  7 1984)
+
+_own_fetch = proc (name: string, num: int) returns (_obj) signals (none)
+    cnt: int := 0
+    for frm: _frame, addr: _obj, rtn: _rtn_info, iflg: bool in _frames() do
+	cnt := cnt + 1
+	if cnt < num
+	   then continue end
+	names: qs := rtn.clust_owns_names
+	for i: int in qs$indexes(names) do
+	    if names[i] = name
+	       then return(_fetch_own(rtn, frm, i, true)) end
+	    end
+	names := rtn.owns_names
+	for i: int in qs$indexes(names) do
+	    if names[i] = name
+	       then return(_fetch_own(rtn, frm, i, false)) end
+	    end except when bounds: end
+	if num > 0
+	   then signal none end
+	end
+    signal none
+    end _own_fetch
+
+%%% Set own variable 'name' to have value val in frame num.
+%%% (SEP/Nov  7 1984)
+
+_own_store = proc (name: string, num: int, val: _obj) signals (none)
+    cnt: int := 0
+    for frm: _frame, addr: _obj, rtn: _rtn_info, iflg: bool in _frames() do
+	cnt := cnt + 1
+	if cnt < num
+	   then continue end
+	names: qs := rtn.clust_owns_names
+	for i: int in qs$indexes(names) do
+	    if names[i] = name
+	       then _store_own(rtn, frm, i, true, val)
+		    return
+	       end
+	    end
+	names := rtn.owns_names
+	for i: int in qs$indexes(names) do
+	    if names[i] = name
+	       then _store_own(rtn, frm, i, false, val)
+		    return
+	       end
+	    end except when bounds: end
+	if num > 0
+	   then signal none end
+	end
+    signal none
+    end _own_store
+
+%%% Force return from grame num with 0 results. [user-interface routine]
+%%% (SEP/Nov  7 1984)
+
+zrtn = proc (num: int) signals (illegal_frame, illegal_results)
+    mrtn(num, qo$[])
+       resignal illegal_frame, illegal_results
+    end zrtn
+
+%%% Force return from frame num with single result val. [user-interface
+%%% routine]
+%%% (SEP/Nov  7 1984)
+
+rtn = proc (num: int, val: _obj) signals (illegal_frame, illegal_results)
+    mrtn(num, qo$[val])
+       resignal illegal_frame, illegal_results
+    end rtn
+
+%%% Force return from frame num with multiple results, given in sequence vals.
+%%% [user-interface routine]
+%%% (SEP/Nov  7 1984)
+
+mrtn = proc (num: int, vals: qo) signals (illegal_frame, illegal_results)
+    if num <= 0
+       then signal illegal_frame end
+    trcflg: bool := _enter_system()
+    for frm: _frame, addr: _obj, rtn: _rtn_info, iflg: bool in _frames() do
+	num := num - 1
+	if num > 0
+	   then continue end
+	n: string := rtn.name
+	if ~iflg  cand
+	   ~(n = "_siggy"  cor
+	     n = "_quit_interrupt"  cor
+	     n = "_results")
+	   then _exit_system(trcflg)
+		_frame$mrtn(frm, rtn, vals)
+		   resignal illegal_results
+	   end
+	break
+	end
+    _exit_system(trcflg)
+    signal illegal_frame
+    end mrtn
+
+%%% Force yield from frame num with no vals. [user-interface routine]
+%%% (SEP/Nov  7 1984)
+
+zyld = proc (num: int) signals (illegal_frame, illegal_results)
+    myld(num, qo$[])
+       resignal illegal_frame, illegal_results
+    end zyld
+
+%%% Force yield from frame num with single value val. [user-interface routine]
+%%% (SEP/Nov  7 1984)
+
+yld = proc (num: int, val: _obj) signals (illegal_frame, illegal_results)
+    myld(num, qo$[val])
+       resignal illegal_frame, illegal_results
+    end yld
+
+%%% Force yield from frame num iwth multiple values, given in sequence vals.
+%%% [user-interface routine].
+%%% (SEP/Nov  7 1984)
+
+myld = proc (num: int, vals: qo) signals (illegal_frame, illegal_results)
+    if num <= 0
+       then signal illegal_frame end
+    trcflg: bool := _enter_system()
+    for frm: _frame, addr: _obj, rtn: _rtn_info, iflg: bool in _frames() do
+	num := num - 1
+	if num > 0
+	   then continue end
+	n: string := rtn.name
+	if ~iflg  cand
+	   ~(n = "_siggy"  cor
+	     n = "_quit_interrupt"  cor
+	     n = "_results")
+	   then _exit_system(trcflg)
+		_frame$myld(frm, addr, rtn, vals)
+		   resignal illegal_results
+		return
+	   end
+	break
+	end
+    _exit_system(trcflg)
+    signal illegal_frame
+    end myld
+
+%%% Force frame num to signal exception 'name' with no results.
+%%% [user-interface routine]
+%%% (SEP/Nov  7 1984)
+
+zsig = proc (num: int, name: string) signals (illegal_signal, illegal_frame)
+    msig(num, name, qo$[])
+       resignal illegal_signal, illegal_frame
+    end zsig
+
+%%% Force frame num to signal exception 'name' with single result val.
+%%% [user-interface routine]
+%%% (SEP/Nov  7 1984)
+
+sig = proc (num: int, name: string, val: _obj)
+	signals (illegal_signal, illegal_frame)
+    msig(num, name, qo$[val])
+       resignal illegal_signal, illegal_frame
+    end sig
+
+%%% Force frame num to signal exception 'name' with multiple results, given in
+%%% sequence vals. [user-interface routine]
+%%% (SEP/Nov  7 1984)
+
+msig = proc (num: int, name: string, vals: qo)
+	 signals (illegal_signal, illegal_frame)
+    if num <= 0
+       then signal illegal_frame end
+    trcflg: bool := _enter_system()
+    blk: _signal_block
+    begin
+	for area: _signal_area in _all_signal_areas() do
+	    for blk in _signal_area$elements(area) do
+		if name = blk.name  cand  qo$size(vals) = blk.num_args
+		   then exit found end
+		end
+	    end
+	_exit_system(trcflg)
+	signal illegal_signal
+	end except when found: end
+    for frm: _frame, addr: _obj, rtn: _rtn_info, iflg: bool in _frames() do
+	num := num - 1
+	if num > 0
+	   then continue end
+	n: string := rtn.name
+	if ~iflg  cand
+	   ~(n = "_siggy"  cor
+	     n = "_quit_interrupt"  cor
+	     n = "_results")
+	   then _exit_system(trcflg)
+		_frame$msig(frm, addr, blk, vals)
+	   end
+	break
+	end
+    _exit_system(trcflg)
+    signal illegal_frame
+    end msig
+
+%%% Retry routine activation of frame number num with the same arguments.
+%%% [user-interface routine]
+%%% (SEP/Nov  7 1984)
+
+retry = proc (num: int) signals (illegal_frame)
+    if num <= 0
+       then signal illegal_frame end
+    trcflg: bool := _enter_system()
+    for frm: _frame, addr: _obj, rtn: _rtn_info, iflg: bool in _frames() do
+	num := num - 1
+	if num > 0
+	   then continue end
+	n: string := rtn.name
+	if ~iflg  cand
+	   ~(n = "_siggy"  cor
+	     n = "_quit_interrupt"  cor
+	     n = "_results"  cor
+	     n = "__stub_routine")
+	   then _exit_system(trcflg)
+		_frame$retry(frm, rtn)
+	   end
+	break
+	end
+    _exit_system(trcflg)
+    signal illegal_frame
+    end retry
+
+%%% Resume interrupted execution. Invoking this function is equivalent to
+%%% typing <ESCAPE><RETURN> in the listen loop. [user-interface routine]
+%%% (SEP/Nov  7 1984)
+
+erret = proc () signals (illegal_frame)
+    trcflg: bool := _enter_system()
+    frm: _frame := _frame$current()
+    tab: _frm_table := _get_frm_table()
+    while true do
+	rtn: _rtn_info := _frm_table$lookup(tab, frm.addr)
+	frm := frm.prev
+	if rtn.name = "_listen"
+	   then _exit_system(trcflg)
+		_frame$mrtn(frm, rtn, qo$[])
+	   end
+	end except when none: end
+    _exit_system(trcflg)
+    signal illegal_frame
+    end erret

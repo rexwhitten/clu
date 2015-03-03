@@ -1,0 +1,145 @@
+%	ASSEM	CLU
+% Copyright Massachusetts Institute of Technology 1980, 1989
+%	MC68000 Assembler: top level routines
+
+# extend
+
+start_up = proc ()
+	own init: bool := false
+	if ~init
+	   then _restore_state(masm_dir() || "/state." ||
+			       int$unparse(_get_version()))
+		if ~init
+		   then assem(fname$parse("/dev/null"),
+			      false,
+			      false,
+			      stream$create_output())
+			init := true
+			_gc$gc()
+			_save_state(masm_dir() || "/state." ||
+				    int$unparse(_get_version()),
+				    0644)
+		   end
+	   end
+	jcl: str := get_jcl()
+	tyi: stream := stream$primary_input()
+	tyo: stream := stream$primary_output()
+	once: bool := ~str$empty(jcl)
+	while true do
+		line: ac := str$s2ac(jcl)
+		ofs: str := get_output_part(line)
+		    except when none: ofs := "/dev/p" end
+		tolib: bool := false
+		tobin: bool := false
+		for opt: str in as$elements(get_option_parts(line)) do
+			if opt = "lib"  cor  opt = "LIB"
+			   then tolib := true
+			elseif opt = "bin"  cor  opt = "BIN"
+			   then tobin := true
+			end
+			end
+		if str$empty(ofs)
+		   then ofs := "/dev/p" end
+		st: stream := stream$open(fname$parse(ofs), "write")
+		    except others: st := tyo end
+		for fns: str in as$elements(get_input_parts(line)) do
+			fs: file_spec := file_spec$parse(fns)
+			    except when bad_format:
+					 stream$putl(st, "bad format: " || fns)
+					 continue
+				   end
+			added: bool := str$empty(fs.suffix)  cand
+				       str$empty(fs.other)
+			if added
+			   then fs := file_spec$create(fs.dir, fs.name,
+							"asm", "")
+			   end
+			while true do
+				fns := file_spec$unparse(fs)
+				for fn: fname in all_file_names(fns) do
+					assem(fn, tolib, tobin, st)
+					end
+				    except others:
+						if added
+						   then added := false
+							fs := file_spec$create
+								  (fs.dir,
+								   fs.name,
+								   "",
+								   fs.other)
+							continue
+						   end
+						stream$puts(st, "no match: ")
+						stream$putl(st, fns)
+						break
+					   end
+				break
+				end
+			end
+		stream$close(st)
+		if once
+		   then break end
+		while true do
+			tyi.prompt := "FILE(S) = "
+			jcl := stream$getl(tyi)
+			if ~str$empty(jcl)
+			   then break end
+			_stop()
+			end
+		end except when end_of_file: end
+	quit_()
+	end start_up
+
+assem = proc (fn: fname, tolib, tobin: bool, tyo: stream)
+	own init: bool := false
+	own ge: g_env
+	own pe: p_env
+	own havelib: bool := false
+        own lib: str
+	if ~init
+	   then pe := p_env$create(stream$create_input(""),
+				   stream$create_output())
+		p_opcode(pe)
+		p_perm(pe)
+		p_addr(pe)
+		ge := g_env$create(stream$create_output(),
+				   file_name$parse("/dev/null"))
+		init := true
+	   end
+	st: stream := stream$open(fn, "read")
+	    except when not_possible (why: str):
+			 stream$putl(tyo, why)
+			 return
+		   end
+	t: time := run_time()
+	fn := st.name
+	stream$puts(tyo, "Assembling ")
+	stream$putl(tyo, fname$unparse(fn))
+	stream$puts(tyo, "\n")
+	nm: str := str$substr(fn.name, 1, _dir_ent_size() - 4)
+	bfn: fname := fname$create(fn.dir, nm, "_b_", "")
+	if tolib
+	   then if ~havelib
+		   then lib := bin_dir()
+			havelib := true
+		   end
+		fn := fname$create(lib, fn.name, "", "")
+	elseif tobin
+	   then fn := fname$create(fname$parse(fn.dir).dir || "/bin",
+				   fn.name, "", "")
+	else fn := fname$create(fn.dir, nm, "bin", "") end
+	p_env$reset(pe, st, tyo)
+	g_env$reset(ge, tyo, bfn)
+	while true do
+		def: definition := p_definition(pe)
+		g_definition(ge, def)
+		end except when eof: end
+	stream$puts(tyo, "\ntime = ")
+	stream$putl(tyo, time$unparse(run_time() - t))
+	g_env$end_all(ge)
+	if p_env$is_err(pe)  cor  g_env$is_err(ge)
+	   then delete_file(bfn)
+	   else rename_file(bfn, fn)
+	   end except others: end
+	stream$close(st)
+	end assem

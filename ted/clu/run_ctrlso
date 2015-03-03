@@ -1,0 +1,53 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+# extend
+
+run_ctrlso = proc (e: env, c: char) signals (errmsg(string), stop(env, string))
+    prompt = "Delete/Link/Mode/Rename"
+    valid = "DLMRS"
+    help_text = "D: delete files (#=0: don't confirm)\n" ||
+		"L: link to file\n" ||
+		"M: change mode of files\n" ||
+		"R: rename file\n" ||
+		"S: symbolic link to file"
+    arg: int, opt: char := get_option(e, prompt, valid, help_text, false)
+       resignal errmsg
+    if opt = 'D'
+       then fns: string, afn: afnt := get_file_list(e, "Delete file(s)", true)
+	    for fn: fname in afnt$elements(afn) do
+		if arg = 0  cor
+		   mconfirm(e, "Delete " || fname$unparse(fn), true)
+		   then delete_file(fn)
+		   end except when not_possible (why: string):
+				   top_display(e, fname$unparse(fn) ||
+						  " - " || why)
+				   sleep(1)
+			      end
+		end
+     elseif opt = 'L'  cor  opt = 'S'
+       then old: fname := get_file_name(e, "Existing file")
+	    new: fname := get_file_name1(e, "Link name", old)
+	    if opt = 'L'
+	       then link_file(old, new)
+	       else symlink_file(old, new)
+	       end
+     elseif opt = 'M'
+       then fns: string, afn: afnt := get_file_list(e, "Change mode of file(s)", true)
+	    fns := i_ounparse(env$fetch_num(e, "write_mode", 0644))
+	    mode: int := i_oparse(get_string_arg(e, "File mode", fns))
+	    for fn: fname in afnt$elements(afn) do
+		_change_mode(fn, mode)
+		   except when not_possible (why: string):
+			       top_display(e, fname$unparse(fn) ||
+					      " - " || why)
+			       sleep(1)
+			  end
+		end
+     elseif opt = 'R'
+       then from: fname := get_file_name(e, "Rename file")
+	    rename_file(from, get_file_name1(e, "To be file", from))
+     end
+       resignal errmsg
+       except when bad_format, overflow: signal errmsg("Illegal mode")
+	      when not_possible (s: string): signal errmsg(s)
+	      end
+    end run_ctrlso

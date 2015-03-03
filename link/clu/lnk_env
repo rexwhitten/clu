@@ -1,0 +1,710 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+lnk_env = cluster is
+	create, end_use, similar, print, short_print,
+	init, dump, read, reset,
+	end_link_phase,
+	get_clusters,
+	get_block_consts,
+	get_non_block_consts,
+	get_debug_blocks,     set_debug_blocks,
+	get_debug_routine_addr,
+	get_files,            set_files,
+	get_ignore_unknown,   set_ignore_unknown,
+	get_input,            set_input,
+	get_inst_excepts,
+	get_inst_signals,
+	get_locates,	      set_locates,
+	get_look_in_library,  set_look_in_library,
+	get_mach_dependent,
+	get_missed_clusters,
+	get_missed_routines,
+	get_names,
+	get_next_type_id,
+	get_old_addresses,
+	get_old_rtns,
+	get_options,          set_options,
+	get_out_file_name,    set_out_file_name,
+	get_output,           set_output,
+	get_parmd_rtn_infos,
+	get_pointers,	      set_pointers,
+	get_routines,
+	get_rtn_stack,
+	get_signal_address,   set_signal_address,
+        get_space_blocks,
+	get_start_routine,
+	get_name_sym_table,
+	get_rtn_sym_table,
+	get_times,
+	get_top_rtns,
+	get_types;
+
+
+    rep =  record[ Clusters:       clust_tab,	 %% Special re-init.
+		   Consts_Blk:     const_tab,	 %% New every load.
+		   Consts_Non_Blk: const_tab,    %% New every load.
+		   Dbg_Blocks:	   dbg_blk_array, %% New every load.
+		   Debug_Rtn:      pos_rt,       %% Keep between loads.
+		   Debug_Rtn_Addr: address,      %% Keep between loads.
+		   Dummy_Ps:	   params,	 %% Keep between loads.
+		   Files:          file_list,    %% New every load.
+		   Ign_Unknown:    bool,	 %% New every load.
+		   Input:          in_chan,      %% Re-used every file.
+		   Inst_Excepts:   inst_excepts, %% Re-init every load.
+		   Inst_Signals:   inst_signals, %% Special re-init.
+		   Last_ID:        int,          %% Keep between loads.
+		   Look_in_Lib:    bool,	 %% New every load.
+		   Mach_Dep:       mach_dep_env, %% Specific re-init.
+		   Main_Rtn:       pos_rt,       %% Keep between loads.
+		   Missed_Cs:      as,           %% New every load.
+		   Missed_Rs:      as,           %% New every load.
+		   Names:          name_tab,     %% New every load.
+		   Old_Addresses:  old_addresses,%% Specific re_init.
+		   Old_Rtns:	   old_rtns,	 %% New every load.
+		   Options:        options,      %% Specific re_init.
+		   Output:         out_link_chan,%% New every load.
+		   Out_File_Name:  file_name,    %% New every load.
+		   PInf_Tab:	   rtn_inf_tab,	 %% Special re-init.
+		   Pointers:       lnk_pointers, %% Specific re-init.
+		   Routines:       rtn_tab,      %% Special re-init.
+		   Rtn_Stack:	   rtn_stk,	 %% New every load.
+		   Sig_Adr:        pos_adr,      %% Keep between loads.
+		   Spc_Blocks:	   space_blocks, %% New every load.
+		   Types:          type_tab,     %% Keep between loads.
+		   Locates:        locates,      %% Special re-init.
+		   Times:          times,        %% New every load.
+		   Rtn_Sym_Tb:     rtn_sym_tab,  %% New every load.
+		   Name_Sym_Tb:    name_sym_tab  %% New every load.
+		  ];
+
+    denv = record[ Clusters:       array[c_template], %% Special re_init.
+		   Debug_Rtn:      pos_rt,       %% Keep between loads.
+		   Debug_Rtn_Addr: address,      %% Keep between loads.
+		   Dummy_Ps:	   params,	 %% Keep between loads.
+		   Image_File:	   file_name,	 %% Special.
+		   Inst_Excepts:   inst_excepts, %% Re-init every load.
+		   Inst_Signals:   array[inst_signal], %% Special re-init.
+		   Last_ID:        int,          %% Keep between loads.
+		   Mach_Dep:       mach_dep_env, %% Specific re-init.
+		   Main_Rtn:       pos_rt,       %% Keep between loads.
+		   Options:        options,      %% Specific re-init.
+		   PInf_Tab:	   array[dri],	 %% Special re-init.
+		   Pointers:       lnk_pointers, %% Specific re-init.
+		   Routines:       array[r_template], %% Special re_init.
+		   Sig_Adr:        pos_adr,      %% Keep between loads.
+		   Types:          array[type_desc],  %% Special re_init.
+		   Locates:        locates       %% Special re-init.
+		  ];
+
+    pos_adr = oneof[ Not_Set:	null,
+		     Set:	address ]
+
+    pos_rt  = oneof[ None:	null,
+		     RT:	r_template ]
+
+    dri	= struct[ Addr:	address,
+		  RI:	rtn_info ];
+
+    rtn_stk = array[rtn_desc]
+
+
+    Create = proc () returns (cvt);
+	DPs: params := params$[constant$Make_Null()];
+	c_desc$Init(DPs);		%% Set up dummy parameter lists.
+	rtn_desc$Init(DPs);
+	Env: rep := 
+	    rep${ Clusters:       clust_tab$Create(200, Hash, string$Equal),
+		  Consts_Blk:     const_tab$Create(3000),
+		  Consts_Non_Blk: const_tab$Create(200),
+		  Dbg_Blocks:	  dbg_blk_array$New(),
+		  Debug_Rtn:      pos_rt$Make_None(nil),
+		  Debug_Rtn_Addr: address$Make_Null(),
+		  Dummy_Ps:	  DPs,
+		  Files:          file_list$New(),
+		  Ign_Unknown:    false,
+		  Input:          in_chan$New(),
+		  Inst_Excepts:   inst_excepts$New(),
+		  Inst_Signals:   inst_signals$Create(200,
+						      Sig_Hasher,
+						      sig$Similar),
+		  Last_ID:        0,              %% 0 is "no type"
+		  Look_in_Lib:    true,
+		  Mach_Dep:       mach_dep_env$Create(),
+		  Main_Rtn:       pos_rt$Make_None(nil),
+		  Missed_Cs:      as$New(),
+		  Missed_Rs:      as$New(),
+		  Names:          name_tab$Create(600, Hash, string$Equal),
+		  Old_Addresses:  old_addresses$Create(),
+		  Old_Rtns:       old_rtns$Create(1,
+						  Const_String_Hash,
+						  constant$Equal),
+		  Options:        options$Create(),
+		  Output:         out_link_chan$New(),
+		  Out_File_Name:  file_name$Parse("/dev/null"),
+		  PInf_Tab:	  rtn_inf_tab$Create(200, address$Hasher, address$Equal),
+		  Pointers:       lnk_pointers$Create(),
+		  Routines:       rtn_tab$Create(400, Hash, string$Equal),
+		  Rtn_Stack:	  rtn_stk$Predict(1, 40),
+		  Sig_Adr:        pos_adr$Make_Not_Set(nil),
+		  Spc_Blocks:	  space_blocks$New(),
+		  Types:          type_tab$Create(200),
+		  Locates:        address$Init(false, 0),
+		  Times:          Setup_Times(),
+		  Rtn_Sym_Tb:     rtn_sym_tab$Create(Rtn_Info_LT_by_Address),
+		  Name_Sym_Tb:    name_sym_tab$Create(Rtn_Info_LT_by_Name)
+		 };
+	return (Env);
+	end Create;
+
+
+    Init = proc (Env: cvt, Optns: options);
+	sgs = array[inst_signal]
+	Env.Clusters := clust_tab$Create(200, Hash, string$Equal);
+	Env.Consts_Blk := const_tab$Create(3000);
+	Env.Consts_Non_Blk := const_tab$Create(200);
+	Env.Dbg_Blocks := dbg_blk_array$New();
+	Env.Debug_Rtn := pos_rt$Make_None(nil);
+	Env.Debug_Rtn_Addr := address$Make_Null();
+	c_desc$Init(Env.Dummy_Ps);		%% Set up dummy parameter lists.
+	rtn_desc$Init(Env.Dummy_Ps);
+	Env.Files := file_list$New();
+	Env.Input := in_chan$New();
+	Env.Ign_Unknown := false;
+	Env.Inst_Excepts := inst_excepts$New();
+	Env.Inst_Signals := inst_signals$Create(200,
+						Sig_Hasher,
+						sig$Similar);
+	Env.Last_ID := 0;
+	Env.Look_in_Lib := true;
+	Env.Mach_Dep := mach_dep_env$Create();
+	Env.Main_Rtn := pos_rt$Make_None(nil);
+	Env.Missed_Cs := as$New();
+	Env.Missed_Rs := as$New();
+	Env.Names := name_tab$Create(600, Hash, string$Equal);
+	Env.Old_Addresses := old_addresses$Create();
+	Env.Old_Rtns := old_rtns$Create(1,
+					Const_String_Hash,
+					constant$Equal);
+	Env.Options := options$Create();
+	Env.Output := out_link_chan$New();
+	Env.Out_File_Name := file_name$Parse("/dev/null");
+	Env.PInf_Tab := rtn_inf_tab$Create(200, address$Hasher, address$Equal);
+	Env.Pointers := lnk_pointers$Create();
+	Env.Routines :=  rtn_tab$Create(400, Hash, string$Equal);
+	Env.Rtn_Stack := rtn_stk$Predict(1, 40);
+	Env.Sig_Adr := pos_adr$Make_Not_Set(nil);
+	Env.Spc_Blocks := space_blocks$New();
+	Env.Types := type_tab$Create(200);
+	Env.Locates := address$Init(Optns.Debugging, Optns.JCL_Size);
+	Env.Times := Setup_Times();
+	Env.Rtn_Sym_Tb  := rtn_sym_tab$Create(Rtn_Info_LT_by_Address);
+	Env.Name_Sym_Tb := name_sym_tab$Create(Rtn_Info_LT_by_Name);
+	end Init;
+
+    Clean_Out = proc (Env: rep);
+	Env.Clusters := clust_tab$Create(1, Hash, string$Equal);
+	Env.Consts_Blk := const_tab$Create(1);
+	Env.Consts_Non_Blk := const_tab$Create(1);
+	Env.Dbg_Blocks := dbg_blk_array$New();
+	Env.Debug_Rtn := pos_rt$Make_None(nil);
+	Env.Files := file_list$New();
+	Env.Input := in_chan$New();
+	Env.Inst_Excepts := inst_excepts$New();
+	Env.Inst_Signals := inst_signals$Create(1,
+						Sig_Hasher,
+						sig$Similar);
+	Env.Mach_Dep := mach_dep_env$Create();
+	Env.Main_Rtn := pos_rt$Make_None(nil);
+	Env.Missed_Cs := as$New();
+	Env.Missed_Rs := as$New();
+	Env.Names := name_tab$Create(1, Hash, string$Equal);
+	Env.Old_Addresses := old_addresses$Create();
+	Env.Old_Rtns := old_rtns$Create(1,
+					Const_String_Hash,
+					constant$Equal);
+	Env.Options := options$Create();
+	Env.Output := out_link_chan$New();
+	Env.Out_File_Name := file_name$Parse("/dev/null");
+	Env.PInf_Tab := rtn_inf_tab$Create(1, address$Hasher, address$Equal);
+	Env.Pointers := lnk_pointers$Create();
+	Env.Routines :=  rtn_tab$Create(1, Hash, string$Equal);
+	Env.Rtn_Stack := rtn_stk$New();
+	Env.Spc_Blocks := space_blocks$New();
+	Env.Types := type_tab$Create(1);
+	Env.Locates := address$Init(false, 0);
+	Env.Times := Setup_Times();
+	Env.Rtn_Sym_Tb  := rtn_sym_tab$Create(Rtn_Info_LT_by_Address);
+	Env.Name_Sym_Tb := name_sym_tab$Create(Rtn_Info_LT_by_Name);
+	end Clean_Out;
+
+
+    Dump = proc (Env: cvt) returns (file_name) signals (not_possible(string));
+	cs = array[c_template]
+	rs = array[r_template]
+	sgs = array[inst_signal]
+	ts = array[type_desc]
+	dris = array[dri]
+
+	Locs: locates := Env.Locates;
+	Clusts: cs := cs$Predict(1, clust_tab$Count(Env.Clusters));
+	for Nm: string, CT: c_template in clust_tab$Elements(Env.Clusters) do
+	    c_template$Prepare_to_Dump(CT, Locs);
+	    cs$AddH(Clusts, CT);
+	    end;
+	Env.Clusters := clust_tab$Create(1, Hash, string$Equal);
+
+	Rtns: rs := rs$Predict(1, rtn_tab$Count(Env.Routines));
+	for Nm: string, RT: r_template in rtn_tab$Elements(Env.Routines) do
+	    r_template$Prepare_to_Dump(RT, Locs);
+	    rs$AddH(Rtns, RT);
+	    end;
+	Env.Routines := rtn_tab$Create(1, Hash, string$Equal);
+
+	Sigs: sgs := sgs$Predict(1, inst_signals$Count(Env.Inst_Signals));
+	for Sg: sig, I_Sg: inst_signal in inst_signals$Elements(Env.Inst_Signals) do
+	    inst_signal$Prepare_to_Dump(I_Sg, Locs);
+	    sgs$AddH(Sigs, I_Sg);
+	    end;
+	for I_Ex: inst_except in inst_excepts$Elements(Env.Inst_Excepts) do
+	    inst_except$Prepare_to_Dump(I_Ex, Locs);
+	    end;
+	Env.Inst_Signals := inst_signals$Create(1, Sig_Hasher, sig$Similar);
+
+	Typs: ts := ts$Predict(1, type_tab$Count(Env.Types));
+	for TD: type_desc in type_tab$Elements(Env.Types) do
+	    ts$AddH(Typs, TD);
+	    end;
+	Env.Types := type_tab$Create(1);
+
+	Dump_RIs: dris := dris$Predict(1, rtn_inf_tab$Count(Env.PInf_Tab));
+	for Addr: address, RInf: rtn_info in rtn_inf_tab$Elements(Env.PInf_Tab) do
+	    dris$AddH(Dump_RIs, dri${ Addr: address$Fix_Address(Addr, Locs),
+				      RI:   RInf });
+	    end;
+	Env.PInf_Tab := rtn_inf_tab$Create(1, address$Hasher, address$Equal);
+
+	Env.Debug_Rtn_Addr := address$Fix_Address(Env.Debug_Rtn_Addr, Locs);
+	tagcase Env.Sig_Adr
+	   tag Not_Set:
+	   tag Set (SA: address):
+	       Env.Sig_Adr := pos_adr$Make_Set(
+				  address$Fix_Address(SA, Locs));
+	   end;
+	Env.Mach_Dep.Top_of_Immutable_Space := locates$P0_Top(Locs);
+	mach_dep_env$Prepare_to_Dump(Env.Mach_Dep, up(Env));
+	options$Prepare_to_Dump(Env.Options, Locs);
+	lnk_pointers$Prepare_to_Dump(Env.Pointers, Locs);
+	locates$Prepare_to_Dump(Locs);
+	Dmp_Env: denv := denv${
+			     Clusters:       Clusts,
+			     Debug_Rtn:      Env.Debug_Rtn,
+			     Debug_Rtn_Addr: Env.Debug_Rtn_Addr,
+			     Dummy_Ps:	     Env.Dummy_Ps,
+			     Image_File:     Env.Out_File_Name,
+			     Inst_Excepts:   Env.Inst_Excepts,
+			     Inst_Signals:   Sigs,
+			     Last_ID:        Env.Last_ID,
+			     Mach_Dep:       Env.Mach_Dep,
+			     Main_Rtn:       Env.Main_Rtn,
+			     Options:        Env.Options,
+			     PInf_Tab:	     Dump_RIs,
+			     Pointers:       Env.Pointers,
+			     Routines:       Rtns,
+			     Sig_Adr:        Env.Sig_Adr,
+			     Types:          Typs,
+			     Locates:        Env.Locates
+			       };
+	GC();				%% Do a GC first to get max room.
+	return (GC_Dump[denv](Dmp_Env, Env.Options.Dump_File_Name));
+	   resignal Not_Possible;
+	end Dump;
+
+
+    Read = proc (Env: cvt, Fl_Nm: file_name) signals (not_possible(string));
+	cs = array[c_template]
+	rs = array[r_template]
+	sgs = array[inst_signal]
+	ts = array[type_desc]
+	dris = array[dri]
+
+	Clean_Out(Env);				%% Forget existing stuff.
+
+	Dmp_Env: denv := GC_Read[denv](Fl_Nm);
+	   resignal Not_Possible;
+	c_desc$Init(Dmp_Env.Dummy_Ps);		%% Set up dummy parameter lists.
+	rtn_desc$Init(Dmp_Env.Dummy_Ps);
+
+	Dmp_Cs: cs := Dmp_Env.Clusters;
+	Clusts: clust_tab := clust_tab$Create((cs$Size(Dmp_Cs) * 2),
+					      Hash, string$Equal);
+	for CT: c_template in cs$Elements(Dmp_Cs) do
+	    % c_template$Re_Init(CT);
+	    clust_tab$Alter(Clusts, CT.Name, CT);
+	    end;
+	cs$Trim(Dmp_Cs, 1, 0);
+
+	Dmp_Rs: rs := Dmp_Env.Routines;
+	Rtns: rtn_tab := rtn_tab$Create((rs$Size(Dmp_Rs) * 2),
+					Hash, string$Equal);
+	for RT: r_template in rs$Elements(Dmp_Rs) do
+	    % r_template$Re_Init(RT);
+	    rtn_tab$Alter(Rtns, RT.Name, RT);
+	    end;
+	rs$Trim(Dmp_Rs, 1, 0);
+
+	Dmp_Sgs: sgs := Dmp_Env.Inst_Signals;
+	Sigs: inst_signals := inst_signals$Create((sgs$Size(Dmp_Sgs) * 2),
+						  Sig_Hasher, sig$Similar);
+	for I_Sg: inst_signal in sgs$Elements(Dmp_Sgs) do
+	    % inst_signal$Re_Init(I_Sg);
+	    inst_signals$Alter(Sigs, I_Sg.Sig, I_Sg);
+	    end;
+	% for I_Ex: inst_except in inst_excepts$Elements(Dmp_Env.Inst_Excepts) do
+	%     inst_except$Re_Init(I_Ex);
+	%     end;
+	sgs$Trim(Dmp_Sgs, 1, 0);
+
+	Dump_RIs: dris := Dmp_Env.PInf_Tab;
+	PInf_Tab: rtn_inf_tab := rtn_inf_tab$Create(200, address$Hasher, address$Equal);
+	for Dump_RI: dri in dris$Elements(Dump_RIs) do
+	    rtn_inf_tab$Bind(PInf_Tab, Dump_RI.Addr, Dump_RI.RI);
+	    end;
+	dris$Trim(Dump_RIs, 1, 0);
+
+	mach_dep_env$Re_Init(Dmp_Env.Mach_Dep);
+	options$Re_Init(Dmp_Env.Options);
+	% lnk_pointers$Re_Init(Dmp_Env.Pointers);
+	Env.Clusters := Clusts;
+	Env.Consts_Blk := const_tab$Create(1000);
+	Env.Consts_Non_Blk := const_tab$Create(100);
+	Env.Dbg_Blocks := dbg_blk_array$New();
+	Env.Debug_Rtn := Dmp_Env.Debug_Rtn;
+	Env.Debug_Rtn_Addr := Dmp_Env.Debug_Rtn_Addr;
+	Env.Dummy_Ps := Dmp_Env.Dummy_Ps;
+	Env.Files := file_list$New();
+	Env.Ign_Unknown := false;
+	Env.Input := in_chan$New();
+	Env.Inst_Excepts := Dmp_Env.Inst_Excepts;
+	Env.Inst_Signals := Sigs;
+	Env.Last_ID := Dmp_Env.Last_ID;
+	Env.Look_in_Lib := true;
+	Env.Mach_Dep := Dmp_Env.Mach_Dep;
+	Env.Main_Rtn := Dmp_Env.Main_Rtn;
+	Env.Missed_Cs := as$New();
+	Env.Missed_Rs := as$New();
+	Env.Names := name_tab$Create(400, Hash, string$Equal);
+	Env.Old_Addresses := old_addresses$Create();
+	Env.Old_Rtns := old_rtns$Create(100,
+					Const_String_Hash,
+					constant$Equal);
+	Env.Options := Dmp_Env.Options;
+	Env.Output := out_link_chan$New();
+	Env.Out_File_Name := Dmp_Env.Image_File;
+	Env.PInf_Tab := PInf_Tab;
+	Env.Pointers := Dmp_Env.Pointers;
+	Env.Routines := Rtns;
+	Env.Rtn_Stack := rtn_stk$Predict(1, 40);
+	Env.Sig_Adr := Dmp_Env.Sig_Adr;
+	Env.Spc_Blocks := space_blocks$New();
+	Env.Types := type_tab$Create(1);
+	Env.Locates := Dmp_Env.Locates;
+	address$Re_Init(Env.Locates);
+	Env.Times := Setup_Times();
+	Env.Rtn_Sym_Tb := rtn_sym_tab$Create(Rtn_Info_LT_by_Address);
+	Env.Name_Sym_Tb := name_sym_tab$Create(Rtn_Info_LT_by_Name);
+	Dmp_Ts: ts := Dmp_Env.Types;
+	Typs: type_tab := type_tab$Create(ts$Size(Dmp_Ts) * 2);
+	for TD: type_desc in ts$Elements(Dmp_Ts) do
+	    type_tab$Enter(Typs, TD, up(Env));
+	    end;
+	ts$Trim(Dmp_Ts, 1, 0);
+	Env.Types := Typs;
+	end Read;
+
+
+    Reset = proc (Env: cvt);
+	sgs = array[inst_signal]
+	Locs: locates := Env.Locates;
+	for Nm: string, CT: c_template in clust_tab$Elements(Env.Clusters) do
+	    c_template$Prepare_to_Dump(CT, Locs);
+	    end;
+	for Nm: string, RT: r_template in rtn_tab$Elements(Env.Routines) do
+	    r_template$Prepare_to_Dump(RT, Locs);
+	    end;
+	for Sg: sig, I_Sg: inst_signal in inst_signals$Elements(Env.Inst_Signals) do
+	    inst_signal$Prepare_to_Dump(I_Sg, Locs);
+	    end;
+	for I_Ex: inst_except in inst_excepts$Elements(Env.Inst_Excepts) do
+	    inst_except$Prepare_to_Dump(I_Ex, Locs);
+	    end;
+	Remove_Addrs: array[address] := array[address]$New();
+	PInf_Tab: rtn_inf_tab := Env.PInf_Tab;
+	for Addr: address, RInf: rtn_info in rtn_inf_tab$Elements(PInf_Tab) do
+	    FA: address := address$Fix_Address(Addr, Locs);
+	    if (FA ~= Addr)
+	       then array[address]$AddH(Remove_Addrs, Addr);
+		    rtn_inf_tab$Bind(PInf_Tab, FA, RInf);	%% Rebind it.
+	       end;
+	    end;
+	for Addr: address in array[address]$Elements(Remove_Addrs) do
+	    rtn_inf_tab$Remove(PInf_Tab, Addr);
+	    end;
+	mach_dep_env$Reset(Env.Mach_Dep);
+	old_addresses$Re_Init(Env.Old_Addresses, Locs);
+	locates$Prepare_to_Dump(Locs);
+	address$Re_Init(Locs);
+	options$Re_Init(Env.Options);
+	Env.Consts_Blk := const_tab$Create(1000);
+	Env.Consts_Non_Blk := const_tab$Create(100);
+	Env.Dbg_Blocks := dbg_blk_array$New();
+	Env.Files := file_list$New();
+	Env.Ign_Unknown := false;
+	Env.Look_in_Lib := true;
+	Env.Missed_Cs := as$New();
+	Env.Missed_Rs := as$New();
+	Env.Names := name_tab$Create(400, Hash, string$Equal);
+	Env.Old_Rtns := old_rtns$Create(100,
+					Const_String_Hash,
+					constant$Equal);
+	Env.Spc_Blocks := space_blocks$New();
+	Env.Times := Setup_Times();
+	Env.Rtn_Sym_Tb  := rtn_sym_tab$Create(Rtn_Info_LT_by_Address);
+	Env.Name_Sym_Tb := name_sym_tab$Create(Rtn_Info_LT_by_Name);
+	end Reset;
+
+
+    End_Use = proc (E: cvt);
+	options$End_Use(E.Options);
+	end End_Use;
+
+    Similar = proc (E1, E2: cvt) returns (bool);
+	return (E1 = E2);
+	end Similar;
+
+    Print = proc (Env: cvt, S: pstream);
+	Short_Print(up(Env), S);
+	end Print;
+
+    Short_Print = proc (Env: cvt, S: pstream);
+	pstream$Text(S, "{...}");
+	end Short_Print;
+
+    End_Link_Phase = proc (Env: cvt);
+	name_tab$Flush(Env.Names);
+	end End_Link_Phase;
+
+
+    Get_Clusters = proc (Env: cvt) returns (clust_tab);
+	return (Env.Clusters);
+	end Get_Clusters;
+
+    Get_Block_Consts = proc (Env: cvt) returns (const_tab);
+	return (Env.Consts_Blk);
+	end Get_Block_Consts;
+
+    Get_Non_Block_Consts = proc (Env: cvt) returns (const_tab);
+	return (Env.Consts_Non_Blk);
+	end Get_Non_Block_Consts;
+
+    Get_Debug_Blocks = proc (Env: cvt) returns (dbg_blk_array);
+	return (Env.Dbg_Blocks);
+	end Get_Debug_Blocks;
+
+    Set_Debug_Blocks = proc (Env: cvt, DBs: dbg_blk_array);
+	Env.Dbg_Blocks := DBs;
+	end Set_Debug_Blocks;
+
+    Get_Debug_Routine_Addr = proc (Env: cvt) returns (address)
+			       signals (not_found);
+	own Debug_Name: string := mach_constants$Debug_Rtn_Name();
+	tagcase Env.Debug_Rtn
+	   tag None:
+	       Dbg_Rtn: r_template := rtn_tab$Lookup(Env.Routines,
+						     Debug_Name);
+		  resignal Not_Found;
+	       Env.Debug_Rtn_Addr := Dbg_Rtn.Code_Address;
+	       Env.Debug_Rtn := pos_rt$Make_RT(Dbg_Rtn);
+	       return (Env.Debug_Rtn_Addr);
+	   tag RT (R: r_template):
+	       return (Env.Debug_Rtn_Addr);
+	   end;
+	end Get_Debug_Routine_Addr;
+
+    Get_Files = proc (Env: cvt) returns (file_list);
+	return (Env.Files);
+	end Get_Files;
+
+    Set_Files = proc (Env: cvt, Fs: file_list);
+	Env.Files := Fs;
+	end Set_Files;
+
+    Get_Ignore_Unknown = proc (Env: cvt) returns (bool);
+	return (Env.Ign_Unknown);
+	end Get_Ignore_Unknown;
+
+    Set_Ignore_Unknown = proc (Env: cvt, V: bool);
+	Env.Ign_Unknown := V;
+	end Set_Ignore_Unknown;
+
+    Get_Input = proc (Env: cvt) returns (in_chan);
+	return (Env.Input);
+	end Get_Input;
+
+    Set_Input = proc (Env: cvt, Input: in_chan);
+	Env.Input := Input;
+	end Set_Input;
+
+
+    Get_Inst_Excepts = proc (Env: cvt) returns (inst_excepts);
+	return (Env.Inst_Excepts);
+	end Get_Inst_Excepts;
+
+    Get_Inst_Signals = proc (Env: cvt) returns (inst_signals);
+	return (Env.Inst_Signals);
+	end Get_Inst_Signals;
+
+    Get_Next_Type_ID = proc (Env: cvt) returns (int);
+	Env.Last_ID := Env.Last_ID + 1;
+	return (Env.Last_ID);
+	end Get_Next_Type_ID;
+
+    Get_Look_in_Library = proc (Env: cvt) returns (bool);
+	return (Env.Look_in_Lib);
+	end Get_Look_in_Library;
+
+    Set_Look_in_Library = proc (Env: cvt, F: bool);
+	Env.Look_in_Lib := F;
+	end Set_Look_in_Library;
+
+    Get_Locates = proc (Env: cvt) returns (locates);
+	return (Env.Locates);
+	end Get_Locates;
+
+    Set_Locates = proc (Env: cvt, Locs: locates);
+	Env.Locates := Locs;
+	end Set_Locates;
+
+    Get_Mach_Dependent = proc (Env: cvt) returns (mach_dep_env);
+	return (Env.Mach_Dep);
+	end Get_Mach_Dependent;
+
+    Get_Start_Routine = proc (Env: cvt) returns (r_template) signals (not_found);
+	return (pos_rt$Value_RT(Env.Main_Rtn));
+	   except when Wrong_Tag:
+		       R: r_template := rtn_tab$Lookup(Env.Routines, Start_Rtn_Str);
+			  resignal Not_Found;
+		       Env.Main_Rtn := pos_rt$Make_RT(R);
+		       return (R);
+		  end;
+	end Get_Start_Routine;
+
+    Get_Missed_Clusters = proc (Env: cvt) returns (as);
+	return (Env.Missed_Cs);
+	end Get_Missed_Clusters;
+
+    Get_Missed_Routines = proc (Env: cvt) returns (as);
+	return (Env.Missed_Rs);
+	end Get_Missed_Routines;
+
+
+    Get_Names = proc (Env: cvt) returns (name_tab);
+	return (Env.Names);
+	end Get_Names;
+
+    Get_Old_Addresses = proc (Env:cvt) returns (old_addresses);
+	return (Env.Old_Addresses);
+	end Get_Old_Addresses;
+
+    Get_Old_Rtns = proc (Env: cvt) returns (old_rtns);
+	return (Env.Old_Rtns);
+	end Get_Old_Rtns;
+
+    Get_Options = proc (Env: cvt) returns (options);
+	return (Env.Options);
+	end Get_Options;
+
+    Set_Options = proc (Env: cvt, Opts: options);
+	Env.Options := Opts;
+	end Set_Options;
+
+    Get_Output = proc (Env: cvt) returns (out_link_chan);
+	return (Env.Output);
+	end Get_Output;
+
+    Set_Output = proc (Env: cvt, Out: out_link_chan);
+	Env.Output := Out;
+	end Set_Output;
+
+    Get_Out_File_Name = proc (Env: cvt) returns (file_name);
+	return (Env.Out_File_Name);
+	end Get_Out_File_Name;
+
+    Set_Out_File_Name = proc (Env: cvt, FN: file_name);
+	Env.Out_File_Name := FN;
+	end Set_Out_File_Name;
+
+    Get_Parmd_Rtn_Infos = proc (Env: cvt) returns (rtn_inf_tab);
+	return (Env.PInf_Tab);
+	end Get_Parmd_Rtn_Infos;
+
+    Get_Pointers = proc (Env: cvt) returns (lnk_pointers);
+	return (Env.Pointers);
+	end Get_Pointers;
+
+    Set_Pointers = proc (Env: cvt, Pnts: lnk_pointers);
+	Env.Pointers := Pnts;
+	end Set_Pointers;
+
+    Get_Routines = proc (Env: cvt) returns (rtn_tab);
+	return (Env.Routines);
+	end Get_Routines;
+
+    Get_Rtn_Stack = proc (Env: cvt) returns (rtn_stk);
+	return (Env.Rtn_Stack);
+	end Get_Rtn_Stack;
+
+
+    Get_Signal_Address = proc (Env: cvt) returns (address)
+			   signals (not_found);
+	return (pos_adr$Value_Set(Env.Sig_Adr));
+	   except when Wrong_Tag:
+		       signal Not_Found;
+		  end;
+	end Get_Signal_Address;
+
+    Set_Signal_Address = proc (Env: cvt, Adr: address);
+	Env.Sig_Adr := pos_adr$Make_Set(Adr);
+	end Set_Signal_Address;
+
+    Get_Space_Blocks = proc (Env: cvt) returns (space_blocks);
+	return (Env.Spc_Blocks);
+	end Get_Space_Blocks;
+
+    Get_Name_Sym_Table = proc (Env: cvt) returns (name_sym_tab);
+	return (Env.Name_Sym_Tb);
+	end Get_Name_Sym_Table;
+
+    Get_Rtn_Sym_Table = proc (Env: cvt) returns (rtn_sym_tab);
+	return (Env.Rtn_Sym_Tb);
+	end Get_Rtn_Sym_Table;
+
+    Get_Times = proc (Env: cvt) returns (times);
+	return (Env.Times);
+	end Get_Times;
+
+    Get_Top_Rtns = proc (Env: cvt) returns (strs);
+	Optns: options := Env.Options;
+	if      (Optns.Init_Debug)
+	   then return (Top_Routines);
+	 elseif (Optns.Debugging cand
+		 ~ Optns.Small)
+	   then return (strs$New());		%% Debugging => no particular top rtn.
+	 else   return (strs$AddH(Top_Routines, Optns.Main_Routine));
+	 end;
+	end Get_Top_Rtns;
+
+    Get_Types = proc (Env: cvt) returns (type_tab);
+	return (Env.Types);
+	end Get_Types;
+
+    end lnk_env;

@@ -1,0 +1,36 @@
+;; Copyright Massachusetts Institute of Technology 1985, 1989
+
+_set_limit = proc (resource, soft: int) signals (not_possible(string))
+	wvec	buf	{4}
+
+	pea	buf			;; Push buffer address.
+	move	resource, n1
+	asr	1, n1			;; De-integerize resource number
+	move	n1, -(sp)		;; Push it.
+	clr	-(sp)			;; Hack pc.
+	move	%getrlimit, n0
+	move	n0, -(sp)
+	ifcc	trap	0		;; Get limit.
+		bcs	next
+		move	rr, n1		;; First call succeeded.
+		asr	1, n1		;; De-integerize soft limit.
+		lea	buf, r1
+		move	n1, (r1)	;; Change soft limit.
+		move	%setrlimit, n0
+		move	n0, -(sp)
+		trap	0		;; Set limit.
+	then	addq	4, sp		;; Pop pc.
+		clr	(sp)+		;; Pop args.
+		clr	(sp)+
+		moveq 	1, n0		;; Restore n0.
+		return
+		end
+	addq	4, sp			;; Pop pc.
+	clr	(sp)+			;; Pop args.
+	clr	(sp)+
+	movea	n0, rr
+	lea	1(rr,rr), rr		;; Save and integerize error code.
+	moveq	1, n0			;; Restore n0.
+	_erstr(rr)
+	signal	not_possible(rr)
+	end _set_limit

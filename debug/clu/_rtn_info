@@ -1,0 +1,129 @@
+%% Copyright Massachusetts Institute of Technology 1981, 1989
+
+%%% A _rtn_info object is a block of information describing a particular
+%%% routine: code address, code size, cluster owns, routine owns, arguments,
+%%% locals, number of return values, uses parameters?, is parameterized?, entry
+%%% address. These blocks are created by the linker for each routine and are
+%%% stored in the _rtn_table.
+%%% (SEP/Nov  6 1984)
+
+_rtn_info = cluster is
+	get_name,
+	is_proc,
+	is_iter,
+	is_parameterized,
+	is_overloaded,
+	uses_params,
+	get_routine,
+	get_raw_routine,
+	get_code_size,
+	get_num_args,
+	get_args_names,
+	get_num_owns,
+	get_owns_names,
+        get_clust_owns_names,
+	get_num_locals,
+	get_locals_names,
+	get_num_returns,
+%	clobber,
+	equal;
+
+    ss = sequence[string]
+
+    rep = record[
+	      a_Name:             string,  %% Rtn name string
+	      b_Code_Addr:        _obj,	   %% Code address
+	      c_Code_Size:        int,	   %% Size of code (but not ent vecs).
+					   %% (<0 => overloaded)
+	      d_Clust_Owns:       ss,	   %% Seq of string cluster owns names.
+	      e_Rtn_Owns:         ss,	   %% Seq of string  rtn owns.
+	      f_Args:             ss,	   %% Seq of string arg names.
+	      g_Locals:           ss,	   %% Seq of string locals names.
+	      h_Num_Returns:      int,	   %% Number of returned (yielded)
+	      %				   %% results (<0 => iter).
+	      i_Uses_Params:      bool,	   %% true if rtn uses its parameters.
+	      j_Is_Parameterized: bool,	   %% true if rtn is parameterized.
+	      k_Entry_Addr:	  _obj	   %% Entry block address (if not parameterized).
+		 ];
+
+    Get_Name = proc (RI: cvt) returns (string);
+	return (RI.a_Name);
+	end Get_Name;
+
+    Is_Proc = proc (RI: cvt) returns (bool);
+	return (RI.h_Num_Returns >= 0);
+	end Is_Proc;
+
+    Is_Iter = proc (RI: cvt) returns (bool);
+	return (RI.h_Num_Returns < 0);
+	end Is_Iter;
+
+    Is_Parameterized = proc (RI: cvt) returns (bool);
+	return (RI.j_Is_Parameterized  cor  RI.i_Uses_Params);
+	end Is_Parameterized;
+
+    Is_Overloaded = proc (RI: cvt) returns (bool);
+	return (RI.c_Code_Size < 0);
+	end Is_Overloaded;
+
+    Uses_Params = proc (RI: cvt) returns (bool);
+	return (RI.i_Uses_Params);
+	end Uses_Params;
+
+    Get_Routine = proc (RI: cvt) returns (_obj);
+	return (RI.k_Entry_Addr);
+	end Get_Routine;
+
+    Get_Raw_Routine = proc (RI: cvt) returns (_obj);
+	return (RI.b_Code_Addr);
+	end Get_Raw_Routine;
+
+    Get_Code_Size = proc (RI: cvt) returns (int);
+	return (int$Abs(RI.c_Code_Size));
+	end Get_Code_Size;
+
+    Get_Num_Args = proc (RI: cvt) returns (int);
+	return (ss$Size(RI.f_Args));
+	end Get_Num_Args;
+
+    Get_Args_Names = proc (RI: cvt) returns (ss);
+	return (RI.f_Args);
+	end Get_Args_Names;
+
+    Get_Num_Owns = proc (RI: cvt) returns (int);
+	return (ss$Size(RI.e_Rtn_Owns));
+	end Get_Num_Owns;
+
+    Get_Owns_Names = proc (RI: cvt) returns (ss);
+	return (RI.e_Rtn_Owns);
+	end Get_Owns_Names;
+
+    Get_Clust_Owns_Names = proc (RI: cvt) returns (ss);
+	return (RI.d_Clust_Owns);
+	end Get_Clust_Owns_Names;
+
+    Get_Num_Locals = proc (RI: cvt) returns (int);
+	return (ss$Size(RI.g_Locals));
+	end Get_Num_Locals;
+
+    Get_Locals_Names = proc (RI: cvt) returns (ss);
+	return (RI.g_Locals);
+	end Get_Locals_Names;
+
+    Get_Num_Returns = proc (RI: cvt) returns (int);
+	Num_Rets: int := RI.h_Num_Returns;
+	if (Num_Rets < 0)
+	   then Num_Rets := - (Num_Rets + 1);
+	   end;
+	return (Num_Rets);
+	end Get_Num_Returns;
+
+    Clobber = proc (RI: cvt);
+	RI.c_Code_Size := -RI.c_Code_Size;
+	end Clobber;
+
+    Equal = proc (RI1, RI2: cvt) returns (bool);
+	return (RI1 = RI2);
+	end Equal;
+
+    end _rtn_info;

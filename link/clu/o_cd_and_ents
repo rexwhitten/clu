@@ -1,0 +1,45 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+Output_Code_and_Entries = proc (Files: file_list, Env: lnk_env)
+			    signals (cant_open(fname, string));
+    if (Env.Options.Do_Type_Routines)
+       then stream$PutL(Env.Options.List_Stream,
+			"\nRoutines:");
+	       except when Not_Possible(*): end;
+       end;
+    Start_Code(Env);
+    for F: file in file_list$Elements(Files) do
+	Open_Input_File(F.File_Name, Env);
+	   resignal Cant_Open;
+	Base: int := Pass_2_Base(Env.Input, F);
+	   except when Not_Valid:
+		       Close_Input_File(Env);
+		       signal Cant_Open(F.File_Name, "File contents changed between passes.");
+		  end;
+	for C_or_R: clust_or_rtn in c_r_list$Elements(F.C_Rs) do
+	    tagcase C_or_R
+	       tag Rtn (R: r_template):
+		   r_template$Output(R, Base, false, Env);
+	       tag Clust (C: c_template):
+		   c_template$Output(C, Base, Env);
+	       end
+	       	except when overflow:
+			Close_Input_File(Env);
+			signal Cant_Open(F.File_Name, "Failed output bad format");
+			end
+	    end;
+	Close_Input_File(Env);
+	end;
+    %% Now output new instantiations of old routines.
+    Type_It: bool := Env.Options.Do_Type_Routines;
+    for C: constant, R: r_template in old_rtns$Elements(Env.Old_Rtns) do
+	Code_Address: address := R.Code_Address;
+	Rtn_Name: string := R.Name;
+	for RI: rtn_inst in rtn_insts$Elements(R.Instantiations) do
+	    rtn_inst$Output(RI, Code_Address, Type_It, Rtn_Name, Env);
+	    end;
+	end;
+    Output_End_of_Code(Env);
+    Update_Excepts_Addresses(Env);
+    end Output_Code_and_Entries;
+    

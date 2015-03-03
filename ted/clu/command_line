@@ -1,0 +1,32 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+command_line = proc (e: env, prompt, default: string) returns (string)
+		 signals (errmsg(string))
+    s: string := rem_newlines(get_string_arg(e, prompt, default))
+       resignal errmsg
+    ss: string := ""
+    while true do
+	log: int := string$indexs("//", s)
+	if log = 0
+	   then break end
+	low: int := log - 1
+	while in_range_(s[low], "az09AZ")  cor
+	      string$indexc(s[low], e.word_chars) > 0 do
+	    low := low - 1
+	    end except when bounds: end
+	word: string := string$substr(s, low + 1, log + 1 - low)
+	word := env$mfetch_str(e, word)
+	   except when not_found: end
+	ss := ss || string$substr(s, 1, low) || word
+	s := string$rest(s, log + 2)
+	end
+    return(ss || s)
+    end command_line
+
+logical_name = proc (e: env, s: string) returns (string)
+    log: int := string$indexs("//", s)
+    if log > 0
+       then s := env$mfetch_str(e, string$substr(s, 1, log + 1)) ||
+		 string$rest(s, log + 2)
+       end except when not_found: end
+    return(s)
+    end logical_name

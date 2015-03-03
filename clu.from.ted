@@ -1,0 +1,221 @@
+                   Some Secrets for Developing CLU Programs
+                   ---- ------- --- ---------- --- --------
+
+                               by Randy Forgaard
+
+
+
+Hacking  CLU is rather complicated, and not well documented.  Consequently, few
+people know all the ins and outs of developing large CLU  programs.   The  "CLU
+Library,"  described  in  Section 4 of the CLU manual, does not actually exist,
+though its principles have been adopted in the compiler, to a  certain  extent.
+Thus, this note hopes to reveal some of the secrets of CLU program development.
+We assume here that you are using CLU on a VAX.  Most of  this  description  is
+also  applicable  to  TOPS-20, however; the differences are given at the end of
+the note.
+
+The  official  documentation,  for  running  CLU  on  the  VAX,  resides in the
+directory "/usr/clu" on most VAXen.  Of particular interest are  the  following
+files   in   the   latter   directory:   "clu.info,"  which  contains  compiler
+documentation,   and    "system.intro,"    which    contains    linker/debugger
+documentation.  The linker/debugger documentation is fairly good.  The compiler
+documentation is complete, but a bit terse.  In this  note,  I  will  primarily
+address compilation.
+
+Both  "clu.info"  and "system.intro" assume that you are invoking the compiler,
+linker, or debugger from the Unix shell (i.e., from the  command  line).   Most
+people,  however,  do  all  their  compiling and debugging from within the text
+editor, TED.  Since this is the most convenient method, we assume you are doing
+your development this way.  The TED documentation (obtained by typing ^H --  or
+"back  space"  --  while  in  TED)  is  also rather terse on the subject of CLU
+program development.  Technically, however, most of the  information  contained
+in  the remainder of this note can be gleaned by reading "clu.info" and the TED
+on-line help.
+
+All of the CLU compiler functions can be invoked using  the  "^\j"  command  in
+TED.  However, this is a bit cumbersome, so TED also provides shortcut commands
+for the most common compiler functions; these shortcuts, where they exist, will
+be used below.
+
+
+              Developing a CLU Program With Only One Source File
+              ---------- - --- ------- ---- ---- --- ------ ----
+
+If   your  program  resides  all  in  one  file,  the  development  process  is
+comparatively simple.  Invoke TED by typing "ted" to the Unix shell.  Read  the
+CLU source file into a buffer in TED, using "^R".  (The file name should end in
+".clu".  Assume it is called "fred.clu".)  Create a CLU  compiler  fork,  which
+will  be  a  child  process of TED, by typing "^\ky" to TED.  Type "^\us." (the
+trailing period is really typed); this will create DU (description unit)  specs
+for  all  of the modules (clusters, free-standing procedures, and free-standing
+iterators) in your program, and store these  specs  in  the  compiler's  symbol
+table.   The  specs  contain  such information as the names of modules, and the
+names, types, and number of arguments.  The program can now be type-checked and
+compiled  into  object  code  by typing "^\c".  (The object code will reside in
+"fred.bin".)  When the compiler is compiling source code, it forgets about  all
+equates  after  making a pass over the file.  For this reason, all equates must
+be defined prior to use, within the file.  If the compiler finds errors in your
+program, you will see them on your screen after a compile.  After performing an
+edit, if you would like to see the errors again, type "^\a".
+
+If you change your program in some manner, but you do not change any procedure,
+iterator,  or  cluster  headers or create any new headers, you can compile your
+program again by just typing "^\c", since all the DU specs will  be  unchanged.
+If  you change the DU specs in some manner, however, you must do both a "^\us."
+and a "^\c" to get complete type checking.
+
+To debug the single file after it has  been  compiled,  type  "line  feed"  (or
+"^J").   TED will ask you if you wish to run "debug"; just hit "return."  Next,
+it will ask you for the command line; type "fred", followed by  return.   Then,
+proceed to debug your program as per the documentation in "system.intro."  When
+you are through debugging, type "^Z" to return to TED.   You  may  then  change
+your  program  and  recompile.   To  re-enter  the  debugger, type "line feed,"
+followed by a "return."  You can then re-load your program (if you changed  it)
+by typing
+	load("fred
+to  the  debugger.   (Note  that  trailing  delimiters  are not required in the
+debugger.)  If you wish to get rid of the debugger (though it is rare that  you
+will),  type "^U", followed by "line feed" and "return."  You can then start up
+a new debugger as indicated above.
+
+Once your program is fairly solid, you might want to make the resulting program
+run  a  little faster by using "^\o" in place of "^\c"; this produces optimized
+object  code.   Note  that the "^\o" command turns on the optimized mode of the
+compiler, and leaves it on.  Any future invocations of "^\c" will also  produce
+optimized compiles until the optimize mode is specifically turned off.  To turn
+off the optimize mode of the compiler,  type  "^\j#op  false",  followed  by  a
+return.   Code  that  is  optimize  compiled  is  harder  to debug, because the
+optimization process rearranges and deletes procedure calls  within  the  code.
+It is best to do debugging on non-optimized code.
+
+If your source file is fairly long, you may not want to have to do  an  initial
+"^\us."  at the beginning of every programming session.  To avoid this, you may
+copy, into a file, all of the DU specs  contained  in  the  compiler  for  your
+program.   Do  this  by  saying  "^\j#du  fred", followed by return.  This will
+create a file called "fred.lib".  At some later time, when you start up  a  new
+TED  and  want to retrieve your DU specs, save a compiler fork with "^\ky", and
+then type "^\j#me fred".  This will load  your  program's  DU  specs  into  the
+compiler,  and  you  can  start  immediately to use "^\c" to compile your file,
+until, of course, you change the module headers  again.   After  every  editing
+session when you have changed the module headers, do another "^\j#du fred".
+
+When you are through debugging your  program,  you  may  want  to  make  it  an
+executable  program  that  can run directly under the Unix shell.  Before doing
+this, you may want to perform an optimized  compile  of  your  program.   Then,
+leave  TED, and type "link fred^fred".  (The "^" is actually typed; it is not a
+CTRL-F character.)  This will create an executable  file  called  just  "fred",
+which can be invoked directly.
+
+
+              Developing a CLU Program With Multiple Source Files
+              ---------- - --- ------- ---- -------- ------ -----
+
+If  your  program  resides  in  several  files,  compilation  is  somewhat more
+complicated.  However, separate compilation is highly desirable,  since  it  is
+much  faster  to  recompile  a  single  small file after a small change than to
+recompile the entire program.  We assume here that  you  have  read  the  above
+section pertaining to the development of single-file programs.
+
+As noted above, the compiler forgets all equates after making  a  pass  over  a
+source  file.   Consequently,  it  may  seem  that any equates that are used in
+several files must be duplicated at the beginning of every file that uses them.
+This  is  tedious  and error-prone.  Fortunately, one can create a special file
+containing ONLY equates, called an "equate file."  Equate file names  must  end
+in  ".equ".   After a CLU compiler fork has been created with "^\ky", an equate
+file can be compiled using "^\c".  (This is the same command as  that  used  to
+compile  regular CLU source files.  TED knows that this actually an equate file
+because its file name ends in ".equ".)  This will check all  the  equates,  and
+store  them  in  the  compiler's  symbol table.  (The equates may appear in any
+order in the file; definition before use is not required within a single equate
+file.)   Later,  when you compile other source files, the compiler will already
+know about the equates in the equate file.  You may have several equate  files.
+Compiling with "^\c" causes the compiler to forget all previous equates.  After
+compiling the first equate file with "^\c", successive  equates  files  may  be
+added  to  the symbol table with "^\ux.".  If equate file A uses equate file B,
+you must compile the B file before the A file.
+
+Note:  The file "clu.hacks" in the  CLU  documentation  directory  describes  a
+number  of  extensions  to CLU that have been incorporated via the compiler.  A
+number of these extensions are useful and relatively benign (e.g., tagcases and
+constructors  for  user-defined types).  However, it may be tempting to use the
+"#include" command to "include" a single equate file into several other  files.
+It  is  suggested  that  you  resist this temptation.  Use the intended method,
+described in the previous paragraph.  This way, you  avoid  putting  hard-coded
+file  names  and  directory  names  into your source code, and compiles proceed
+faster.  "#include" is probably bad news, in general.
+
+When you have created your source and equate files, read them all into a single
+TED  buffer  by  using  "^R",  followed  by  a list of file names.  You may use
+asterisks in your file names.  For example, the TED command "^Rfred.equ,*.clu",
+followed  by return, will read in the file "fred.equ" and all files whose names
+end in ".clu" (in the current working directory) into the  buffer.   There  are
+other  ways; see the TED on-line help.  Keep a compiler fork, using "^\ky".  If
+you dumped out your DU specs during a previous session, and wish to  read  them
+back  in, type "^\j#me fred", followed by return.  Then, if you have any equate
+files in the buffer, do a "^\uea" to compile all of them.  To  collect  the  DU
+specs for all modules in all files in the buffer, type "^\usa".  If any of your
+equates refer to the proctype or itertype of procedures or  iterators  in  your
+program,  do  another  "^\uea" (to ensure complete type checking).  Finally, to
+make the second pass over  all  your  files  to  compile  them,  type  "^\uca".
+Optimize  compiles  are performed with "^\uoa".  If you change one of the files
+within the buffer, and don't change any headers, you can  compile  that  single
+file with "^\c".  If you change several files without changing headers, "^\ucc"
+is helpful.  If you change any headers, you must again compile the  changed  DU
+specs  using  some  variant of "^\us", and recompile all modules that USE those
+headers that changed, by using "^\c" or  "^\uc".   Similar  actions  should  be
+performed  when  equate  files  change,  to  ensure complete type checking.  In
+multi-file programs, it becomes important that one be conscientious about  type
+checking.   It  is  sometimes  difficult  to  figure  out  which  files must be
+recompiled after a header or equate file has changed.  On the other hand, it is
+far  too  time-consuming  to  recompile  the  entire program after every header
+change.  It is probably better to err on the safe side, since type  errors  can
+result in pernicious bugs at run-time.
+
+To debug your program, put the names of all  your  files  (without  the  ".bin"
+extensions),  separated  by  carriage returns, into a file called "fred.xload".
+Invoke the debugger as the in the last section, but instead  of  typing  "fred"
+for  the  command  line, type "@fred".  When you re-enter the debugger, you can
+re-load individual changed files (say, "fred1" and "fred2") by saying
+	load("fred1,fred2
+to the debugger.
+
+With a multi-file program, it is definitely advantageous to dump your DU  specs
+at the end of your programming session, as per the last section.  However, note
+that the equates from your equate files do NOT get dumped into "fred.lib" along
+with the DU specs, even though they are present in the compiler's symbol table.
+The equate files must be recompiled after "^\j#me fred"  at  the  beginning  of
+each editing session.
+
+To  create  an  executable  version  of  your program (after, perhaps, optimize
+compiling each of the files), leave  TED,  and  type  "link  @fred^fred".   The
+"@fred" causes "link" to look at the file names in the "fred.xload" file, which
+you created earlier.
+
+
+                      Developing a CLU Program on TOPS-20
+                      ---------- - --- ------- -- -------
+
+Developing  a  single  file  or multi-file CLU program on TOPS-20 is similar to
+development on the VAX.  The differences from the above description are:
+
+    1)	On the  TOPS-20  system  "XX,"  CLU  documentation  is  stored  in  the
+	directory  "<clu>".   The  linker/debugger documentation is in the file
+	"newsys.intro".
+
+    2)	The file suffixes are ".tbin",  ".clulib",  and  ".equate"  instead  of
+	".bin", ".lib", and ".equ".
+
+    3)	To leave the debugger, type
+		valret("\r
+	instead of "^Z."  Purely by coincidence of data representation,
+		valret(0
+	also seems to work (and is shorter), though it shouldn't.
+
+    4)	The  programs  "link"  and "debug" are combined into the single program
+	"tlink" on TOPS-20.  For our purposes here, "tlink" runs  the  same  as
+	"link",   except   that  it uses "&fred" in place of "@fred", and names
+	the executable file "fred.exe" instead of "fred".   To  invoke  "debug"
+	functionality, use "tlink" (again, with "&fred" in place  of  "@fred"),
+	but  put  a "\debug" at the end of the command line.  Note that the TED
+	"line feed" command (conveniently) assumes you  want  to  run  "tlink,"
+	rather than "debug," on TOPS-20.

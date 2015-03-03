@@ -1,0 +1,9 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+Read_Except_Block_Head = proc (Input: in_chan) returns (int, int, int, int);
+    Start:   int := in_chan$Read(Input);
+    Length:  int := in_chan$Read(Input);
+    Addr:    int := in_chan$Read(Input);
+    Nm_Strs: int := in_chan$Read(Input);
+    return (Start, Length, Addr, Nm_Strs);
+    end Read_Except_Block_Head;

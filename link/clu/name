@@ -1,0 +1,28 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+Name_Instantiate = proc (N: string, Env: lnk_env) returns (string);
+    return (name_tab$MBind(Env.Names, N, N));
+    end Name_Instantiate;
+
+Selector_Name = proc (Nm: string) returns (string) signals (not_selector);
+    Sel_Nm: string,
+    Rtn_Nm: string := Parse_Selector_Rtn_Name(Nm);
+       resignal Not_Selector;
+    return (Sel_Nm);
+    end Selector_Name;
+
+Parse_Selector_Rtn_Name = proc (Nm: string) returns (string, string)
+			    signals (not_selector);
+    Indx: int := string$IndexC('_', Nm);
+    Rtn_Nm: string := string$Substr(Nm, 1, Indx-1);
+       except when Bounds, Negative_Size: signal Not_Selector;
+	      end;
+    Sel_Nm: string := string$Rest(Nm, Indx+1);
+       except when Bounds: signal Not_Selector;
+	      end;
+    if (string$Empty(Sel_Nm) cor
+	string$Empty(Rtn_Nm))
+       then signal Not_Selector;
+       end;
+    return (Sel_Nm, Rtn_Nm);
+    end Parse_Selector_Rtn_Name;

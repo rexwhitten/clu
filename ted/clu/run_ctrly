@@ -1,0 +1,41 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+run_ctrly = proc (e: env, c: char) signals (errmsg(string), stop(env, string))
+    prompt1 = "^Y-macro: "
+    prompt2 = "Char to define: "
+    arg: int := e.this_arg
+    dotop: bool := true
+    if arg <= 0
+       then c := ctrlat
+       else dotop := ~_pending_wait()
+	    if dotop
+	       then top_display(e, prompt1)
+		    env$display(e)
+	       end
+	    c := _getc()
+	    if dotop then top_display(e, string$append(prompt1, c)) end
+       end
+    if c = ctrlat
+       then % define new entry
+	    dotop := ~_pending_wait()
+	    if dotop
+	       then top_display(e, prompt2)
+		    env$display(e)
+	       end
+	    c := _getc()
+	    if dotop then top_display(e, string$append(prompt2, c)) end
+	    if c = ctrlat then signal errmsg("Can't redefine ^@!") end
+	    name: string := string$append("^Y-", c)
+	    s: string := env$mfetch_str(e, name)
+	       except when not_found: s := "" end
+	    env$store_str(e, name, get_string_arg(e, "Define as", s))
+	       resignal errmsg
+       else s: string := env$mfetch_str(e, string$append("^Y-", c))
+	       except when not_found:
+			   signal errmsg ("^Y" || c2s(c) || " not defined!")
+		      end
+	    env$forget_char(e)
+	    for i: int in int$from_to_by(arg, 1, -1) do
+		_push_macro_chars(s)
+		end
+       end
+    end run_ctrly

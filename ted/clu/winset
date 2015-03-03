@@ -1,0 +1,259 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+winset = cluster is init, reset, overlay, remove, split, push, pop,
+		    displayed, displaying, all, grow_top, grow_bot, next
+
+    rep = null
+
+    aaenv = array[aenv]
+    aenv = array[env]
+
+    own envs: aaenv
+
+    init = proc (e: env)
+	envs := aaenv$[aenv$[e]]
+	end init
+
+    reset = proc () returns (env)
+	i: int := 1
+	while true do
+	    ae: aenv := envs[i]
+	    e: env := aenv$top(ae)
+	    if env$is_argenv(e)
+	       then remove(e)
+	       else aenv$trim(ae, 1, 1)
+		    i := i + 1
+	       end
+	    end except when bounds: end
+	return(aenv$bottom(aaenv$bottom(envs)))
+	end reset
+
+    overlay = proc (e, ne: env) signals (not_displayed, errmsg(string))
+	z: int := e.size - ne.size - 1
+	if z <= 0 then signal errmsg("Window too small!") end
+	for i: int in aaenv$indexes(envs) do
+	    ae: aenv := envs[i]
+	    if aenv$top(ae) ~= e then continue end
+	    for e in aenv$elements(ae) do
+		e.size := z
+		end
+	    ne.top_line := e.last_line + 1
+	    nae: aenv := aenv$[ne]
+	    while true do
+		i := i + 1
+		ae := envs[i]
+		envs[i] := nae
+		nae := ae
+		end except when bounds: end
+	    aaenv$addh(envs, nae)
+	    return
+	    end
+	signal not_displayed
+	end overlay
+
+    remove = proc (e: env) returns (env) signals (not_displayed, errmsg(string))
+	for i: int in aaenv$indexes(envs) do
+	    if aenv$top(envs[i]) ~= e then continue end
+	    if aenv$size(envs[i]) > 1  cor  aaenv$size(envs) = 1
+	       then signal errmsg("Can't kill this window!") end
+	    ae: aenv
+	    if i = 1
+	       then ae := envs[2]
+		    top_line: int := e.top_line
+		    for ee: env in aenv$elements(ae) do
+			ee.size := ee.size + e.size + 1
+			ee.top_line := top_line
+			if top_line = 1
+			   then title: string := ee.title
+				pos: int := _last_indexc(']', title)
+				update_title(ee, string$substr(title, 1, pos))
+			   end
+			end
+	       else ae := envs[i - 1]
+		    for ee: env in aenv$elements(ae) do
+			ee.size := ee.size + e.size + 1
+			end
+	       end
+	    while true do
+		envs[i] := envs[i + 1]
+		i := i + 1
+		end except when bounds: end
+	    aaenv$remh(envs)
+	    return(aenv$top(ae))
+	    end
+	signal not_displayed
+	end remove
+
+    split = proc (e: env, name: string, nsize: int) returns (env)
+	      signals (bad_name, not_displayed, errmsg(string))
+	bufset$fetch(name)
+	   resignal bad_name
+	for i: int in aaenv$indexes(envs) do
+	    ae: aenv := envs[i]
+	    if aenv$top(ae) ~= e then continue end
+	    csize: int := e.size
+	    if nsize <= 0
+	       then nsize := (csize - 1) / 2 end
+	    csize := csize - (nsize + 1)
+	    if csize <= 0  cor  nsize <= 0
+	       then signal errmsg("Window too small!") end
+	    for ee: env in aenv$elements(ae) do
+		ee.size := csize
+		env$choose_window(ee)
+		end
+	    ne: env := env$create(false)
+	    ne.top_line := e.last_line + 1
+	    ne.size := nsize
+	    ne.chtab := vec$copy1(aenv$bottom(ae).chtab)
+	    if name = e.name
+	       then ne.prev := e.prev
+	       else ne.prev := e.name
+	       end
+	    nae: aenv := aenv$[ne]
+	    while true do
+		i := i + 1
+		ae := envs[i]
+		envs[i] := nae
+		nae := ae
+		end except when bounds: end
+	    aaenv$addh(envs, nae)
+	    bufset$display(ne, name)
+	    return(ne)
+	    end
+	signal not_displayed
+	end split
+
+    push = proc (e: env, name, fns: string) returns (env, string)
+	     signals (not_displayed)
+	for ae: aenv in aaenv$elements(envs) do
+	    if aenv$top(ae) ~= e then continue end
+	    ne: env := env$create(false)
+	    ne.top_line := e.top_line
+	    ne.size := e.size
+	    ne.chtab := vec$copy1(e.chtab)
+	    ne.chtab[c2i(ctrlsn)] := run_bye
+	    name := bufset$create_buf(name, fns, ne.buffer)
+	    ne.name := name
+	    ne.fname := fns
+	    ne.prev := e.prev
+	    aenv$addh(ae, ne)
+	    return(ne, name)
+	    end
+	signal not_displayed
+	end push
+
+    pop = proc (e: env) signals (not_displayed, not_pushed)
+	for ae: aenv in aaenv$elements(envs) do
+	    if aenv$top(ae) ~= e then continue end
+	    if aenv$size(ae) = 1
+	       then signal not_pushed end
+	    aenv$remh(ae)
+	    env$change_all(aenv$top(ae))
+	    return
+	    end
+	signal not_displayed
+	end pop
+
+    displayed = iter () yields (env)
+	for ae: aenv in aaenv$elements(envs) do
+	    yield(aenv$top(ae))
+	    end
+	end displayed
+
+    displaying = iter (b: buf) yields (env)
+	for ae: aenv in aaenv$elements(envs) do
+	    e: env := aenv$top(ae)
+	    if b = e.buffer then yield(e) end
+	    end
+	end displaying
+
+    all = iter () yields (env)
+	for ae: aenv in aaenv$elements(envs) do
+	    for e: env in aenv$elements(ae) do
+		yield(e)
+		end
+	    end
+	end all
+
+    grow_top = proc (e: env, cnt: int) signals (not_displayed, errmsg(string))
+	for i: int in aaenv$indexes(envs) do
+	    ae: aenv := envs[i]
+	    if aenv$top(ae) ~= e then continue end
+	    pae: aenv := envs[i - 1]
+	       except when bounds:
+			   signal errmsg("Can't change this end!")
+		      end
+	    csize: int := e.size + cnt
+	    psize: int := aenv$top(pae).size - cnt
+	    if csize <= 0  cor  psize <= 0
+	       then signal errmsg("Window would disappear!") end
+	    b: buf := e.buffer
+	    for e in aenv$elements(ae) do
+		e.size := csize
+		e.top_line := e.top_line - cnt
+		env$choose_window(e)
+		end
+	    for e in aenv$elements(pae) do
+		e.size := psize
+		if e.buffer ~= b
+		   then env$choose_window(e) end
+		end
+	    return
+	    end
+	signal not_displayed
+	end grow_top
+
+    grow_bot = proc (e: env, cnt: int) signals (not_displayed, errmsg(string))
+	for i: int in aaenv$indexes(envs) do
+	    ae: aenv := envs[i]
+	    if aenv$top(ae) ~= e then continue end
+	    nae: aenv := envs[i + 1]
+	       except when bounds:
+			   signal errmsg("Can't change this end!")
+		      end
+	    csize: int := e.size + cnt
+	    nsize: int := aenv$top(nae).size - cnt
+	    if csize <= 0  cor  nsize <= 0
+	       then signal errmsg("Window would disappear!") end
+	    b: buf := e.buffer
+	    for e in aenv$elements(ae) do
+		e.size := csize
+		env$choose_window(e)
+		end
+	    for e in aenv$elements(nae) do
+		e.top_line := e.top_line + cnt
+		e.size := nsize
+		if e.buffer ~= b
+		   then env$choose_window(e) end
+		end
+	    return
+	    end
+	signal not_displayed
+	end grow_bot
+
+    next = proc (e: env, cnt: int) returns (env) signals (not_displayed)
+	index: int := 0
+	for i: int in aaenv$indexes(envs) do
+	    if aenv$top(envs[i]) = e
+	       then index := i
+		    break
+	       end
+	    end
+	if index = 0 then signal not_displayed end
+	while cnt > 0 do
+	    if index = aaenv$high(envs)
+	       then index := 1
+	       else index := index + 1
+	       end
+	    cnt := cnt - 1
+	    end
+	while cnt < 0 do
+	    if index = 1
+	       then index := aaenv$high(envs)
+	       else index := index - 1
+	       end
+	    cnt := cnt + 1
+	    end
+	return(aenv$top(envs[index]))
+	end next
+
+    end winset

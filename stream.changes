@@ -1,0 +1,72 @@
+Terminal input is not read a line at a time: only those characters necessary to
+satisfy  the  particular  request  are read.  Editing works for getl, gets, and
+getbuf calls, but does not work for other calls (such as getc).  Rubout deletes
+the last character typed, ^U deletes the current line, ^W deletes the last word
+on the line, ^R redisplays the current line, ^X starts a  new  blank  line,  ^L
+clears  the  screen  and  redisplays  the  current  line,  and  ^\  causes line
+continuation (so you will probably want to  redefine  your  QUIT  character  to
+something else, like ^G).  ^D forces end_of_file on a terminal.
+
+Carriage return is always mapped into newline on input from a terminal, even in
+image mode.
+
+Invoking primary_input or primary_output when both primary input and output are
+the terminal will cause a tty mode change.  From that  point  on,  the  program
+cannot be run in the background.
+
+The file name for primary input/output is /dev/p.   The  file  name  for  error
+output is /dev/e.
+
+File  name  parsing:  the  directory part is up to the last slash (/), the name
+part is up to the next period (.), the suffix part is up to  the  next  period,
+and the other part is all the rest.  ~-style directory names are supported, and
+~CLU is specially defined to be the root directory of the CLU system hierarchy.
+
+pending = proc (st: stream) returns (bool) signals (not_possible(string))
+	If  ST  is  for  terminal  input, returns true if and only if there are
+	input characters waiting to be  read.   If  ST  is  any  other  stream,
+	returns true if and only if the stream is not empty.
+
+gets_image = proc (st: stream, term: string) returns (string)
+				    signals (end_of_file, not_possible(string))
+	Like gets, but uses getc_image to get characters instead of getc.
+
+puts_image = proc (st: stream, s: string) signals (not_possible(string))
+	Like puts, but uses putc_image to put characters instead of putc.
+
+display = proc (st: stream, s: string) returns (bool)
+				    signals (not_possible(string))
+	Returns true if and only if ST is an output stream to  a  terminal  and
+	the  terminal  supports  the display commands and the string is output.
+	The string is not output if the result is false.  S is a string  to  be
+	output, and can contain display codes.  There are three display codes:
+		\020C	clear screen
+		\020B	backspace one character
+		\020L	kill to end of line
+
+modify_display = proc (st: cvt, term: string) signals (not_possible(string))
+	For  a  terminal stream other than the primary one, you can use this to
+	get reasonable editting functions.  TERM is a string such as  would  be
+	stored in the TERMCAP shell variable.
+
+set_rescan = proc (st: stream, s: string) signals (not_possible(string))
+	Pushes S as initial input to be read from ST.  Currently only works for
+	the primary input when it is a terminal.
+
+get_rescan = proc (st: stream) returns (string)
+	Returns the current rescan.
+
+get_eof_flag = proc (st: stream) returns (bool)
+	Returns  true  if  the  stream  is  an  input  stream  that  can signal
+	end_of_file.
+
+set_eof_flag = proc (st: stream, eofok: bool) signals (not_possible(string))
+	If  a  terminal  stream,  enables/disables  whether   ^D   will   cause
+	end_of_file.     Also   temporarily   enables/disables   any   existing
+	end_of_file condition for the stream.
+
+_open_streams = iter () yields (stream)
+	Yields all open streams
+
+_close_all = proc ()
+	Close all open streams, aborting all streams that fail to close.

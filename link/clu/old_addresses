@@ -1,0 +1,103 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+old_addresses = cluster is create,
+			   add_and_match,
+			   match,
+			   re_init;
+
+    rep = array[oa_ent];
+
+    oa_ent = record[ Addr:  address,
+		     Size:  int ];
+
+    vAbs_Diff    = 32		%% Use old if delta is < vAbs_Diff
+    vDiff_Factor = 8		%% or delta < (New_Size / vDiff_Factor)
+    vMax_Delta   = 512		%% Must be less than vMax_Delta
+
+    Create = proc () returns (cvt);
+	return (rep$New());
+	end Create;
+
+    %% These both assume matches are less frequent than hits.
+    %% They also there will not be many to look through.
+
+    Add_and_Match = proc (OAs: cvt,
+			  Old_Addr: address, Old_Size: int,
+			  New_Size: int)
+		      signals (match(address));
+	if (New_Size > 0)
+	   then %% First try the old one.
+		Delta: int := Old_Size - New_Size;
+		if ((Delta >= 0) cand
+		    ((Delta <= vAbs_Diff) cor
+		     ((Delta <= (New_Size / vDiff_Factor)) cand
+		      (Delta < vMax_Delta))))
+		   then signal Match(Old_Addr);
+		   end;
+		Delta := vMax_Delta;
+		Min_OA: oa_ent;
+		Min_I: int;
+		for I: int in rep$Indexes(OAs) do
+		    OA: oa_ent := OAs[I];
+		    Diff: int := OA.Size - New_Size;
+		    if ((Diff >= 0) cand (Diff < Delta))
+		       then Delta := Diff;
+			    Min_OA := OA;
+			    Min_I := I;
+		       end;
+		    end;
+		if (((Delta <= vAbs_Diff) cor
+		     ((Delta <= (New_Size / vDiff_Factor)) cand
+		      (Delta < vMax_Delta))))
+		   then Addr: address := Min_OA.Addr;
+			if (Old_Size > 0)
+			   then Min_OA.Addr := Old_Addr;
+				Min_OA.Size := Old_Size;
+			   else OAs[Min_I] := rep$RemH(OAs);
+				   except when Bounds:
+					  end;
+			   end;
+			signal Match(Addr);
+		   end;
+	   end;
+	if (Old_Size > 0)
+	   then rep$AddH(OAs, oa_ent${ Addr: Old_Addr,
+				       Size: Old_Size
+				      });
+	   end;
+	return;
+	end Add_and_Match;
+
+    Match = proc (OAs: cvt, New_Size: int) signals (match(address));
+	if (New_Size = 0)
+	   then return;
+	   end;
+	Delta: int := vMax_Delta
+	Min_I: int;
+	for I: int in rep$Indexes(OAs) do
+	    OA: oa_ent := OAs[I];
+	    Diff: int := OA.Size - New_Size;
+	    if ((Diff >= 0) cand (Diff < Delta))
+	       then Delta := Diff;
+		    Min_I := I;
+	       end;
+	    end;
+	if (((Delta <= vAbs_Diff) cor
+	     ((Delta <= (New_Size / vDiff_Factor))) cand
+	     (Delta < vMax_Delta))
+	    )
+	   then Addr: address := OAs[Min_I].Addr;
+		OAs[Min_I] := rep$RemH(OAs);
+		   except when Bounds:
+			  end;
+		signal Match(Addr);
+	   end;
+	return;
+	end Match;
+
+    Re_Init = proc (OAs: cvt, Locs: locates);
+	for OA: oa_ent in rep$Elements(OAs) do
+	    OA.Addr := address$Fix_Address(OA.Addr, Locs);
+	    end;
+	end Re_Init;
+    end old_addresses;

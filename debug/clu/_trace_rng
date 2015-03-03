@@ -1,0 +1,225 @@
+%% Copyright Massachusetts Institute of Technology 1980, 1989
+
+%%% _trace_rng objects describe the slots in a routine that are being traced.
+%%% Operations are provided to create the objects, examine them an change their
+%%% states.
+%%% (SEP/Nov  7 1984)
+
+_trace_rng = cluster is
+	create,
+	set_range,
+	clear_range,
+	set_entire_range,
+	clear_entire_range,
+	kill_slot,
+	trace_slot,
+	is_traced,
+	empty,
+	get_slots,
+	fetch_slot;
+
+    rep = struct[
+	      Rtn:       _obj,
+	      Inf:       _rtn_info,
+	      Num_Slots: int,
+	      Slots:     _brk_slots];
+
+    _brk_slots = variant[ a_All:     null,
+			  b_Some:    objs ];
+
+    objs = sequence[_obj];
+
+    aobj = array[_obj];
+    own ASlots: aobj := aobj$Predict(1, 20);
+
+    Create = proc (Rtn: _obj, RInf: _rtn_info) returns (cvt);
+	return (rep${ Rtn:	 Rtn,
+		      Inf:       RInf,
+		      Num_Slots: Num_Slots(Rtn, RInf),
+		      Slots:     _brk_slots$Make_b_Some(objs$New()) });
+	end Create;
+
+    Num_Slots = proc (Rtn: _obj, RInf: _rtn_info) returns (int);
+	I: int := 0;
+	for Called: _obj, Call: _obj in _Call_Slots(Rtn, RInf) do
+	    I := I + 1;
+	    end;
+	return (I);
+	end Num_Slots;
+
+    Set_Range = proc (TR: cvt, From, To: int);
+	SSlots: objs := _brk_slots$Value_b_Some(TR.Slots);
+	   except when Wrong_Tag:
+		       return;
+		  end;
+	ASlots.Low := 1;
+	aobj$Trim(ASlots, 1, 0);
+	J: int := 1;			%% Index into SSlots;
+	Old_Call: _obj;
+	More: bool := ~ objs$Empty(SSlots);
+	if (More)
+	   then Old_Call := SSlots[J];
+	   end;
+	I: int := 1;			%% Slot counter;
+	for Called: _obj, Call: _obj in _Call_Slots(TR.Rtn, TR.Inf) do
+	    if (More cand
+		(Call = Old_Call))
+	       then aobj$AddH(ASlots, Old_Call);
+		    More := (J < objs$Size(SSlots));
+		    if (More)
+		       then J := J + 1;
+			    Old_Call := SSlots[J];
+		       end;
+	     elseif (From <= I)
+	       then if (I <= To)
+		       then aobj$AddH(ASlots, Call);
+		       else if (More)
+			       then for K: int in int$From_To(J,
+							      objs$Size(SSlots)) do
+					aobj$AddH(ASlots, SSlots[K]);
+					end;
+			       end;
+			    break;
+		       end;
+	     end;
+	    I := I + 1;
+	    end;
+	if (aobj$Size(ASlots) ~= objs$Size(SSlots))
+	   then if (aobj$Size(ASlots) = TR.Num_Slots)
+		   then _brk_slots$Change_a_All(TR.Slots, nil);
+		   else _brk_slots$Change_b_Some(TR.Slots, objs$A2S(ASlots));
+		   end;
+	   end;
+	end Set_Range;
+
+    Clear_Range = proc (TR: cvt, From, To: int) returns (bool);
+	%% Returns All_Cleared;
+	SSlots: objs;
+	tagcase TR.Slots
+	   tag a_All:
+	       SSlots := All_Slots(TR);
+	   tag b_Some (Ss: objs):
+	       SSlots := Ss;
+	   end;
+	ASlots.Low := 1;
+	aobj$Trim(ASlots, 1, 0);
+	J: int := 1;			%% Index into SSlots;
+	Old_Call: _obj;
+	More: bool := ~ objs$Empty(SSlots);
+	if (More)
+	   then Old_Call := SSlots[J];
+	   end;
+	I: int := 1;
+	for Called: _obj, Call: _obj in _Call_Slots(TR.Rtn, TR.Inf) do
+	    if (More cand
+		(Call = Old_Call))
+	       then if (I < From)
+		       then aobj$AddH(ASlots, Old_Call);
+		     elseif (I > To)
+		       then for K: int in int$From_To(J,objs$Size(SSlots)) do
+				aobj$AddH(ASlots, SSlots[K]);
+				end;
+			    break;
+		     end;
+		    More := (J < objs$Size(SSlots));
+		    if (More)
+		       then J := J + 1;
+			    Old_Call := SSlots[J];
+		       end;
+	       end;
+	    I := I + 1;
+	    end;
+	if (aobj$Size(ASlots) ~= objs$Size(SSLots))
+	   then _brk_slots$Change_b_Some(TR.Slots, objs$A2S(ASlots));
+	   end;
+	return (objs$Empty(SSlots));
+	end Clear_Range;
+
+    Kill_Slot = proc (TR: cvt, Slot: _obj) returns (bool)
+		  signals (invalid_slot);
+	%% Returns All_Cleared.
+	if (Is_Traced(up(TR), Slot))
+	   then	Indx: int := Slot_Index(TR, Slot)
+		   resignal Invalid_Slot;
+		return (Clear_Range(up(TR), Indx, Indx));
+	   else return (Empty(up(TR)));
+	   end;
+	end Kill_Slot;
+
+    Trace_Slot = proc (TR: cvt, Slot: _obj) signals (invalid_slot);
+	if (~ Is_Traced(up(TR), Slot))
+	   then Indx: int := Slot_Index(TR, Slot);
+		Set_Range(up(TR), Indx, Indx);
+	   end;
+	end Trace_Slot;
+
+    All_Slots = proc (TR: rep) returns (objs);
+	ASlots.Low := 1;
+	aobj$Trim(ASlots, 1, 0);
+	for Called: _obj, Call: _obj in _Call_Slots(TR.Rtn, TR.Inf) do
+	    aobj$AddH(ASlots, Call);
+	    end;
+	return (objs$A2S(ASlots));
+	end All_Slots;
+
+    Slot_Index = proc (TR: rep, Slot: _obj) returns (int)
+		   signals (invalid_slot);
+	I: int := 1;
+	for Called: _obj, Test_Slot: _obj in _Call_Slots(TR.Rtn, TR.Inf) do
+	    if (Slot = Test_Slot)
+	       then return (I);
+	       end;
+	    I := I + 1;
+	    end;
+	signal Invalid_Slot;
+	end Slot_Index;
+
+    Set_Entire_Range = proc (TR: cvt);
+	_brk_slots$Change_a_All(TR.Slots, nil);
+	end Set_Entire_Range;
+
+    Clear_Entire_Range = proc (TR: cvt);
+ 	_brk_slots$Change_b_Some(TR.Slots, objs$New());
+	end Clear_Entire_Range;
+
+    %% Slot is assumed to be a valid slot of the rtn.
+    Is_Traced = proc (TR: cvt, Slot: _obj) returns (bool);
+	tagcase TR.Slots
+	   tag a_All:
+	       return (true);
+	   tag b_Some (Ss: objs):
+	       for Tst_Slot: _obj in objs$Elements(Ss) do
+		   if (Slot = Tst_Slot)
+		      then return (true);
+		      end;
+		   end;
+	       return (false);
+	   end;
+	end Is_Traced;
+
+    Empty = proc (TR: cvt) returns (bool);
+	tagcase TR.Slots
+	   tag a_All:
+	       return (false);
+	   tag b_Some (Ss: objs):
+	       return (objs$Empty(Ss));
+	   end;
+	end Empty;
+
+    Get_Slots = proc (TR: cvt) returns (_brk_slots);
+	return (TR.Slots);
+	end Get_Slots;
+
+    Fetch_Slot = proc (TR: cvt, N: int) returns (_obj) signals (bounds);
+	if (N >= 1)
+	   then I: int := 1;
+		for Called: _obj, Call: _obj in _Call_Slots(TR.Rtn, TR.Inf) do
+		    if (I = N)
+		       then return (Called);
+		       end;
+		    I := I + 1;
+		    end;
+	   end;
+	signal Bounds;
+	end Fetch_Slot;
+    end _trace_rng;

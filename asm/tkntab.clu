@@ -1,0 +1,181 @@
+%	TKNTAB CLU
+% Copyright Massachusetts Institute of Technology 1980, 1989
+%	MC68000 Assembler: table for keywords and idns
+
+tokentab = cluster is	create,		% -> tokentab
+			reset,		% tokentab ->
+			get_token,	% tokentab, str -> token
+			def_opcode,	% tokentab, opcodeform ->
+			def_idn		% tokentab, str, idnkind ->
+
+size = 500
+
+rep = table[str, token]
+
+map = rep$alter
+me  = token$make_expr
+ce  = expr$create
+mt  = token$make_type_
+ct  = typespec$create
+msk = token$make_stmtkey
+mdk = token$make_defnkey
+ma  = idnkind$make_areg
+md  = idnkind$make_dreg
+mi  = token$make_idn
+ci  = idn$create
+
+create = proc () returns (cvt)
+	t: rep := rep$create(size, hash, string$equal)
+	map(t, "any",      mt(ct(typeabs$make_any_(nil))))
+	map(t, "begin",    msk(stmtkey$make_begin_(nil)))
+	map(t, "break",    msk(stmtkey$make_break_(nil)))
+	map(t, "cluster",  mdk(defnkey$make_cluster_(false)))
+	map(t, "continue", msk(stmtkey$make_continue_(nil)))
+	map(t, "cvt",      mt(ct(typeabs$make_cvt_(nil))))
+	map(t, "do",       token$make_do_(nil))
+	map(t, "elf",      token$make_elf_(_if))
+	map(t, "elfcc",    token$make_elf_(_if_cc))
+	map(t, "elfcs",    token$make_elf_(_if_cs))
+	map(t, "elfeq",    token$make_elf_(_if_eq))
+	map(t, "elff",     token$make_elf_(_if_false))
+	map(t, "elfge",    token$make_elf_(_if_ge))
+	map(t, "elfgt",    token$make_elf_(_if_gt))
+	map(t, "elfhi",    token$make_elf_(_if_hi))
+	map(t, "elfle",    token$make_elf_(_if_le))
+	map(t, "elfls",    token$make_elf_(_if_ls))
+	map(t, "elflt",    token$make_elf_(_if_lt))
+	map(t, "elfmi",    token$make_elf_(_if_mi))
+	map(t, "elfne",    token$make_elf_(_if_ne))
+	map(t, "elfpl",    token$make_elf_(_if_pl))
+	map(t, "elft",     token$make_elf_(_if_true))
+	map(t, "elfvc",    token$make_elf_(_if_vc))
+	map(t, "elfvs",    token$make_elf_(_if_vs))
+	map(t, "else",     token$make_else_(nil))
+	map(t, "end",      token$make_end_(nil))
+	map(t, "except",   token$make_except_(nil))
+	map(t, "false",    me(ce(exprabs$make_bool_(false))))
+	map(t, "for",      msk(stmtkey$make_for_(false)))
+	map(t, "has",      token$make_has_(nil))
+	map(t, "if",       msk(stmtkey$make_if_(_if)))
+	map(t, "ifcc",     msk(stmtkey$make_if_(_if_cc)))
+	map(t, "ifcs",     msk(stmtkey$make_if_(_if_cs)))
+	map(t, "ifeq",     msk(stmtkey$make_if_(_if_eq)))
+	map(t, "iff",      msk(stmtkey$make_if_(_if_false)))
+	map(t, "ifge",     msk(stmtkey$make_if_(_if_ge)))
+	map(t, "ifgt",     msk(stmtkey$make_if_(_if_gt)))
+	map(t, "ifhi",     msk(stmtkey$make_if_(_if_hi)))
+	map(t, "ifle",     msk(stmtkey$make_if_(_if_le)))
+	map(t, "ifls",     msk(stmtkey$make_if_(_if_ls)))
+	map(t, "iflt",     msk(stmtkey$make_if_(_if_lt)))
+	map(t, "ifmi",     msk(stmtkey$make_if_(_if_mi)))
+	map(t, "ifne",     msk(stmtkey$make_if_(_if_ne)))
+	map(t, "ifpl",     msk(stmtkey$make_if_(_if_pl)))
+	map(t, "ift",      msk(stmtkey$make_if_(_if_true)))
+	map(t, "ifvc",     msk(stmtkey$make_if_(_if_vc)))
+	map(t, "ifvs",     msk(stmtkey$make_if_(_if_vs)))
+	map(t, "in",       token$make_in_(nil))
+	map(t, "is",       token$make_is_(nil))
+	map(t, "iter",     mdk(defnkey$make_oper_(_is_iter)))
+	map(t, "itertype", token$make_itertype_(nil))
+	map(t, "loop",     msk(stmtkey$make_loop_(false)))
+	map(t, "next",     token$make_next_(nil))
+	map(t, "nil",      me(ce(exprabs$make_null_(nil))))
+	map(t, "others",   token$make_others_(nil))
+	map(t, "own",      msk(stmtkey$make_own_(nil)))
+	map(t, "proc",     mdk(defnkey$make_oper_(_is_proc)))
+	map(t, "proctype", token$make_proctype_(nil))
+	map(t, "qfor",     msk(stmtkey$make_for_(true)))
+	map(t, "qloop",    msk(stmtkey$make_loop_(true)))
+	map(t, "qproc",    mdk(defnkey$make_oper_(_is_qproc)))
+	map(t, "qselproc", mdk(defnkey$make_oper_(_is_qselproc)))
+	map(t, "resignal", token$make_resignal_(nil))
+	map(t, "return",   msk(stmtkey$make_return_(nil)))
+	map(t, "returns",  token$make_returns_(nil))
+	map(t, "selector", mdk(defnkey$make_cluster_(true)))
+	map(t, "seltype",  mt(ct(typeabs$make_seltype(nil))))
+	map(t, "selhead",  me(ce(exprabs$make_select(_sel_head))))
+	map(t, "selindex", me(ce(exprabs$make_select(_sel_index))))
+	map(t, "selint",   me(ce(exprabs$make_select(_sel_int))))
+	map(t, "selnames", me(ce(exprabs$make_selnames(nil))))
+	map(t, "selops",   token$make_selops_(nil))
+	map(t, "selproc",  mdk(defnkey$make_oper_(_is_selproc)))
+	map(t, "seltag",   me(ce(exprabs$make_select(_sel_tag))))
+	map(t, "signal",   msk(stmtkey$make_signal_(nil)))
+	map(t, "signals",  token$make_signals_(nil))
+	map(t, "stack",    msk(stmtkey$make_stack_(nil)))
+	map(t, "then",     token$make_then_(nil))
+	map(t, "this",     token$make_this_(nil))
+	map(t, "true",     me(ce(exprabs$make_bool_(true))))
+	map(t, "unstack",  msk(stmtkey$make_unstack_(nil)))
+	map(t, "var",      msk(stmtkey$make_var_(nil)))
+	map(t, "when",     token$make_when_(nil))
+	map(t, "where",    token$make_where_(nil))
+	map(t, "wvec",	   msk(stmtkey$make_wvec_(nil)))
+	map(t, "yield",    msk(stmtkey$make_yield_(nil)))
+	map(t, "yields",   token$make_yields_(nil))
+
+	map(t, "n0",	   mi(ci("n0", md(0))))
+	map(t, "n1",	   mi(ci("n1", md(1))))
+	map(t, "n2",	   mi(ci("n2", md(2))))
+	map(t, "n3",	   mi(ci("n3", md(3))))
+	map(t, "n4",	   mi(ci("n4", md(4))))
+	map(t, "n5",	   mi(ci("n5", md(5))))
+	map(t, "n6",	   mi(ci("n6", md(6))))
+	map(t, "n7",	   mi(ci("n7", md(7))))
+	map(t, "rr",	   mi(ci("rr", ma(0))))
+	map(t, "r1",	   mi(ci("r1", ma(1))))
+	map(t, "r2",	   mi(ci("r2", ma(2))))
+	map(t, "r3",	   mi(ci("r3", ma(3))))
+	map(t, "r4",	   mi(ci("r4", ma(4))))
+	map(t, "pp",	   mi(ci("pp", ma(5))))
+	map(t, "ep",	   mi(ci("ep", ma(6))))
+	map(t, "sp",	   mi(ci("sp", ma(7))))
+
+	map(t, "usp",	   mi(ci("usp",idnkind$make_usp(nil))))
+	map(t, "ccr",	   mi(ci("ccr",idnkind$make_ccr(nil))))
+	map(t, "sr",	   mi(ci("sr", idnkind$make_sr(nil))))
+	map(t, "pc",	   mi(ci("pc", idnkind$make_pc(nil))))
+	return(t)
+	end create
+
+reset = proc (t: cvt)
+	rep$cond_flush(t, pflush)
+	end reset
+
+pflush = proc (tk: token) returns (bool)
+	tagcase tk
+	   tag idn (i: idn):
+		tagcase i.kind
+		   tag dreg, areg, pc, usp, ccr, sr, perm, text, data:
+			return(false)
+		   others:
+			return(true)
+		   end
+	   others:
+		return(false)
+	   end
+	end pflush
+
+ident = proc (t: rep, s: str) returns (idn)
+	id: idn := ci(s, idnkind$make_unknown(nil))
+	map(t, s, mi(id))
+	return(id)
+	end ident
+
+get_token = proc (t: cvt, s: str) returns (token)
+	return(rep$lookup(t, s))
+	   except when not_found: end
+	k: token := mi(ci(s, idnkind$make_unknown(nil)))
+	map(t, s, k)
+	return(k)
+	end get_token
+
+def_opcode = proc (t: cvt, opcode: opcodeform)
+	map(t, opcode.str, msk(stmtkey$make_opcode(opcode)))
+	end def_opcode
+
+def_idn = proc (t: cvt, id: str, k: idnkind)
+	map(t, id, mi(ci(id, k)))
+	end def_idn
+
+end tokentab

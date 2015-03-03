@@ -1,0 +1,23 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+extract_strings = proc (b: buf, bv: _bytevec, max: int)
+    b2s = _cvt[_bytevec, string]
+    bv[max] := '\n'
+       except when bounds: end
+    i: int := buf$size(b)
+    j: int := _bytevec$indexc('\n', bv, 1)
+    if j = 0
+       then b[i] := b[i] || b2s(_bytevec$copy(bv))
+	    return
+       end
+    b[i] := b[i] || string$substr(b2s(bv), 1, j - 1)
+    if j = max
+       then return end
+    while true do
+	i := j + 1
+	j := _bytevec$indexc('\n', bv, i)
+	if j = 0  cor  j = max
+	   then break end
+	buf$addh(b, string$substr(b2s(bv), i, j - i))
+	end
+    buf$addh(b, string$substr(b2s(bv), i, max - i))
+    end extract_strings

@@ -1,0 +1,20 @@
+%% Copyright Massachusetts Institute of Technology 1986, 1989
+
+Update_Sym_Tables = proc (Env: lnk_env);
+    Locs: locates := Env.Locates
+    Loc:  locate  := Locs.Sym_Tables;
+    Rtn_Tab:  rtn_sym_tab  := Env.Rtn_Sym_Table;
+    Name_Tab: name_sym_tab := Env.Name_Sym_Table;
+    for R_Inf: rtn_info in name_sym_tab$Elements(Name_Tab) do
+	Fixup_Rtn_Info_Address(R_Inf, Locs)
+	rtn_sym_tab$Insert(Rtn_Tab, R_Inf);
+	end;
+    Num_Rtns: int := rtn_sym_tab$Size(Rtn_Tab);
+    locate$Advance(Loc,
+		   ((2 *			%% 2 symbol tables.
+		     (vVec_Head_Size +          %% Room for header,
+		      (Num_Rtns * vRef_Size) +  %% plus a reference for each rtn,
+		      vRef_Size)		%% Plus chain pointer.
+		     ))
+		   );
+    end Update_Sym_Tables;

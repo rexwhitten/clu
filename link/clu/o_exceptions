@@ -1,0 +1,21 @@
+%% Copyright Massachusetts Institute of Technology 1980, 1989
+
+Output_Exceptions = proc (Env: lnk_env);
+    Opts: options := Env.Options;
+    Out: out_link_chan := Env.Output;
+    Start_Exceptions(Env);
+    Type_It: bool := Opts.Do_Type_Excepts;
+    if (Type_It)
+       then stream$PutL(Env.Options.List_Stream,
+			"\nExcept Ranges:" );
+	       except when Not_Possible(*): end;
+       end;
+    for Inst_Ex: inst_except in inst_excepts$Elements(Env.Inst_Excepts) do
+	inst_except$Output_Ranges(Inst_Ex, Type_It, Env);
+	end;
+
+    Pnts: lnk_pointers := Env.Pointers;
+    Pnts.Others_Entry  := inst_except$Others_Address(Env);
+    Pnts.Failure_Entry := inst_except$Failure_Address(Env);
+
+    end Output_Exceptions;

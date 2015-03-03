@@ -1,0 +1,42 @@
+; Copyright Massachusetts Institute of Technology 1980, 1989
+
+null = cluster is equal, similar, copy, print, encode, decode, _gcd
+
+equal = qproc (nn1, nn2: cvt) returns (bool)
+	return(true)
+	end equal
+
+similar = qproc (nn1, nn2: cvt) returns (bool)
+	return(true)
+	end similar
+
+copy = qproc (n: cvt) returns (cvt)
+	return(rr)
+	end copy
+
+print = proc (n: cvt, pst: pstream)
+	pstream$text(pst, "nil")
+	end print
+
+encode = proc (n: cvt, ist: istream) signals (not_possible(string))
+	istream$%puti(rr, n0)		;; Write a CLU 0.
+		resignal not_possible
+	end encode
+
+decode = proc (ist: istream) returns (cvt)
+				signals (end_of_file, not_possible(string))
+	istream$%geti(rr)
+		resignal end_of_file, not_possible
+	move	rr, n1
+	ifeq	cmp	n0, n1
+	then	sub	n1, n1
+		return (n1)
+		end
+	signal	not_possible("bad format")
+	end decode
+
+_gcd = qproc (n: cvt, tab: gcd_tab) returns (int)
+	return(0)
+	end _gcd
+
+end null

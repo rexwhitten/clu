@@ -1,0 +1,78 @@
+
+%% Copyright Massachusetts Institute of Technology 1985, 1989
+
+vSuppress_Funny_Chars = false	%% Change $ and % to _
+
+a_strings = cluster is
+	new,
+	add_string,
+	get_size,
+	bytes,
+	strings,
+	_gcd;
+
+    ss = array[string];
+
+    rep = record[
+	      Next_Offset:    int,
+	      Strings:        ss
+		 ];
+
+    New = proc () returns (cvt);
+	return (rep${ Next_Offset:  vLong_Size,	%% Include size long.
+		      Strings:	    ss$New() });
+	end New;
+
+    Add_String = proc (ASs: cvt, S: string) returns (int);
+	Offset: int := ASs.Next_Offset;
+	ASs.Next_Offset := (Offset +
+			    string$Size(S) +
+			    1);     %% Zero byte terminates string.
+	ss$AddH(ASs.Strings, S);
+	return (Offset);
+	end Add_String;
+
+    Get_Size = proc (ASs: cvt) returns (int);
+	return (ASs.Next_Offset);
+	end Get_Size;
+
+    Bytes = iter (ASs: cvt) yields (int);
+	for S: string in ss$Elements(ASs.Strings) do
+	    for C: char in string$Chars(S) do
+		if (vSuppress_Funny_Chars)
+		   then if (C = '$') 
+			   then C := 'S'
+			 elseif (C = '%')
+			   then C := 'P'
+			 end;
+		   end;
+		yield (char$C2I(C));
+		end;
+	    yield (0);
+	    end;
+	end Bytes;
+
+    Strings = iter (ASs: cvt) yields (string);
+	for S: string in ss$Elements(ASs.Strings) do
+	    if (vSuppress_Funny_Chars cand
+		((string$IndexC('$', S) > 0) cor
+		 (string$IndexC('%', S) > 0)))
+	       then BV: _bytevec := _bytevec$Copy(_Cvt[string, _bytevec](S));
+		    for I: int in int$From_To(1, _bytevec$Size(BV)) do
+			C: char := BV[I];
+			if (C = '$')
+			   then BV[I] := 'S'
+			 elseif (C = '%')
+			   then BV[I] := 'P'
+			 end;
+			end;
+		    S := _Cvt[_bytevec, string](BV);
+	       end;
+	    yield (S);
+	    end;
+	end Strings;
+
+    _gcd = proc (A_Strs: cvt, Tab: gcd_tab) returns (int);
+	return (rep$_gcd(A_Strs, Tab));
+	end _gcd;
+    end a_strings;

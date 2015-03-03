@@ -1,0 +1,18 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+Get_Siggy_Address = proc (Env: lnk_env) returns (address);
+    while (true) do
+	return (Env.Signal_Address);
+	   except when Not_Found:
+		       Sig_R: r_template := rtn_tab$Lookup(
+						Env.Routines,
+						"_siggy");
+			  except when Not_Found:
+				      Should_Never_Happen[string](
+					  "Signal handler routine not loaded!",
+					  "");
+				 end;
+		       Env.Signal_Address := Sig_R.Code_Address;
+		  end;
+	end;
+    end Get_Siggy_Address;

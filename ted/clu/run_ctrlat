@@ -1,0 +1,68 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+run_ctrlat = proc (e: env, c: char) signals (errmsg(string), stop(env, string))
+    if e.this_arg > 1  cor  e.this_arg < 0
+       then top_display(e, "GCing")
+	    secs1, msecs1, usecs1: int := _get_runtime()
+	    freed: int := gc()
+	    left: int := _heap_size()
+	    secs2, msecs2, usecs2: int := _get_runtime()
+	    secs2, msecs2, usecs2 := _longsub(secs2, msecs2, usecs2,
+					      secs1, msecs1, usecs1)
+	    top_display(e, "GC #" || int$unparse(_gc$count()) || ": " ||
+			   int$unparse(freed) || " freed, " ||
+			   int$unparse(left) || " left, " ||
+			   _time_format(secs2, msecs2, usecs2))
+       else if env$fetch_num(e, "careful", 0) ~= 0
+	       then cnt: int := 0
+		    nms: string := ""
+		    for b: buf, bnm, fnm: string in bufset$all_buffers() do
+			if buf$any_changed(b)
+			   then if cnt = 2
+				   then nms := nms || ", ..."
+					break
+				 elseif cnt = 1
+				   then nms := string$append("s" || nms, ',')
+				 end
+				nms := string$append(nms, ' ') || bnm
+				cnt := cnt + 1
+			   end
+			end
+		    if cnt > 0  cand
+		       ~mconfirm(e, "Buffer" || nms || " changed, quit anyway", true)
+		       then return end
+	       end
+	    if env$fetch_num(e, "exit_msg", 1) ~= 0
+	       then _clear()
+		    if e.this_arg = 0
+		       then top_display(e, "Terminating.")
+		       else top_display(e, "Escaping to superior.")
+		       end
+		    _set_cursor_pos(1, 0, true)
+	       else nlines, nchars: int := _get_screen_size()
+		    max: int := nlines - 1
+		    while max >= 2  cand  string$empty(_fetch_line(max)) do
+			max := max - 1
+			end
+		    if max <= 1
+		       then _clear()
+		     elseif max >= nlines - 2
+		       then _should_scroll(1, 0, 2)
+			    _display_line("", nlines - 2)
+			    _display_line("", nlines - 1)
+			    _set_cursor_pos(nlines - 1, 0, true)
+		     else _set_cursor_pos(max + 2, 0, true)
+		     end except when clear: _clear() end
+	       end
+	    keypad: int := env$fetch_num(e, "keypad", 0)
+	    if keypad ~= 0
+	       then _set_keypad_mode(false) end
+	    _normal_chars()
+	    if e.this_arg = 0
+	       then quit_() end
+	    _stop()
+	    _ted_chars()
+	    if keypad ~= 0
+	       then _set_keypad_mode(true) end
+	    env$clear(e)
+       end resignal errmsg
+    end run_ctrlat

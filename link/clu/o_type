@@ -1,0 +1,11 @@
+%% Copyright Massachusetts Institute of Technology 1984, 1989
+
+Output_Type = proc (T: type_desc, Env: lnk_env);
+    %% Type id is in integer rep format.
+    out_link_chan$Write_Long_Word(Env.Output,
+				  vType_ID_Base +
+				  %% SHOULD CHECK IF UID IS TOO BIG!!
+				  ((2 * type_desc$Get_UID(T, Env))
+				     + 1)
+				  );
+    end Output_Type;

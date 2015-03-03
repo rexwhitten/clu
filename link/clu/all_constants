@@ -1,0 +1,10 @@
+%% Copyright Massachusetts Institute of Technology 1980, 1989
+
+All_Constants = iter (Env: lnk_env) yields (constant);
+    for C: constant in const_tab$Elements(Env.Block_Consts) do
+	yield (C);
+	end;
+    for C: constant in const_tab$Elements(Env.Non_Block_Consts) do
+	yield (C);
+	end;
+    end All_Constants;

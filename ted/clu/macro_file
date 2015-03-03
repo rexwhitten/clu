@@ -1,0 +1,22 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+exec_macro_file = proc (e: env, c: char)
+		    signals (errmsg(string), stop(env, string))
+    macro_file(e, get_file_name1(e, "Execute macro file", fname$parse("")))
+       except when not_possible, errmsg (why: string): signal errmsg (why) end
+    end exec_macro_file
+
+macro_file = proc (e: env, fn: fname) signals (not_possible(string))
+    b: buf
+    fn, b := read_from_file(e, fn, false, false)
+       resignal not_possible
+    z: int := buf$size(b)
+    if string$empty(b[z])
+       then z := z - 1 end
+    for z in int$from_to_by(z, 1, -1) do
+	s: string := b[z]
+	if string$empty(s)
+	   then _push_macro_chars("\n")
+	   else _push_macro_chars(s)
+	   end
+	end
+    end macro_file

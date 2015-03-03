@@ -1,0 +1,21 @@
+; Copyright Massachusetts Institute of Technology 1985, 1989
+
+_umask = proc (mask: int) returns (int) signals (not_possible(string))
+	move	rr,n2				; mask
+	asr	1,n2
+	moveq	0,n1
+	moveq	%umask,n0			; set it
+	movem	n2/n1/n0,-(sp)
+	trap	0
+	addq	8,sp				; pop stack
+	movea	n0,rr
+	lea	1(rr,rr),rr
+	ifcc
+	then	clr	-8(sp)
+		moveq	1,n0			; restore 0
+		return(rr)
+	end
+	moveq	1,n0				; restore 0
+	_erstr(rr)
+	signal	not_possible(rr)
+	end _umask

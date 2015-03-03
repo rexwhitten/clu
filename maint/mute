@@ -1,0 +1,10 @@
+#
+set flist = `cat mutlist`
+chdir ..
+foreach f ($flist)
+	echo $f ----------
+	cp $f $f-save
+	cat $f | awk -f maint/mute.prog >/tmp/add
+	/bin/mv -f /tmp/add $f
+end
+chdir maint

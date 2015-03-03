@@ -1,0 +1,85 @@
+;; Copyright Massachusetts Institute of Technology 1984, 1989
+
+%cowns = 12				;; Offset to cluster owns in debug blk.
+%rowns = 16				;; Offset to routine owns in debug blk.
+
+;; Procedures to set or fetch cluster and routine own variables: The first two
+;; are intended to be used for currently active routines, whereas the second
+;; two are for routines which are not currently active.
+
+
+;; Rtn is the _rtn_info structure for the (active) routine whose own is to be
+;; fetched. Frm is the invocation frame; i is the index of the own (starting
+;; from 0) and clust should be true if a cluster own is to be fetched rather
+;; than a routine own.
+_fetch_own = proc (rtn: _rtn_info, frm: _frame, i: int, clust: bool)
+								returns (_obj)
+	ift	_rtn_info$uses_params (rtn)	;; If uses parameters...
+	then	movea	frm, rr
+		movea	-4(rr), rr	;; get entry vector which is just...
+		movea	-4(rr), rr	;; before the param. vector.
+	else	_rtn_info$get_routine(rtn)	;; Else get it from _rtn_info.
+		end
+
+	ifne	tst	clust
+	then	movea	%cowns(rr), rr	;; get start of owns
+	else	movea	%rowns(rr), rr
+		end
+
+	move	i, n1			;; Index as a CLU int.
+	asl	1, n1			;; Index as byte offset + 2.
+	movea	-2(rr, n1), rr		;; Fetch.
+	return (rr)
+	end _fetch_own
+
+;; Rtn is the _rtn_info structure for the (active) routine whose own is to be
+;; set. Frm is the invocation frame; i is the index of the own (starting
+;; from 0) and clust should be true if a cluster own is to be set rather
+;; than a routine own.
+_store_own = proc (rtn: _rtn_info, frm: _frame, i: int, clust: bool, val: _obj)
+	ift	_rtn_info$uses_params (rtn)	;; If uses parameters...
+	then	movea	frm, rr
+		movea	-4(rr), rr	;; get entry vector which is just...
+		movea	-4(rr), rr	;; before the param. vector.
+	else	_rtn_info$get_routine(rtn)	;; Else get it from _rtn_info.
+		end
+
+	ifne	tst	clust
+	then	movea	%cowns(rr), rr	;; get start of owns
+	else	movea	%rowns(rr), rr
+		end
+
+	move	i, n1
+	asl	1, n1			;; Index as byte offset + 2.
+	move	val, -2(rr, n1)		;; Store.
+	end _store_own
+
+;; Rtn is the pointer to debug block for the routine whose own is to be
+;; fetched. I is the index of the own (starting from 0). Clust is true if a
+;; cluster own is wanted, otherwise routine owns are used.
+_own_get = qproc (rtn: _obj, i: int, clust: bool) returns (_obj)
+	movea	rtn, r2
+	ifne	move	rr, n1
+	then	movea	%cowns(r2), rr	;; Get start of owns
+	else	movea	%rowns(r2), rr
+		end
+	move	i, n1
+	asl	1, n1			;; Index as byte offset + 2.
+	movea	-2(rr, n1), rr		;; Fetch.
+	return (rr)
+	end _own_get
+
+;; Rtn is the pointer to debug block for the routine whose own is to be set.
+;; I is the index of the own (starting from 0). Clust is true if the
+;; cluster owns are to be used, otherwise routine owns are used. Val is the new
+;; value to which the own is to be set.
+_own_set = qproc (rtn: _obj, i: int, clust: bool, val: _obj)
+	movea	rtn, r2
+	ifne	move	rr, n1
+	then	movea	%cowns(r2), rr	;; Get start of owns
+	else	movea	%rowns(r2), rr
+		end
+	move	i, n1
+	asl	1, n1			;; Index as a byte offset + 2.
+	move	rr, -2(rr, n1)		;; Store.
+	end _own_set

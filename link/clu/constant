@@ -1,0 +1,975 @@
+%% Copyright Massachusetts Institute of Technology 1985, 1989
+
+constant = cluster is
+	bind, instantiate, similar, equal, value_type, is_type_constant,
+	make_null, make_int, make_bool, make_string, make_seq_string,
+	make_address, make_struct, get_struct, make_seq, get_seq,
+	make_unknown, copy, print, unparse,
+	get_int, get_string, get_address, is_address, 
+	value_rtn_desc, const_to_long,
+	output_block, output_ref, insert_reference, canon_hasher, _gcd;
+
+    rep = variant[
+	      a_Null:       null,
+	      b_Bool:       bool,
+	      c_Int:        int,
+	      d_Real:       real,
+	      e_Char:       char,
+	      f_String:     string,
+	      g_C_Param:    int,
+	      h_R_Param:    int,
+	      i_Oneof:      oconst,
+	      j_Struct:     consts,
+	      k_Seq:        consts,
+	      l_Type:       type_desc,
+	      m_Word:       word,
+	      n_Rel:        relative,
+	      o_Routine:    rtn_desc,
+	      p_Selector:   int,
+	      q_Sel_Ops:    r_v_desc,
+	      r_Sel_Names:  null,
+	      s_X_String:   ints,
+	      t_Arg_Ops:    r_v_desc,
+	      u_Res_Ops:    r_v_desc,
+	      v_Sig_Ops:    r_v_desc,
+	      w_Sig_Names:  null,
+	      xi_Ref_Oneof: oconst,		%% Compacted oneof.
+	      xp_Selector:  sel_value,
+	      xq_Rtn_Descs: r_descs,		%% A bound r_v_desc.
+	      yf_String:    string,		%% All "y..."s are instantiated.
+	      yi_Oneof:     oconst,
+	      yj_Struct:    consts,
+	      yk_Seq:       consts,
+	      yl_Type:      type_desc,
+	      yn_Rel:       relative,
+	      yo_R_Inst:    rtn_inst,
+	      yp_Selector:  sel_value,
+	      yq_R_List:    r_list,
+	      ys_X_String:  ints,
+	      z_Output:     address,
+	      zz_Unknown:   null
+		  ];
+
+    oconst = record [
+		 a_Tag: int,
+		 b_Value: constant
+		     ];
+
+    relative = record [
+		   a_Offset: int,
+		   b_Val:    constant
+		       ];
+
+    r_descs = sequence[rtn_desc]
+
+
+    Print = proc (C: cvt, S: pstream);
+	rep$Print(C, S);
+	end Print;
+
+    Copy = proc (C: cvt) returns (cvt);
+	return (rep$Copy1(C));
+	end Copy;
+
+    Make_Null = proc () returns (cvt);
+	return (rep$Make_a_Null(nil));
+	end Make_Null;
+
+    Make_Address = proc (A: address) returns (cvt);
+	return (rep$Make_z_Output(A));
+	end Make_Address;
+
+    Make_Int = proc (I: int) returns (cvt);
+	return (rep$Make_c_Int(I));
+	end Make_Int;
+
+    Make_Bool = proc (B: bool) returns (cvt);
+	return (rep$Make_b_Bool(B));
+	end Make_Bool;
+
+    Make_String = proc (S: string) returns (cvt);
+	return (rep$Make_f_String(S));
+	end Make_String;
+
+    Make_Seq_String = proc (Sq_S: strings) returns (cvt)
+	strings = sequence[string];
+	acs	= array[constant];
+	Temp_Cs: acs := acs$Predict(1, 20);
+	acs$Trim(Temp_Cs, 1, 0);
+	for S: string in strings$Elements(Sq_S) do
+	    acs$AddH(Temp_Cs, Make_String(S));
+	    end;
+	return (rep$Make_k_Seq(consts$A2S(Temp_Cs)));
+	end Make_Seq_String;
+
+    Is_Type_Constant = proc (C: cvt) returns (bool);
+	return (rep$Is_l_Type(C) cor
+		rep$Is_yl_Type(C));
+	end Is_Type_Constant;
+
+    Get_Int = proc (C: cvt) returns (int) signals (not_possible);
+	tagcase C
+	   tag c_Int (I: int):
+	       return (I);
+	   others:
+	       signal Not_Possible;
+	   end;
+	end Get_Int;
+
+    Get_String = proc (C: cvt) returns (string) signals (not_possible);
+	tagcase C
+	   tag f_String, yf_String (S: string):
+	       return (S);
+	   others:
+	       signal Not_Possible;
+	   end;
+	end Get_String;
+
+    Get_Address = proc (C: cvt) returns (address);
+	tagcase C
+	   tag yo_R_Inst (RI: rtn_inst):
+	       return (RI.Entry_Address);
+	   tag z_Output (A: address):
+	       return (A);
+	   others:
+	       Should_Never_Happen
+		   [constant]("Attempt to get address of non-output constant",
+			      up(C));
+	   end;
+	end Get_Address;
+
+    Is_Address = proc (C: cvt) returns (bool);
+	tagcase C
+	   tag yo_R_Inst,
+	       z_Output:
+	       return (true);
+	   others:
+	       return (false);
+	   end;
+	end Is_Address;
+
+    Make_Struct = proc (S: consts) returns (cvt);
+	return (rep$Make_j_Struct(S));
+	end Make_Struct;
+
+    Get_Struct = proc (C: cvt) returns (consts) signals (not_possible);
+	tagcase C
+	   tag j_Struct, yj_Struct (Cs: consts):
+	       return (Cs);
+	   others:
+	       signal Not_Possible;
+	   end;
+	end Get_Struct;
+
+    Make_Seq = proc (S: consts) returns (cvt);
+	return (rep$Make_k_Seq(S));
+	end Make_Seq;
+
+    Get_Seq = proc (C: cvt) returns (consts) signals (not_possible);
+	tagcase C
+	   tag k_Seq, yk_Seq (Cs: consts):
+	       return (Cs);
+	   others:
+	       signal Not_Possible;
+	   end;
+	end Get_Seq;
+
+    Make_Unknown = proc () returns (cvt);
+        own Unknown_Const: rep := rep$Make_zz_Unknown(nil);
+	return (Unknown_Const);
+	end Make_Unknown;
+
+    Equal = proc (C1, C2: cvt) returns (bool);
+	return (C1  = C2);
+	end Equal;
+
+    Value_Type = proc (C: cvt) returns (type_desc)
+		   signals (wrong_tag);
+	tagcase C
+	   tag l_Type, yl_Type (T: type_desc):
+	       return (T);
+	   others:
+	       signal Wrong_Tag;
+	   end;
+	end Value_Type;
+
+    Value_Rtn_Desc = proc (C: cvt) returns (rtn_desc)
+		       signals (wrong_tag);
+	return (rep$Value_o_Routine(C));
+	   resignal Wrong_Tag;
+	end Value_Rtn_Desc;
+
+
+    Similar = proc (C1, C2: cvt) returns (bool);
+	tagcase C1
+	   tag a_Null:
+	       tagcase C2
+		  tag a_Null:
+		      return (true);
+		  others: return (false);
+		  end;
+	   tag b_Bool (B1: bool):
+	       tagcase C2
+		  tag b_Bool (B2: bool):
+		      return (B1 = B2);
+		  others: return (false);
+		  end;
+	   tag c_Int  (I1: int):
+	       tagcase C2
+		  tag c_Int (I2: int):
+		      return (I1 = I2);
+		  others: return (false);
+		  end;
+	   tag d_Real (R1: real):
+	       tagcase C2
+		  tag d_Real (R2: real):
+		      return (R1 = R2);
+		  others: return (false);
+		  end;
+	   tag e_Char (Ch1: char):
+	       tagcase C2
+		  tag e_Char (Ch2: char):
+		      return (Ch1 = Ch2);
+		  others: return (false);
+		  end;
+	   tag f_String, yf_String (S1: string):
+	       tagcase C2
+		  tag f_String, yf_String (S2: string):
+		      return (S1 = S2);
+		  others: return (false);
+		  end;
+	   tag i_Oneof, xi_Ref_Oneof, yi_Oneof (O1: oconst):
+	       tagcase C2
+		  tag i_Oneof, xi_Ref_Oneof, yi_Oneof (O2: oconst):
+		      return (oconst$Similar(O1, O2));
+		  others: return (false);
+		  end;
+	   tag j_Struct, yj_Struct (SC1: consts):
+	       tagcase C2
+		  tag j_Struct, yj_Struct (SC2: consts):
+		      return (consts$Similar(SC1, SC2));
+		  others: return (false);
+		  end;
+	   tag k_Seq, yk_Seq (SC1: consts):
+	       tagcase C2
+		  tag k_Seq, yk_Seq (SC2: consts):
+		      return (consts$Similar(SC1, SC2));
+		  others: return (false);
+		  end;
+	   tag l_Type, yl_Type (T1: type_desc):
+	       tagcase C2
+		  tag l_Type, yl_Type (T2: type_desc):
+		      return (type_desc$Similar(T1, T2));
+		  others: return (false);
+		  end;
+	   tag m_Word (W1: word):
+	       tagcase C2
+		  tag m_Word (W2: word):
+		      return (word$Similar(W1, W2));
+		  others: return (false);
+		  end;
+	   tag n_Rel, yn_Rel (Rel1: relative):
+	       tagcase C2
+		  tag n_Rel, yn_Rel (Rel2: relative):
+		      return (relative$Similar(Rel1, Rel2));
+		  others: return (false);
+		  end;
+	   tag xp_Selector, yp_Selector (Sel1: sel_value):
+	       tagcase C2
+		  tag xp_Selector, yp_Selector (Sel2: sel_value):
+		      return (sel_value$Similar(Sel1, Sel2));
+		  others: return (false);
+		  end;
+	   tag s_X_String, ys_X_String (Xs1: ints):
+	       tagcase C2
+		  tag s_X_String, ys_X_String (Xs2: ints):
+		      return (Xs1 = Xs2);
+		  others: return (false);
+		  end;
+	   tag g_C_Param,
+	       h_R_Param,
+	       o_Routine,
+	       p_Selector,
+	       q_Sel_Ops,
+	       r_Sel_Names,
+	       t_Arg_Ops,
+	       u_Res_Ops,
+	       v_Sig_Ops,
+	       w_Sig_Names,
+	       xq_Rtn_Descs,
+	       yo_R_Inst,
+	       yq_R_List,
+	       z_Output,
+	       zz_Unknown:
+	       return (rep$Similar(C1, C2));
+	   end;
+	end Similar;
+    
+
+    Bind = proc (C: cvt, R_D: rtn_desc, Env: lnk_env) returns (cvt)
+	     signals (error(string));
+	tagcase C
+	   tag a_Null,
+	       b_Bool,
+	       c_Int,
+	       d_Real,
+	       e_Char,
+	       f_String,
+	       m_Word:
+	       return (C);
+	   tag g_C_Param (CPI: int):
+	       return (down( type_desc$Get_A_Parameter(R_D.Type_Desc, CPI) ));
+		  except when Bounds:
+			      return (down(Make_Unknown()));
+			 end;
+	   tag h_R_Param (RPI: int):
+	       return (down( rtn_desc$Get_A_Parameter(R_D, RPI) ));
+		  except when Bounds:
+			      return (down(Make_Unknown()));
+			 end;
+	   tag i_Oneof (OC: oconst):
+	       return (rep$Make_i_Oneof(
+			   oconst${
+			       a_Tag:   OC.a_Tag,
+			       b_Value: constant$Bind(
+					    OC.b_Value,
+					    R_D, Env)
+				   } )
+		       );
+	   tag j_Struct (SC: consts):
+	       return (rep$Make_j_Struct(Bind_List[constant](SC, R_D, Env)));
+	   tag k_Seq (SC: consts):
+	       return (rep$Make_k_Seq(Bind_List[constant](SC, R_D, Env)));
+	   tag l_Type (T_D: type_desc):
+	       BT: type_desc := type_desc$Bind(T_D, R_D, Env);
+	       return (rep$Make_l_Type(BT));
+	   tag n_Rel (Rel: relative):
+	       return (rep$Make_n_Rel(
+			   relative${
+			       a_Offset: Rel.a_Offset,
+			       b_Val:    Bind(Rel.b_Val, R_D, Env)
+				     } )
+		       );
+	   tag o_Routine (R: rtn_desc):
+	       BR: rtn_desc := rtn_desc$Bind(R, R_D, Env);
+	       return ( rep$Make_o_Routine(BR) );
+	   tag p_Selector (Sel_I: int):
+	       R_Nm: string := R_D.Name
+	       Sel_Nm: string := Selector_Name(R_Nm);
+		  except when Not_Selector:
+			      signal Error("Invalid selector name: \"" ||
+					   R_Nm ||
+					   "\" in type: " ||
+					   type_desc$Unparse(R_D.Type_Desc));
+			 end;
+	       Sel_Indx: int,
+	       Sel_Type: type_desc := type_desc$Get_Selector_Type(R_D.Type_Desc,
+	       							  Sel_Nm);
+	       	  except when Not_Selector:
+			      signal Error("Selector not found: \"" ||
+					   Sel_Nm ||
+					   "\" in type: " ||
+					   type_desc$Unparse(R_D.Type_Desc));
+	       		 end;
+	       % Sel_Indx: int := constant$Get_Int(params$Top(R_D.Parameters));
+	       if (sel_value$Would_Be_Integer(Sel_I, Sel_Indx))
+		  then return (down( constant$Make_Int(Sel_Indx) ));
+		  else return (rep$Make_xp_Selector(
+				   sel_value$Create(Sel_I, Sel_Indx) ));
+		  end;
+	   tag q_Sel_Ops (R_V: r_v_desc):
+	       BR_Ds: r_descs := r_v_desc$Sel_Bind(R_V, R_D, Env);
+	       return ( rep$Make_xq_Rtn_Descs(BR_Ds) );
+	   tag r_Sel_Names:
+	       return (down(Make_Seq_String(R_D.Type_Desc.Sel_Name_Strings)));
+	   tag t_Arg_Ops (R_V: r_v_desc):
+	       BR_Ds: r_descs := r_v_desc$Arg_Bind(R_V, R_D, Env);
+	       return ( rep$Make_xq_Rtn_Descs(BR_Ds) );
+	   tag u_Res_Ops (R_V: r_v_desc):
+	       BR_Ds: r_descs := r_v_desc$Res_Bind(R_V, R_D, Env);
+	       return ( rep$Make_xq_Rtn_Descs(BR_Ds) );
+	   tag v_Sig_Ops (R_V: r_v_desc):
+	       BR_Ds: sequence[r_descs] := r_v_desc$Sig_Bind(R_V, R_D, Env);
+	       Cs: consts := consts$New();
+	       for RDs: r_descs in sequence[r_descs]$Elements(BR_Ds) do
+		   Cs := consts$AddH(Cs, up(rep$Make_xq_Rtn_Descs(RDs)));
+		   end;
+	       return ( rep$Make_k_Seq(Cs) );
+	   tag w_Sig_Names:
+	       return (down(Make_Seq_String(R_D.Type_Desc.Sig_Name_Strings)));
+	   others:
+	       return (C);		%% Already bound.
+	   end;
+	   resignal Error;
+	end Bind;
+    
+
+    Instantiate = proc (C: cvt, Skip_Non_Block_Consts: bool, Env: lnk_env)
+		    returns (cvt) signals (error(string));
+	Tab: const_tab;
+	tagcase C
+	   tag a_Null,				%% None of these are ever output
+	       b_Bool,				%% as blocks.
+	       c_Int,
+	       d_Real,
+	       e_Char,
+	       yl_Type,
+	       m_Word:
+	       return (C);
+	   tag xp_Selector , yp_Selector:
+	       if (Skip_Non_Block_Consts)
+		  then return (rep$Copy1(C)); %% If not to instantiate, then get
+		  end;			      %%-unique copy in case another
+	       Tab := Env.Non_Block_Consts;   %%-instance is instantiated.
+	   tag g_C_Param,
+	       h_R_Param:
+	       Should_Never_Happen
+		   [constant]( "Unbound parameter being instantiated", up(C));
+	   tag i_Oneof (OC: oconst):
+	       if (Can_Be_Ref_Oneof(OC))
+		  then return (rep$Make_xi_Ref_Oneof(
+				   oconst${ a_Tag:    OC.a_Tag,
+					    b_Value: Instantiate(
+							 OC.b_Value,
+							 true,
+							 Env) } ));
+		  else Tab := Env.Block_Consts;
+		  end;
+	   tag l_Type (T: type_desc):	      %% Must always instantiate type_descs.
+	       T := type_desc$Instantiate(T, Env);
+		  resignal Error;
+	       rep$Change_yl_Type(C, T);
+	       return (C);			%% Never block output.
+	   tag p_Selector,
+	       q_Sel_Ops,
+	       r_Sel_Names,
+	       t_Arg_Ops,
+	       u_Res_Ops,
+	       v_Sig_Ops,
+	       w_Sig_Names:
+	       Should_Never_Happen[constant](
+		   "Trying to instantiate unbound constant.", up(C) );
+	   tag z_Output,
+	       zz_Unknown:
+	       return (C);
+	   others:			%% Instantiate any others.
+	       Tab := Env.Block_Consts;
+	   end;
+	IC: constant,
+	New_ID: int := const_tab$Enter(Tab, up(C), Env);
+	if (New_ID ~= 0)
+	   then Advance_Constant_Area(IC, Env);
+	   end;
+	rep$V_Gets_V(C, down(IC));
+	return (down(IC));
+	end Instantiate;
+
+
+Can_Be_Ref_Oneof = proc (OC: oconst) returns (bool);
+    if (Fits_Ref_Oneof_Tag(OC.a_Tag))
+       then tagcase down(OC.b_Value)
+	       tag a_Null,
+		   b_Bool,
+		   e_Char,
+		   l_Type, yl_Type:
+		   return (true);
+	       tag c_Int (I: int):
+		   return (Int_Fits_Ref_Oneof(I));
+	       tag d_Real (R: real):
+		   return (Real_Fits_Ref_Oneof(R));
+	       tag f_String, yf_String,
+		   yi_Oneof,
+		   j_Struct, yj_Struct,
+		   k_Seq, yk_Seq,
+		   n_Rel, yn_Rel,
+		   o_Routine, yo_R_Inst,
+		   q_Sel_Ops, xq_Rtn_Descs, yq_R_List,
+		   s_X_String, ys_X_String,
+		   t_Arg_Ops, u_Res_Ops, v_Sig_Ops,
+		   z_Output:
+		   return (mach_constants$Addr_Fits_Ref_Oneof());
+	       tag i_Oneof (OC2: oconst):
+		   return (~ Can_Be_Ref_Oneof(OC2)); %% cand Addr_Fits_Ref_Oneof ??
+	       tag xi_Ref_Oneof:
+		   return (false);
+	       tag m_Word (W: word):
+		   return (Word_Fits_Ref_Oneof(W));
+	       tag g_C_Param,
+		   h_R_Param,
+		   p_Selector, xp_Selector, yp_Selector,
+		   r_Sel_Names, w_Sig_Names,
+		   zz_Unknown:
+		   Should_Never_Happen[constant](
+		       "Invalid constant in oneof:", OC.b_Value);
+	       end;
+       end;
+    return (false);
+    end Can_Be_Ref_Oneof;
+
+
+    Const_to_Long = proc (C: cvt, Env: lnk_env) returns (int) signals (invalid);
+	tagcase C
+	   tag a_Null:
+	       return (vNull_as_Int);
+	   tag b_Bool (B: bool):
+	       if (B)
+		  then return (vTrue_as_Int);
+		  else return (vFalse_as_Int);
+		  end;
+	   tag e_Char (Ch: char):
+	       return (char$C2I(Ch));
+	   tag c_Int (I: int):
+	       return (I + I + 1);
+	   tag d_Real (R: real):
+	       return (0);			%%% Just use zero. ???
+	   tag l_Type, yl_Type (TD: type_desc):
+	       return (vType_ID_Base +
+		       type_desc$Get_UID(TD, Env));
+	   tag m_Word (W: word):
+	       return (word$W_to_I(W));
+	   tag yo_R_Inst (RI: rtn_inst):
+	       return (address$A_to_Int(RI.Entry_Address,
+					Env.Locates));
+		  except when Not_Possible:
+			      signal Invalid;
+			 end;
+	   tag z_Output (Addr: address):
+	       return (address$A_to_Int(Addr, Env.Locates));
+		  except when Not_Possible:
+			      signal Invalid;
+			 end;
+	   tag f_String, yf_String,
+	       g_C_Param,
+	       h_R_Param,
+	       i_Oneof, yi_Oneof, xi_Ref_Oneof,
+	       j_Struct, yj_Struct,
+	       k_Seq, yk_Seq,
+	       n_Rel, yn_Rel,
+	       o_Routine,
+	       p_Selector, xp_Selector, yp_Selector,
+	       q_Sel_Ops, xq_Rtn_Descs, yq_R_List,
+	       r_Sel_Names, w_Sig_Names,
+	       s_X_String, ys_X_String,
+	       t_Arg_Ops, u_Res_Ops, v_Sig_Ops,
+	       zz_Unknown:
+	       signal Invalid;
+	   end;
+	   except when Overflow:
+		       signal Invalid;
+		  end;
+	end Const_to_Long;
+
+
+
+    Advance_Constant_Area = proc (C: cvt, Env: lnk_env);
+	Size: int;
+	tagcase C
+	   tag yf_String (S: string):
+	       Size := Size_of_String(S);
+	   tag yi_Oneof (OC: oconst):
+	       Size := Size_of_Oneof();
+	   tag yj_Struct (SC: consts):
+	       Size := Size_of_Struct(SC);
+	   tag yk_Seq (SC: consts):
+	       Size := Size_of_Seq[constant](SC);
+	   tag yn_Rel (Rel: relative):
+	       return;		%% Never output as top level constants.
+	   tag yo_R_Inst (RI: rtn_inst):
+	       return;		%% Never output as top level constants.
+	   tag yp_Selector (SV: sel_value):
+	       Size := Size_of_Selector(SV);
+	   tag yq_R_List (RL: r_list):
+	       Size := Size_of_Rtn_List(RL);
+	   tag ys_X_String (XStr: ints):
+	       Size := Size_of_X_String(XStr);
+	   others:
+	       Should_Never_Happen
+		   [constant]("Invalid constant type arg to Advance_Constant_Area",
+			      up(C));
+	   end;
+	locate$Advance(Env.Locates.Consts, Size);
+	end Advance_Constant_Area;
+    
+
+    Unparse = proc (C: cvt) returns (string);
+	S: string;
+	tagcase C
+	   tag a_Null:
+	       S := "nil";
+	   tag b_Bool (B: bool):
+	       if (B) then S := "true"; else S:= "false"; end;
+	   tag c_Int (I: int):
+	       S := int$Unparse(I);
+	   tag d_Real (R: real):
+	       S := real$Unparse(R);
+	   tag e_Char (Ch: char):
+	       S := "\'" || string$C2S(Ch) || "\'";
+	   tag f_String, yf_String (Str: string):
+	       S := "\"" || Str || "\"";
+	   tag g_C_Param (CPI: int):
+	       S := "CParam #" || int$Unparse(CPI);
+	   tag h_R_Param (RPI: int):
+	       S := "RParam #" || int$Unparse(RPI);
+	   tag i_Oneof, xi_Ref_Oneof, yi_Oneof (OC: oconst):
+	       S := "oneof[" || int$Unparse(OC.a_Tag) || ": " ||
+		    Unparse(OC.b_Value) || "]";
+	   tag j_Struct, yj_Struct (Cs: consts):
+	       S := "struct[" ||
+		    Unparse_List[constant](Cs,
+					   vMax_List_Output_Length) ||
+		    "]";
+	   tag k_Seq, yk_Seq (Cs: consts):
+	       S := "sequence[" ||
+		    Unparse_List[constant](Cs,
+					   vMax_List_Output_Length) ||
+		    "]";
+	   tag l_Type, yl_Type (T: type_desc):
+	       S := type_desc$Unparse(T);
+	   tag m_Word (W: word):
+	       S := word$Unparse(W);
+	   tag n_Rel, yn_Rel (Rel: relative):
+	       S := Unparse(Rel.b_Val) || "+" || int$Unparse(Rel.a_Offset);
+	   tag o_Routine (R: rtn_desc):
+	       S := rtn_desc$Unparse(R);
+	   tag p_Selector:
+	       S := "SELECTOR";
+	   tag xp_Selector, yp_Selector (SV: sel_value):
+	       S := sel_value$Unparse(SV);
+	   tag q_Sel_Ops (RVD: r_v_desc):
+	       S := "Sel_Ops: " || r_v_desc$Unparse(RVD);
+	   tag r_Sel_Names:
+	       S := "SEL_Names";
+	   tag s_X_String, ys_X_String (XStr: ints):
+	       s := "Extended String: \"" ||
+		    Unparse_List[int](XStr, vMax_List_Output_Length) ||
+		    "\"";
+	   tag t_Arg_Ops (RVD: r_v_desc):
+	       S := "Arg_Ops: " || r_v_desc$Unparse(RVD);
+	   tag u_Res_Ops (RVD: r_v_desc):
+	       S := "Res_Ops: " || r_v_desc$Unparse(RVD);
+	   tag v_Sig_Ops (RVD: r_v_desc):
+	       S := "Sig_Ops: " || r_v_desc$Unparse(RVD);
+	   tag w_Sig_Names:
+	       S := "SIG_Names";
+	   tag yo_R_Inst (RI: rtn_inst):
+	       S := rtn_inst$Unparse(RI);
+	   tag xq_Rtn_Descs (RDs: r_descs):
+	       S := "rtn_list[" ||
+		    Unparse_List[rtn_desc](RDs,
+					   vMax_List_Output_Length) ||
+		    "]";
+	   tag yq_R_List (RL: r_list):
+	       S := r_list$Unparse(RL);
+	   tag z_Output (A: address):
+	       S := "Const@ " || address$OUnparse(A);
+	   tag zz_Unknown:
+	       S := "Unknown Constant";
+	   end;
+	return (S);
+	end Unparse;
+    
+
+    Output_Block = proc (C: cvt, Only_Blocks: bool, Env: lnk_env);
+	Addr: address;
+	tagcase C
+	   tag a_Null,		%% These are never block output.
+	       b_Bool,
+	       c_Int,
+	       d_Real,
+	       e_Char,
+	       l_Type,
+	       m_Word:
+	       return;
+	   tag f_String, yf_String (Str: string):
+	       Addr := Output_String(Str, Env);
+	   tag i_Oneof, yi_Oneof (OC: oconst):
+	       Addr := Output_Oneof(OC.a_Tag, OC.b_Value, Env);
+	   tag xi_Ref_Oneof (OC: oconst):
+	       if (Only_Blocks) then return; end;
+	       Addr := out_link_chan$Start_Object(Env.Output);
+	       Output_Ref_Oneof(OC.a_Tag, OC.b_Value, Env);
+	   tag j_Struct, yj_Struct (Cs: consts):
+	       Addr := Output_Struct(Cs, Env);
+	   tag k_Seq, yk_Seq (Cs: consts):
+	       Addr := Output_Sequence(Cs, Env);
+	   tag n_Rel, yn_Rel (Rel: relative):
+	       Output_Block(Rel.b_Val, false, Env);
+	       Addr := address$Advance(Rel.b_Val.Address, Rel.a_Offset);
+	   tag yo_R_Inst (RI: rtn_inst):
+	       return;			%% Routines are output elsewhere.
+	   tag yp_Selector (SV: sel_value):
+	       if (Only_Blocks) then return; end;
+	       Addr := sel_value$Output(SV, Env);
+	   tag yq_R_List (RL: r_list):
+	       Addr := r_list$Output(RL, Env);
+	   tag s_X_String, ys_X_String (XStr: ints):
+	       Addr := Output_X_String(XStr, Env);
+	   tag z_Output:	        %% Block already output.
+	       return;
+	   tag zz_Unknown:
+	       Should_Never_Happen
+		   [constant]("Unknown constant being block output", up(C));
+	   others:
+	       Should_Never_Happen
+		   [constant]("Unbound or instantiated constant being block output",
+			      up(C));
+	   end;
+	rep$Change_z_Output(C, Addr);    %% Mark it as output.
+	end Output_Block;
+    
+
+    Output_Ref = proc (C: cvt, Env: lnk_env);
+	tagcase C
+	   tag a_Null:
+	       Output_Null(Env);
+	   tag b_Bool (B: bool):
+	       Output_Bool(B, Env);
+	   tag c_Int (I: int):
+	       Output_Int(I, Env);
+	   tag d_Real (R: real):
+	       Output_Real(R, Env);
+	   tag e_Char (Ch: char):
+	       Output_Char(Ch, Env);
+	   tag xi_Ref_Oneof (OC: oconst):
+	       Output_Ref_Oneof(OC.a_Tag, OC.b_Value, Env);
+	   tag l_Type, yl_Type (T: type_desc):
+	       Output_Type(T, Env);
+	   tag m_Word (W: word):
+	       Output_Word(Env, W);
+	   tag yo_R_Inst (RI: rtn_inst):
+	       Output_Reference(RI.Entry_Address, Env);
+	   tag xp_Selector, yp_Selector (SV: sel_value):
+	       sel_value$Output(SV, Env);
+	   tag f_String, yf_String,
+	       i_Oneof, yi_Oneof,
+	       j_Struct, yj_Struct,
+	       k_Seq, yk_Seq,
+	       n_Rel, yn_Rel,
+	       yq_R_List,
+	       s_X_String, ys_X_String:
+	       Should_Never_Happen
+		   [constant]("Block constant being output as ref.",
+			      up(C));
+	   tag g_C_Param,
+	       h_R_Param,
+	       o_Routine,
+	       p_Selector,
+	       q_Sel_Ops,
+	       r_Sel_Names,
+	       t_Arg_Ops,
+	       u_Res_Ops,
+	       v_Sig_Ops,
+	       w_Sig_Names,
+	       xq_Rtn_Descs:
+	       Should_Never_Happen
+		   [constant]("Unbound/uninstantiated constant being ref output.",
+			      up(C));
+	   tag z_Output (A: address):
+	       Output_Reference(A, Env);
+	   tag zz_Unknown:
+	       Should_Never_Happen
+		   [constant]("Unknown constant being ref output", up(C));
+	   end;
+	end Output_Ref;
+    
+
+    Insert_Reference = proc (C: cvt, Input: in_chan, Env: lnk_env)
+			 signals (not_possible);
+	tagcase C
+	   tag a_Null:
+	       reference$Insert_Null(Input);
+	   tag b_Bool (B: bool):
+	       reference$Insert_Bool(Input, B);
+	   tag c_Int (I: int):
+	       reference$Insert_Int(Input, I);
+	   tag d_Real (R: real):
+	       reference$Insert_Real(Input, R);
+	   tag e_Char (Ch: char):
+	       reference$Insert_Char(Input, Ch);
+	   tag xi_Ref_Oneof (OC: oconst):
+	       reference$Insert_Ref_Oneof(Input, OC.a_Tag, OC.b_Value, Env);
+	   tag l_Type, yl_Type (T: type_desc):
+	       reference$Insert_Type(Input, T, Env);
+	   tag m_Word (W: word):
+	       reference$Insert_Word(Input, W);
+	   tag yo_R_Inst (RI: rtn_inst):
+	       reference$Insert_Address(Input, RI.Entry_Address, Env);
+		  resignal Not_Possible;
+	   tag xp_Selector, yp_Selector (SV: sel_value):
+	       sel_value$Insert_Reference(SV, Input);
+	   tag f_String, yf_String,
+	       i_Oneof, yi_Oneof,
+	       j_Struct, yj_Struct,
+	       k_Seq, yk_Seq,
+	       n_Rel, yn_Rel,
+	       yq_R_List,
+	       s_X_String, ys_X_String:
+	       Should_Never_Happen
+		   [constant]("Block constant being converted to ref.",
+			      up(C));
+	   tag g_C_Param,
+	       h_R_Param,
+	       o_Routine,
+	       p_Selector,
+	       q_Sel_Ops,
+	       r_Sel_Names,
+	       t_Arg_Ops,
+	       u_Res_Ops,
+	       v_Sig_Ops,
+	       w_Sig_Names,
+	       xq_Rtn_Descs:
+	       Should_Never_Happen
+		   [constant]("Unbound/uninstantiated constant being converted to ref.",
+			      up(C));
+	   tag z_Output (A: address):
+	       reference$Insert_Address(Input, A, Env);
+		  resignal Not_Possible;
+	   tag zz_Unknown:
+	       Should_Never_Happen
+		   [constant]("Unknown constant converted to ref", up(C));
+	   end;
+	end Insert_Reference;
+    
+
+    Canon_Hasher = proc (C: cvt, Size: int, Env: lnk_env) returns (int);
+	N: int;
+	tagcase C
+	   tag a_Null:
+	       return (0);
+	   tag b_Bool (B: bool):
+	       if (B) then N := 1; else N := 2; end;
+	   tag c_Int (I: int):
+	       N := I;
+	   tag d_Real (R: real):
+	       return (Hash_Real(R, Size));
+	   tag e_Char (Ch: char):
+	       N := char$C2I(Ch);
+	   tag f_String (S: string):
+	       rep$Change_yf_String(C, S);
+	       return (Hash(S, Size));
+	   tag yf_String (S: string):
+	       return (Hash(S, Size));
+	   tag i_Oneof (O: oconst):
+	       O.b_Value := Instantiate(O.b_Value, true, Env);
+	       rep$Change_yi_Oneof(C, O);
+	       N := O.a_Tag + Canon_Hasher(O.b_Value, Size, Env);
+	   tag yi_Oneof (O: oconst):
+	       N := O.a_Tag + Canon_Hasher(O.b_Value, Size, Env);
+	   tag xi_Ref_Oneof (O: oconst):
+	       O.b_Value := Instantiate(O.b_Value, true, Env);
+	       N := O.a_Tag + Canon_Hasher(O.b_Value, Size, Env);
+	   tag j_Struct (SC: consts):
+	       SC := Instantiate_Constants(SC, Env);
+		  except when Error (Err_S: string):
+			      Should_Never_Happen[consts](Err_S, SC);
+			 end;
+	       rep$Change_yj_Struct(C, SC);
+	       return (Hash_Consts(SC, Size, Env));
+	   tag k_Seq (SC: consts):
+	       SC := Instantiate_Constants(SC, Env);
+		  except when Error (Err_S: string):
+			      Should_Never_Happen[consts](Err_S, SC);
+			 end;
+	       rep$Change_yk_Seq(C, SC);
+	       return (Hash_Consts(SC, Size, Env));
+	   tag yj_Struct,
+	       yk_Seq (SC: consts):
+	       return (Hash_Consts(SC, Size, Env));
+	   tag g_C_Param,
+	       h_R_Param,
+	       p_Selector,
+	       q_Sel_Ops,
+	       r_Sel_Names,
+	       t_Arg_Ops,
+	       u_Res_Ops,
+	       v_Sig_Ops,
+	       w_Sig_Names:
+	       Should_Never_Happen
+		   [constant]("Unbound constant being hashed", up(C));
+	   tag l_Type (T: type_desc):
+	       T := type_desc$Instantiate(T, Env);
+		  except when Error (Err_S: string):
+			      Should_Never_Happen[type_desc](Err_S, T);
+			 end;
+	       rep$Change_yl_Type(C, T);
+	       return (type_desc$Canon_Hasher(T, Size, Env));
+	   tag yl_Type (T: type_desc):
+	       return (type_desc$Canon_Hasher(T, Size, Env));
+	   tag m_Word (W: word):
+	       return (word$Hasher(W, Size));
+	   tag n_Rel (Rel: relative):
+	       Rel.b_Val := Instantiate(Rel.b_Val, true, Env);
+	       rep$Change_yn_Rel(C, Rel);
+	       N := Canon_Hasher(Rel.b_Val, Size, Env) + Rel.a_Offset;
+	   tag yn_Rel (Rel: relative):
+	       N := Canon_Hasher(Rel.b_Val, Size, Env) + Rel.a_Offset;
+	   tag o_Routine (R: rtn_desc):
+	       RI: rtn_inst;
+	       begin
+		   rtn_desc$Instantiate(R, Env);
+		   RI := rtn_desc$Closure(R, Env);
+		   end;
+		  except when Error(Err_S: string):
+			      Should_Never_Happen[rtn_desc](Err_S, R);
+			 end;
+	       rep$Change_yo_R_Inst(C, RI);
+	       if (rtn_inst$Is_Stub_Routine(RI))
+		  then Unknown_Routine_Called(RI, Env);
+		  end;
+	       return (rtn_inst$Canon_Hasher(RI, Size, Env));
+	   tag yo_R_Inst (RI: rtn_inst):
+	       if (rtn_inst$Is_Stub_Routine(RI))
+		  then Unknown_Routine_Called(RI, Env);
+		  end;
+	       return (rtn_inst$Canon_Hasher(RI, Size, Env));
+	   tag xp_Selector (SV: sel_value):
+	       rep$Change_yp_Selector(C, SV);
+	       return (sel_value$Hasher(SV, Size));
+	   tag yp_Selector (SV: sel_value):
+	       return (sel_value$Hasher(SV, Size));
+	   tag xq_Rtn_Descs (RDs: r_descs):
+	       R_Is: rtn_insts := rtn_insts$New();
+	       for RD: rtn_desc in r_descs$Elements(RDs) do
+		   begin
+		       rtn_desc$Instantiate(RD, Env);
+		       R_Is := rtn_insts$AddH(R_Is, rtn_desc$Closure(RD, Env));
+		       end;
+		      except when Error(Err_S: string):
+				  Should_Never_Happen[rtn_desc](Err_S, RD);
+			     end;
+		   end;
+	       RL: r_list := r_list$Create(R_Is);
+	       rep$Change_yq_R_List(C, RL);
+	       for RI: rtn_inst in r_list$Elements(RL) do
+		   if (rtn_inst$Is_Stub_Routine(RI))
+		      then Unknown_Routine_Called(RI, Env);
+		      end;
+		   end;
+	       return (r_list$Canon_Hasher(RL, Size, Env));
+	   tag yq_R_List (RL: r_list):
+	       for RI: rtn_inst in r_list$Elements(RL) do
+		   if (rtn_inst$Is_Stub_Routine(RI))
+		      then Unknown_Routine_Called(RI, Env);
+		      end;
+		   end;
+	       return (r_list$Canon_Hasher(RL, Size, Env));
+	   tag s_X_String (XStr: ints):
+	       rep$Change_ys_X_String(C, XStr);
+	       return (Hash_Sequence[int](XStr, Size, Hash_Int));
+	   tag ys_X_String (XStr: ints):
+	       return (Hash_Sequence[int](XStr, Size, Hash_Int));
+	   tag z_Output (A: address):
+	       return (address$Hasher(A, Size));
+	   tag zz_Unknown:
+	       return (1);
+	   end;
+	   except when Overflow: return (0);
+		  end;
+	return  (int$Mod(N, Size));
+	end Canon_Hasher;
+
+    _gcd = proc (C: cvt, Tab: gcd_tab) returns (int);
+	return (rep$_gcd(C, Tab));
+	end _gcd;
+
+    end constant;

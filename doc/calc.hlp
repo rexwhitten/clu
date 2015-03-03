@@ -1,0 +1,14 @@
+A simple calculator program which works internally with either
+floating point numbers or infinite precision integers.
+	+	addition
+	-	subtraction, unary minus
+	*	multiplication
+	/	division
+	^	power
+	!	integer division
+	\	integer modulus
+	=	assignment
+	()	grouping
+	#	as leading char will switch between float and bigint modes
+	^D	quit
+Will accept an expression in its command line.

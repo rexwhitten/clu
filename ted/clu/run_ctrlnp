@@ -1,0 +1,59 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+run_ctrlnp = proc (e: env, c: char) signals (errmsg(string), stop(env, string))
+    normal_ = 0
+    skip_ = 1
+    fixed_ = 2
+    current_ = 3
+    own mode: int := normal_
+    own goal: int := 0
+    b: buf := e.buffer
+    if c = ctrlat
+       then prompt = "Change ^N/^P mode"
+	    legal = "CFRS"
+	    help = "C: try to stay in same column\n" ||
+		   "F: set to fixed column position # (#<=1: current)\n" ||
+		   "R: reset to normal mode\n" ||
+		   "S: set to skip leading blanks and tabs"
+	    i: int, opt: char := get_option (e, prompt, legal, help, false)
+	    if opt = 'C'
+	       then mode := current_
+	     elseif opt = 'F'
+	       then mode := fixed_
+		    if i <= 1
+		       then line, pos: int := buf$get_cursor(b)
+			    goal := _calc_hpos(b[line], pos)
+		       else goal := i - 1
+		       end
+	     elseif opt = 'S'
+	       then mode := skip_
+	     else mode := normal_ end
+	    return
+       end resignal errmsg
+    arg: int := e.this_arg
+    if c = ctrlp
+       then arg := - arg end
+    if mode = normal_
+       then buf$new_cursor(b, arg, 0)
+     elseif mode = skip_
+       then line, pos: int := buf$add_cursor(b, arg, 0)
+	    pos := 1
+	    for c in string$chars(b[line]) do
+		if ~(c = ' ' cor c = '\t') then break end
+		pos := pos + 1
+		end
+	    buf$set_cursor(b, line, pos)
+     else line, pos: int
+	  if mode = current_  cand
+	     e.last_char ~= ctrln  cand  e.last_char ~= ctrlp
+	     then line, pos := buf$get_cursor(b)
+		  goal := _calc_hpos(b[line], pos)
+	     end
+	  line, pos := buf$add_cursor(b, arg, 0)
+	  text: string := b[line]
+	  pos := goal + 1
+	  while goal < _calc_hpos(text, pos) do
+	      pos := pos - 1
+	      end
+	  buf$set_cursor(b, line, pos)
+     end
+    end run_ctrlnp

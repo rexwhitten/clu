@@ -1,0 +1,209 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+% The following routines supply a primitive line drawing
+% capability in TED.  To enter "Draw mode", type ^X^D.  This will
+% display
+
+top = "**** Draw Mode (type ^H for help) ****"
+
+% at the top of the screen.
+
+help = "^A:   start of line\n" ||
+       "^B:   backward # characters\n" ||
+       "^E:   end of line\n" ||
+       "^F:   forward # characters\n" ||
+       "^G:   exit to normal mode\n" ||
+       "^L:   redisplay\n" ||
+       "^N:   forward # lines\n" ||
+       "^P:   backward # lines\n" ||
+       "^T:   set mark at cursor (#>1: swap mark & cursor)\n" ||
+       "^Z:   start of last line drawn\n" ||
+       "char: draw line (#>1: no overwrite)"
+
+% pad_to_char(n,c) returns a string that is n chars long, where
+% the last char is c, and the other chars are blanks.  If n < 1,
+% the empty string will be returned.
+
+pad_to_char = proc (n: int, c: char) returns (string)
+    if n < 1 then return ("") end
+    if n = 1 then return (c2s(c)) end
+    ac: act := act$fill(1, n, ' ')
+    ac[n] := c
+    return (ac2s(ac))
+    end pad_to_char
+
+% set_char will replace the indicated line in the buffer with a
+% line that has the indicated character set to c, provided that
+% the character previously at that position was blank or that
+% overprinting was requested (over = true).  Bounds is signalled
+% if there is no such row or the column is less than 1.
+
+set_char = proc (b: buf, row, col: int, c: char, over: bool) signals (bounds)
+    if row < 1  cor  row > buf$size(b)  cor  col < 1
+       then signal bounds end
+    oc: char := b[row][col]
+       except when bounds: oc := ' ' end
+    if c = oc  cor  (~over cand oc ~= ' ') then return end
+    line: string := b[row]
+    lsiz: int := string$size(line)
+    if col <= lsiz
+       then % replace char in string with new char
+	    line := string$append(string$substr(line, 1, col-1), c) ||
+		    string$rest(line, col+1)
+       else % extend old string
+	    line := line || pad_to_char(col-string$size(line), c)
+       end
+    b[row] := line
+    end set_char
+
+% enter_draw_mode is run when draw mode is entered.
+
+enter_draw_mode = proc (e: env, c: char)
+		    signals (errmsg(string), stop(env, string))
+
+    b: buf := e.buffer
+    line, pos: int := buf$get_cursor(b)
+    aline, zline: int := buf$get_frame(b)
+    if line < aline
+       then line := aline
+	    pos := 1
+       end
+    minline: int := line
+    maxline: int := line
+    lmline, lmpos: int := buf$get_mark(b)
+    if lmline < aline  cor  lmline > zline
+       then lmline := line
+	    lmpos := pos
+       end
+    mline: int := line
+    mpos: int := pos
+    vsiz, hsiz: int := _get_screen_size()
+    arg: int := 1
+    cursor_changed: bool := false
+    need_top: bool := true
+    while true do
+	if ~_pending_chars() then
+	   if need_top then top_display(e, top) end
+	   need_top := false
+	   env$display(e)
+	   end
+	c := _getc()
+	if c = ctrlg then
+	   break
+	 elseif c = ctrll then
+	   env$clear(e)
+	   need_top := true
+	 elseif c >= ' ' cand c < del then
+	   over: bool := arg <= 1
+	   if mline = line
+	      then % Horizontal line.
+		   for i: int in int$from_to(int$min(pos, mpos), int$max(pos, mpos)) do
+		       set_char(b, mline, i, c, over)
+		       end
+	    elseif mpos = pos
+	      then % Vertical line.
+		   for i: int in int$from_to(int$min(line, mline), int$max(line, mline)) do
+		       set_char(b, i, mpos, c, over)
+		       end
+	    else % Diagonal line.
+		 % (Use real arithmetic to avoid truncation errors)
+		 dx: real := real$i2r(pos - mpos)
+		 dy: real := real$i2r(line - mline)
+		 len: real := sqrt(dx*dx + dy*dy)
+		 dx := dx / len
+		 dy := dy / len
+		 for i: int in int$from_to(0, real$r2i(len)-1) do
+		     r: real := real$i2r(i)
+		     set_char(b,
+			      real$r2i(dy * r) + mline,
+			      real$r2i(dx * r) + mpos,
+			      c, over)
+		     end
+		 set_char(b, line, pos, c, over)
+	    end
+	   lmline := mline
+	   lmpos := mpos
+	   mline := line
+	   mpos := pos
+	   env$maybe_change(e)
+	 elseif c = ctrlh then
+	   type_string(e, help, "---- Help for Draw Mode:")
+	   env$display(e)
+	   need_top := true
+	 elseif c = ctrlt cand arg <= 1 then
+	   % set mark to current position
+	   mline := line
+	   mpos := pos
+	 elseif c = ctrlt then
+	   % exchange mark and cursor
+	   line, mline := mline, line
+	   pos, mpos := mpos, pos
+	   cursor_changed := true
+	 elseif c = ctrlz then
+	   % set cursor to last used mark
+	   line := lmline
+	   pos := lmpos
+	   cursor_changed := true
+	 elseif c = ctrlu then
+	   arg := arg * 4
+	      except when overflow: end
+	   continue
+	 elseif c = ctrlp then
+	   line := int$max(line - arg, aline)
+	   cursor_changed := true
+	 elseif c = ctrlb then
+	   pos := int$max(pos - arg, 1)
+	   cursor_changed := true
+	 elseif c = ctrlf then
+	   pos := pos + arg
+	   if pos >= hsiz then pos := hsiz-1 end
+	   cursor_changed := true
+	 elseif c = ctrln then
+	   line := line + arg
+	   cursor_changed := true
+	 elseif c = ctrla then
+	   pos := 1
+	   cursor_changed := true
+	 elseif c = ctrle then
+	   pos := string$size(b[line])
+	   cursor_changed := true
+	 else %invalid character
+	      _bell()
+	      continue
+	 end
+	if cursor_changed then
+	   if line > zline
+	      then buf$set_cursor(b, zline, max_int)
+		   while zline < line do
+		       buf$insert(b, "\n")
+		       zline := zline + 1
+		       end
+		   env$maybe_change(e)
+	      end
+	   s: string := b[line]
+	   if string$size(s) < pos then
+	      b[line] := s || pad_to_char(pos-string$size(s), ' ')
+	      end
+	   buf$set_cursor(b, line, pos)
+	   cursor_changed := false
+	   if line < minline then minline := line
+	    elseif line > maxline then maxline := line
+	    end
+	   end
+	arg := 1
+	end
+
+    buf$set_mark(b, mline, mpos)
+
+    % trim trailing spaces from lines drawn on
+    for i: int in int$from_to(minline, maxline) do
+	s: string := b[i]
+	j: int := string$size(s)
+	while s[j] = ' ' do
+	    j := j - 1
+	    end except when bounds: end
+	b[i] := string$substr(s, 1, j)
+	end
+
+    % conditionally update the display
+    if ~env$display(e) then top_display(e, "") end
+    end enter_draw_mode

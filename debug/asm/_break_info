@@ -1,0 +1,489 @@
+;; Copyright Massachusetts Institute of Technology 1984, 1989
+
+_break_info = cluster is
+	create,
+	get_slots,
+	get_call_addr,
+	get_callee,
+	get_callee_code,
+	get_callee_rtrn,
+	get_callee_frame,
+	get_callee_info,
+	get_caller,
+	get_caller_frame,
+	get_caller_info,
+	get_resume_addr,
+	get_pseudo_resume_addr,
+	get_resume_frame,
+	get_single_stepping,
+	set_single_stepping,
+	get_should_check,
+	set_should_check,
+	get_should_break,
+	set_should_break,
+	get_enter_trace,
+	set_enter_trace,
+	get_leave_trace,
+	set_leave_trace,
+	get_yield_break,
+	set_yield_break,
+	caller_is_traced,
+	is_iter,
+	adjust_iter_frame
+
+db%code_addr = 24			;; Offset in debug block of code addr.
+
+BISlots		=  4		;; Slots from _rtn_trace_info.trace_range
+BIFlags		=  8		;; Tracing flags for this frame (all fit in byte)
+BIPP		=  12		;; Call's pp
+BIRtrn_Addr	=  16		;; Call's return address (to caller)
+BIOEP		=  20		;; Caller's ep
+BIYield_Addr	=  24		;; Call's yield address (to body of iteration)
+BIResume_Addr	=  28		;; Iterator's resume address
+BIResume_EP	=  32		;; Iterator's resume ep
+BINEP		=  36		;; Callee's ep (to this frame)
+BICallee_Code	=  40		;; Start of callee's entry code vector
+BICaller_Info	=  44		;; _rtn_info for caller
+BICallee_Info	=  48		;; _rtn_info for callee
+BIArgs		=  52		;; Call's arguments
+vBISize		=  13
+
+tf%Check	= 0001		;; Should check for break
+tf%Break	= 0002		;; Should break on call and return
+tf%SStep	= 0004		;; Single stepping this invocation
+tf%Ent_Trc	= 0010		;; Set trace flag when proceeding this frame.
+tf%Lv_Trc	= 0020		;; Set trace flag when leaving this frame.
+tf%Yld_Brk	= 0040		;; Break when yielding from or resuming this frame
+tf%MYld		= 0100		;; MYld in progress
+
+tf%Default	= tf%Check + tf%Ent_Trc + tf%Lv_Trc
+				;; Default to always check and trace.
+tf%brk_default  = tf%default + tf%break + tf%yld_brk	;; Default + break flags (for create).
+
+;; Bit numbers
+tn%Check	= 0
+tn%Break	= 1
+tn%SStep	= 2
+tn%Ent_Trc	= 3
+tn%Lv_Trc	= 4
+tn%Yld_Brk	= 5
+tn%MYld		= 6
+
+
+
+	;; Create a _break_info structure for the routine described by
+	;; callee_into adn replace the contents of frm with this new "fake EP".
+	;; break_frag is used to set the break flage in the _break_info
+	;; structure.
+	;; (is_entry is not currently used---it is probably a remnant of
+	;; the DEC-20 implementation.)
+
+	create = proc (frm: _frame, callee_info: _rtn_info, break_flag: bool,
+			is_entry: bool) returns (cvt)
+		var	callee_rti
+		var	bi
+		movea	frm, rr
+		movea	(rr), rr
+		iflt	cmpa	heaphi, rr	;; Is rr in heap (i.e.,
+ 						;; already a fake ep)?
+		then	return (rr)	;; Yes. Just return it.
+			end
+		bi := _vec[_obj]$create(vBIsize)	;; Create a new _break_info structure.
+		_break_info$%collect_args (frm, callee_info)	;; Create a vector
+ 					;; containing the callee's arguments.
+		movea	bi, r1
+		move	rr, BIArgs(r1)	;; Store the arg vector in the BI.
+		ift	_rtn_info$uses_params (callee_info)
+		then	movea	frm, r1
+			movea	-4(r1), rr	;; Get pp.
+			movea	bi, r2
+			move	rr, BIPP(r2)	;; Save pp in BI.
+			movea	-4(rr), rr	;; Get routine debug block which 
+					;; is stored in the longword preceding
+ 					;; the parameterized use list.
+			move	rr, BIcallee_code(r2)	;; And save it in the BI.
+		else	_rtn_info$get_routine (callee_info)
+			movea	bi, r1
+			move	rr, BIcallee_code(r1)
+			end
+
+		callee_rti := _get_trace_info (rr)
+		_rtn_trace_info$get_trace_range (rr)
+		_trace_rng$get_slots (rr)
+
+		movea	bi, r1
+		move	rr, BIslots(r1)	;; Store trace-ranged slots in BI.
+		ifeq	tst	break_flag
+		then	moveb	tf%default, BIFlags(r1)	;; Set default flags
+		else	moveb	tf%brk_default, BIFlags(r1)	;; Set default flags + break
+			end
+		move	callee_info, BIcallee_info(r1)	;; Store _rtn_info for callee in BI.
+		movea	frm, r2		;; Get real ep
+		move	r2, BINEP(r1)	;; Put in real ep.
+		move	(r2), BIOEP(r1)	;; Put in old ep.
+		move	4(r2), BIRtrn_Addr(r1)	;; Put in return addr. to caller.
+		lea	_dbg_trace_return, r3
+		move	db%code_addr(r3), 4(r2)
+					;; Replace return addr. on stack with
+ 					;; addr. of debugger return rtn.
+
+		;; Save _rtn_info for caller in the _break_info structure.
+		_get_frm_table ()
+		move	rr, -(sp)
+		movea	bi, r1
+		movea	BIrtrn_addr(r1), rr
+		_frm_table$lookup (*, rr)
+		movea	bi, r1
+		move	rr, BIcaller_info(r1)
+
+		ift	_rtn_info$is_iter (callee_info)
+		then	movea	frm, r2
+			movea	bi, r1
+			move	8(r2), BIyield_addr(r1)	;; Put in yield addr. 
+ 					;; which is between arg n-1 and return
+ 					;; addr. of caller in callee's frame.
+			lea	_dbg_trace_yield, r3
+			move	db%code_addr(r3), 8(r2)
+					;; Replace yield addr. in frame with
+ 					;; debugger's yield routine.
+		else	movea	frm, r2
+			end
+		
+		movea	bi, rr
+		move	rr, (r2)	;; Put fake ep into the frame,
+		return (rr)		;; and return it.
+		end create
+
+	%collect_args = proc (frm: _frame, rtn_inf: _rtn_info) returns (_vec[_obj])
+		var is_iter
+		var is_paramed
+		is_iter := _rtn_info$is_iter(rtn_inf)
+		is_paramed := _rtn_info$is_parameterized(rtn_inf)
+		_rtn_info$get_num_args (rtn_inf)
+		_vec[_obj]$create(rr)	;; Leave # args in rr.
+		movea	rr, r1		;; Use r1 to move args in.
+		movea	frm, r2		;; Frm in r2.
+		move	(r1)+, n1	;; # args * 4 + 2.
+		move	n1, n2
+		asr	2, n1		;; Get real # args
+		ifge	subq	1, n1	;; Real # args - 1. Skip if none
+		then	if	beq	next	;; Skip if 1 arg.
+			then	ifne	tst	is_iter
+				then	tst	(r2)+		;; Skip resume pc.
+				end
+				subq	6, n2		;; (#args-1) * 4.
+				lea	8(r2, n2), r2	;; Get addr of first arg.
+				qloop	move	-(r2), (r1)+	;; Move in arg.
+					subq	1, n1
+					bgt	this	;; Loop if more.
+					end
+				end
+			movea	frm, r2	;; Set to get last arg.
+			ifne	tst	is_paramed	;; Check if parameterized.
+			then	move	-8(r2), (r1)+	;; Yes, skip pp.
+			else	move	-4(r2), (r1)+	;; No.
+				end
+			end
+		movea	n0, r1		;; (Don't leave invalid ref.)
+		return (rr)		;; Return args.
+		end %collect_args
+
+	get_slots = qproc (bi: cvt) returns (_brk_slots)
+		_brk_slots = variant[	a_all: null,
+					b_some: sequence[_obj]]
+		movea	BISlots(rr), rr
+		return (rr)
+		end get_slots
+
+	get_call_addr = qproc (bi: cvt) returns (_obj)
+		movea	BIRtrn_Addr(rr), rr
+		return (rr)
+		end get_call_addr
+
+	get_callee = qproc (bi: cvt) returns (_obj)
+		movea	BICallee_Code(rr), rr
+		return (rr)
+		end get_callee
+
+	;; On 68000 (and VAX), same as get_callee.
+	get_callee_code = qproc (bi:cvt) returns (_obj)
+		movea	BICallee_Code(rr), rr
+		return (rr)
+		end get_callee_code
+
+	;; Return address for break routines to proceed from break.
+	get_callee_rtrn = qproc (bi:cvt) returns (_obj)
+		movea	BICallee_Code(rr), rr
+		movea	db%code_addr(rr), rr	;; Get real start of code from 
+ 					;; the debug block.
+		return (rr)
+		end get_callee_rtrn
+
+	get_callee_frame = qproc (bi: cvt) returns (_frame)
+		movea	BINEP(rr), rr
+		return (rr)
+		end get_callee_frame
+
+	get_callee_info = qproc (bi:cvt) returns (_rtn_info)
+		movea	BICallee_Info(rr), rr
+		return (rr)
+		end get_callee_info
+
+	get_caller = proc (bi: cvt) returns (_obj)
+		movea	BICaller_Info(rr), rr
+		ift	_rtn_info$uses_params(rr)
+		then	movea	bi, rr
+			movea	BIOEP(rr), rr	;; Get caller's frame.
+			movea	-4(rr), rr	;; Get caller's pp.
+			movea	-4(rr), rr	;; Get code entry block.
+		else	movea	bi, rr
+			movea	BICaller_Info(rr), rr
+			_rtn_info$get_routine(rr)
+			end
+		return (rr)
+		end get_caller
+
+	get_caller_frame = qproc (bi: cvt) returns (_frame)
+		movea	BIOEP(rr), rr
+		return (rr)
+		end get_caller_frame
+
+	get_caller_info = qproc (bi: cvt) returns (_rtn_info)
+		movea	BICaller_Info(rr), rr
+		return (rr)
+		end get_caller_info
+
+	get_resume_addr = qproc (bi: cvt) returns (_obj)
+		movea	BIResume_Addr(rr), rr
+		return (rr)
+		end get_resume_addr
+
+	get_pseudo_resume_addr = qproc (bi: cvt) returns (_obj)
+		movea	BIresume_ep(rr), r1
+		movea	BINEP(rr), r3
+		ifeq	cmpa	r1, r3	;; If resume ep = nep then iter not
+					;; optimized and pseudo resume addr is
+ 					;; just the resume addr.
+		then	movea	BIresume_addr(rr), rr
+			return (rr)
+			end
+
+		movea	(r1), r4
+		;; Chain back up calls until we find the ep for
+		;; the callee of the optimized loop. If the callee
+		;; was not optimized also then we already have it.
+		loop	;; Get old ep for other iter in r2.
+			iflt	cmpa	heaphi, r4	;; Fake?
+			then	movea	BIOEP(r4), r2
+			else	movea	r4, r2
+				end
+			cmpa	r3, r2	;; Found callee yet?
+			beq	next
+			movea	r2, r1	;; No. Back up one frame
+			movea	(r1), r4;; and try again.
+			end
+		;; Compute pseudo return address in for loop (it
+		;; will be the start of the for loop). If
+		;; the other iter had a fake frame, get the
+		;; return address for the computation from the BI. If
+		;; it didn't, get the return address out of the stack
+		;; frame.
+		iflt	cmpa	heaphi, r4	;; Is it fake?
+		then	movea	BIrtrn_addr(r4), rr	;; Yes.
+		else	movea	4(r1), rr	;; Not fake.
+			end
+		lea	-8(rr), rr
+		return (rr)
+		end get_pseudo_resume_addr
+
+
+	get_resume_frame = qproc (bi: cvt) returns (_frame)
+		movea	BIResume_EP(rr), rr
+		return (rr)
+		end get_resume_frame
+
+	get_single_stepping = qproc (bi: cvt) returns (bool)
+		ifeq	btst	tn%sstep, BIFlags(rr)
+		then	return (false)
+			end
+		return (true)
+		end get_single_stepping
+
+	set_single_stepping = qproc (bi: cvt, f: bool)
+		movea	bi, r1
+		ift
+		then	bset	tn%sstep, BIFlags(r1)
+		else	bclr	tn%sstep, BIFlags(r1)
+			end
+		return
+		end set_single_stepping
+
+	get_should_check = qproc (bi: cvt) returns (bool)
+		ifeq	btst	tn%check, BIFlags(rr)
+		then	return (false)
+			end
+		return (true)
+		end get_should_check
+
+	set_should_check = qproc (bi: cvt, f: bool)
+		movea	bi, r1
+		ift
+		then	bset	tn%check, BIFlags(r1)
+		else	bclr	tn%check, BIFlags(r1)
+			end
+		return
+		end set_should_check
+
+	get_should_break = qproc (bi: cvt) returns (bool)
+		ifeq	btst	tn%break, BIFlags(rr)
+		then	return (false)
+			end
+		return (true)
+		end get_should_break
+
+	set_should_break = qproc (bi: cvt, f: bool)
+		movea	bi, r1
+		ift
+		then	bset	tn%break, BIFlags(r1)
+		else	bclr	tn%break, BIFlags(r1)
+			end
+		return
+		end set_should_break
+
+	get_enter_trace = qproc (bi: cvt) returns (bool)
+		ifeq	btst	tn%Ent_Trc, BIFlags(rr)
+		then	return(false)
+			end
+		return (true)
+		end get_enter_trace
+
+	set_enter_trace = qproc (bi: cvt, f: bool)
+		movea	bi, r1
+		ift
+		then	bset	tn%ent_trc, BIFlags(r1)
+		else	bclr	tn%ent_trc, BIFlags(r1)
+			end
+		return
+		end set_enter_trace
+
+	get_leave_trace = qproc (bi: cvt) returns (bool)
+		ifeq	btst	tn%lv_trc, BIFlags(rr)
+		then	return (false)
+			end
+		return (true)
+		end get_leave_trace
+
+	set_leave_trace = qproc (bi: cvt, f: bool)
+		movea	bi, r1
+		ift
+		then	bset	tn%lv_trc, BIFlags(r1)
+		else	bclr	tn%lv_trc, BIFlags(r1)
+			end
+		return
+		end set_leave_trace
+
+	get_yield_break = qproc (bi: cvt) returns (bool)
+		ifeq	btst	tn%yld_brk, BIFlags(rr)
+		then	return (false)
+			end
+		return (true)
+		end get_yield_break
+
+	set_yield_break = qproc (bi: cvt, f: bool)
+		movea	bi, r1
+		ift
+		then	bset	tn%yld_brk, BIFlags(r1)
+		else	bclr	tn%yld_brk, BIFlags(r1)
+			end
+		return
+		end set_yield_break
+
+	caller_is_traced = qproc (bi: cvt) returns (bool)
+		movea	BIOEP(rr), rr	;; Get caller's frame.
+		ifge	cmpa	heaphi, rr
+		then	return (false)	;; rr >= heaphi so rr not in heap.
+			end
+		return (true)
+		end caller_is_traced
+
+	is_iter = proc (bi: cvt) returns (bool)
+		movea	BICallee_Info(rr), rr
+		_rtn_info$is_iter(rr)
+		return (rr)
+		end is_iter
+
+	;; adjust_iter_frame sets up the suspended iterators, called from cfrm
+	;; where the first iterator is ifrm, so that the debugger will gain
+	;; control on resumes to those iterators. If ifrm was at an optimized
+	;; loop with rsm_frm as the lowest iterator (which gains direct control
+	;; on resume) then rsm_frame + all iters. in between are given fake
+	;; frames. Indx is the byte offset in cfrm of the called iterator's ep.
+	adjust_iter_frame = proc (bi: cvt, cfrm: _frame, indx: int, 
+			ifrm: _frame, rsm_addr: _obj, rsm_frame: _frame)
+			signals (not_an_iter)
+		var	lkp_addr, frm, ibi
+
+		iff	_break_info$is_iter(bi)
+		then	signal not_an_iter
+			end
+
+		;; If ifrm is at an optimiized for loop then it will not equal
+		;; rsm_frame. In that case we must go up the call chain from
+		;; rsm_frame putting in _break_infos all the way up.
+		;; Intermediate BIs whose resume addresses are unknown will get
+		;; dbg_trace_resume as a resume address.
+		lkp_addr := rsm_addr	;; Lookup address into frame table
+		frm := rsm_frame
+		loop
+			movea	frm, rr
+			cmpa	ifrm, rr 	;; Are we resuming to the iter. yet?
+			beq	next	;; Yes. Leave loop.
+			movea	(rr), rr
+			ifge	cmpa	heaphi, rr	;; Does iter. already have fake ep?
+			then	_get_frm_table()	;; No. Create a BI for it.
+				move	rr, -(sp)
+				movea	lkp_addr, rr
+				_frm_table$lookup (*, rr)	;; Get iter rtn info.
+				move	frm, -(sp)
+				move	rr, -(sp)
+				ibi := _break_info$create (*, *, false, false)
+				_adjust_break_info (rr)	;; Fix break flags.
+				movea	ibi, rr
+				end
+			move	rsm_addr, BIresume_addr(rr)	;; Save resume addr.
+			move	rsm_frame, BIresume_ep(rr)	;; Save resume ep.
+			lea	_dbg_trace_resume, r1
+			move	db%code_addr(r1), rsm_addr	;; Now use dbg resume address.
+			lkp_addr := _frame$get_loop (frm)	;; Use loop body addr for lookups.
+			rsm_frame := frm
+			frm := _frame$get_prev (frm)
+			end
+
+		ifne	cmp	indx, n0   	;; Is cfrm's rtn an opt. iter?
+		then	move	indx, n1	;; No. Get byte offset in cfrm
+ 						;;  of iter's ep as CLU int.
+			asr	2, n1		;; Index into frame (Offset/4) as CLU int.
+			addq	3, n1		;; (Index + 1) is index of iter's sp.
+			_frame$fetch (cfrm, n1)	;; Get it.
+			lea	_dbg_trace_resume, r1
+			move	db%code_addr(r1), (rr)	;; Put trace resume addr. in stack.
+			move	indx, n1
+			asr	2, n1
+			addq	1, n1
+			_frame$store (cfrm, n1, ifrm)	;; Store iter's EP.
+		else	_frame$fetch (cfrm, n0)	;; Get optimized iter's BI.
+			;; Note: we're assuming here that cfrm has a fake EP.
+			;; This is reasonable since the suspended iters for
+			;; cfrm are generated by _frame$iters, which only
+			;; handles optimized iters if they have fake EPs.
+			lea	_dbg_trace_resume, r1
+			move	db%code_addr(r1), BIresume_addr(rr)
+			move	ifrm, BIresume_ep(rr)
+			end
+		movea	bi, r1
+		move	rsm_addr, BIresume_addr(r1)	;; Save resume address.
+		move	rsm_frame, BIresume_ep(r1)	;; Save resume ep.
+		end adjust_iter_frame
+
+
+	end _break_info

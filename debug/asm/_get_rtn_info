@@ -1,0 +1,17 @@
+; Copyright Massachusetts Institute of Technology 1984, 1989
+
+
+%rtnhd = 047271 			;; JSR with absolute.L operand.
+%info = 8				;; Offset to _rtn_info in debug block.
+
+_get_rtn_info = qproc (x: _obj) returns (_rtn_info) signals (not_found)
+	ifeq	cmpa	heaplo, rr	;; Has to be below the heap...
+		bge	next
+		cmpa	0377, rr	;; but >8bits worth of data.
+		ble	next
+		cmpiw	%rtnhd, (rr)	;; Routine?
+	then	movea	%info(rr),rr	;; Get _rtn_info.
+		return	(rr)
+	end
+	signal	not_found
+	end _get_rtn_info

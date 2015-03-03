@@ -1,0 +1,282 @@
+%% Copyright Massachusetts Institute of Technology 1980, 1989
+
+objs = sequence[_obj]
+
+%%% Take a break at call to frame BI
+%%% (SEP/Nov  6 1984)
+
+_Proc_Call_Break = proc (BI: _break_info);
+    PS: pstream := pstream$Primary_Output();
+    while (true) do
+	pstream$Pause(PS, "");
+	pstream$Text(PS, "Calling ");
+	begin
+	    Slot_N: int := _Find_Slot(BI.Caller_Info, BI.Call_Addr);
+	    pstream$Text(PS, "(slot ");
+	    int$Print(Slot_N, PS);
+	    pstream$Text(PS, ") ");
+	    end;
+	   except when Not_Found:
+		  end;
+	_obj$Print(BI.Callee_Code, PS);
+	pstream$Pause(PS, "");
+	Do_Both, Is_Short: bool := _frame_flags$Get();
+	_Print_Frame(BI.Callee_Frame, BI.Callee_Info, Is_Short);
+	if (Do_Both)
+	   then _Print_Frame(BI.Caller_Frame, BI.Caller_Info, Is_Short);
+	   end;
+	if (_Call_Break_Command(BI))
+	   then return;
+	   end;
+	end;
+    end _Proc_Call_Break;
+
+%%% Take a break on a return from frame BI with results as given in Res.
+%%% Returns the results (which may have been altered in the break loop).
+%%% (SEP/Nov  6 1984)
+
+_Proc_Return_Break = proc (BI: _break_info, Res: objs) returns (objs);
+    PS: pstream := pstream$Primary_Output();
+    while (true) do
+	Do_Both, Is_Short: bool := _frame_flags$Get();
+	pstream$Pause(PS, "");
+	_obj$Print(BI.Callee_Code, PS);
+	pstream$Text(PS, " returns");
+	_Print_Vals(Res, Is_Short);
+	pstream$Pause(PS, "");
+	_Print_Frame(BI.Callee_Frame, BI.Callee_Info, Is_Short);
+	if (Do_Both)
+	   then _Print_Frame(BI.Caller_Frame, BI.Caller_Info, Is_Short);
+	   end;
+	if (_Return_Break_Command(BI))
+	   then return (Res);
+	   end;
+	Res := _Get_New_Results(_frame$Current());
+	end;
+    end _Proc_Return_Break;
+
+%%% Take a break on a signal from frame BI of the exception named SigN with
+%%% results SigVs. Returns the name of the exception being signaled and the
+%%% results (both of which may be changed during the break).
+%%% (SEP/Nov  6 1984)
+
+_Rtn_Signal_Break = proc (BI: _break_info, SigN: string, SigVs: objs)
+		      returns (string, objs);
+    PS: pstream := pstream$Primary_Output();
+    while (true) do
+	Do_Both, Is_Short: bool := _frame_flags$Get();
+	pstream$Pause(PS, "");
+	_obj$Print(BI.Callee_Code, PS);
+	pstream$Text(PS, " signals ");
+	pstream$Text(PS, SigN);
+	_Print_Vals(SigVs, Is_Short);
+	pstream$Pause(PS, "");
+	_Print_Frame(BI.Callee_Frame, BI.Callee_Info, Is_Short);
+	if (Do_Both)
+	   then _Print_Frame(BI.Caller_Frame, BI.Caller_Info, Is_Short);
+	   end;
+	if (_Signal_Break_Command(BI))
+	   then return (SigN, SigVs);
+	   end;
+	SigVs := _Get_New_Results(_frame$Current());
+	end;
+    end _Rtn_Signal_Break;
+
+
+%%% Take a break at a yield from the iterator in frame BI, yielding results
+%%% in Res. Returns a (possibly changed) results vector.
+%%% (SEP/Nov  6 1984)
+
+_Iter_Yield_Break = proc (BI: _break_info, Res: objs) returns (objs);
+    PS: pstream := pstream$Primary_Output();
+    while (true) do
+	Do_Both, Is_Short: bool := _frame_flags$Get();
+	pstream$Pause(PS, "");
+	_obj$Print(BI.Callee_Code, PS);
+	pstream$Text(PS, " yields");
+	_Print_Vals(Res, Is_Short);
+	pstream$Pause(PS, "");
+	_Print_Frame(BI.Callee_Frame, BI.Callee_Info, Is_Short);
+	if (Do_Both)
+	   then _Print_Frame(BI.Caller_Frame, BI.Caller_Info, Is_Short);
+	   end;
+	if (_Yield_Break_Command(BI))
+	   then return (Res);
+	   end;
+	Res := _Get_New_Results(_frame$Current());
+	end;
+    end _Iter_Yield_Break;
+
+
+%%% Take a break on a resume to iterator in frame BI
+%%% (SEP/Nov  6 1984)
+
+_Iter_Resume_Break = proc (BI: _break_info);
+    PS: pstream := pstream$Primary_Output();
+    while (true) do
+	pstream$Pause(PS, "");
+	pstream$Text(PS, "Resuming ");
+	_obj$Print(BI.Callee_Code, PS);
+	pstream$Pause(PS, "");
+	Do_Both, Is_Short: bool := _frame_flags$Get();
+	_Print_Frame(BI.Callee_Frame, BI.Callee_Info, Is_Short);
+	if (Do_Both)
+	   then _Print_Frame(BI.Caller_Frame, BI.Caller_Info, Is_Short);
+	   end;
+	if (_Resume_Break_Command(BI))
+	   then return;
+	   end;
+	end;
+    end _Iter_Resume_Break;
+
+
+%%% Take a break on a return from an iterator. Dum_Res is a dummy results
+%%% vector (since iterators cannot return anything) which is just here
+%%% for convenience so that this calls resembles Proc_Return_Break().
+%%% (SEP/Nov  6 1984)
+
+_Iter_Return_Break = proc (BI: _break_info, Dum_Res: objs) returns (objs);
+    PS: pstream := pstream$Primary_Output();
+    while (true) do
+	pstream$Pause(PS, "");
+	_obj$Print(BI.Callee_Code, PS);
+	pstream$Pause(PS, " returns");
+	Do_Both, Is_Short: bool := _frame_flags$Get();
+	_Print_Frame(BI.Callee_Frame, BI.Callee_Info, Is_Short);
+	if (Do_Both)
+	   then _Print_Frame(BI.Caller_Frame, BI.Caller_Info, Is_Short);
+	   end;
+	if (_Iter_Return_Break_Command(BI))
+	   then return (Dum_Res);
+	   end;
+	end;
+    end _Iter_Return_Break;
+
+%%% Recreate a results vector from the results currently onthe stack (or if
+%%% there is >1 result on the stack, just use the vector stored there).
+%%% (SEP/Nov  6 1984)
+
+_Get_New_Results = proc (Frm: _frame) returns (objs);
+    % 'Frm := Frm.Prev.Prev' sets Frm equal to the EP immediately after
+    % the calls to _results in the debugger return routine. (We are assuming
+    % a lot about how this routine is called!) 2 longwords above the EP we
+    % find the number of results and in the longword below the EP we find
+    % either NIL (if there were no results), the result itself (if there was
+    % only 1) or a vector of results (if there were more than 1).
+    Frm := Frm.Prev.Prev; 
+    Num: int := _Cvt[_obj, int](Frm[2]);
+    if (Num = 0)
+       then return (objs$[]);
+     elseif (Num = 1)
+       then return (objs$[Frm[-1]]);
+     else return (_Cvt[_obj, objs](Frm[-1]));
+     end;
+    end _Get_New_Results
+
+%%% Display the specified frame in long or short form. Rtn is the info. for the
+%%% routine called in Frm.
+%%% (SEP/Nov  6 1984)
+
+_Print_Frame = proc (Frm: _frame, Rtn: _rtn_info, Is_Short: bool);
+    PS: pstream := pstream$Primary_Output();
+    Flat: bool := PS.Flat;
+    PS.Flat := true;
+    if (Is_Short)
+       then _Print_Short_Frame(PS, Rtn, Frm);
+       else _Print_Long_Frame(PS, Rtn, Frm);
+       end;
+    PS.Flat := Flat;
+    end _Print_Frame;
+
+%%% Print specified frame to specified stream in short form (like the one that
+%%% frames() uses).
+%%% (SEP/Nov  6 1984)
+
+_Print_Short_Frame = proc (PS: pstream, Rtn: _rtn_info, Frm: _frame);
+    ss = sequence[string];
+    pstream$Text(PS, Rtn.Name);
+    pstream$Text(PS, "(");
+    Names: ss := Rtn.Args_Names;
+    Z: int := ss$Size(Names);
+    Max: int := Z + 1;
+    if (_rtn_info$Is_Iter(Rtn))
+       then Max := Max + 1;
+       end;
+    for I: int in int$From_To(1, (Z - 1)) do
+	pstream$Text(PS, Names[I]);
+	pstream$Text(PS, ": ");
+	_obj$Print(Frm[Max - I], PS);
+	pstream$Text(PS, ", ");
+	end;
+    if (Z > 0)
+       then pstream$Text(PS, ss$Top(Names));
+	    pstream$Text(PS, ": ");
+	    if (_rtn_info$Is_Parameterized(Rtn))
+	       then _obj$Print(Frm[-2], PS);
+	       else _obj$Print(Frm[-1], PS);
+	       end;
+       end;
+    pstream$Pause(PS, ")");
+    end _Print_Short_Frame;
+
+%%% Print the specified frame to the specified stream in long form (like the
+%%% one that lframes() uses).
+%%% (SEP/Nov  6 1984)
+
+_Print_Long_Frame = proc (PS: pstream, Rtn: _rtn_info, Frm: _frame);
+    ss = sequence[string];
+    pstream$Pause(PS, "");
+    pstream$Pause(PS, Rtn.Name);
+    Names: ss := Rtn.Args_Names;
+    Z: int := ss$Size(Names);
+    Max: int := Z + 1;
+    if (_rtn_info$Is_Iter(Rtn))
+       then Max := Max + 1;
+       end;
+    for I: int in int$From_To(1, (Z - 1)) do
+	pstream$PutSpace(PS, 8);
+	pstream$Text(PS, Names[I]);
+	pstream$Text(PS, ": ");
+	pstream$PutSpace(PS, (8 - string$Size(Names[I])));
+	   except when Negative_Field_Width:
+		  end;
+	_obj$Print(Frm[Max - I], PS);
+	pstream$Pause(PS, "");
+	end;
+    if (Z > 0)
+       then pstream$PutSpace(PS, 8);
+	    pstream$Text(PS, ss$Top(Names));
+	    pstream$Text(PS, ": ");
+	    pstream$PutSpace(PS, (8 - string$Size(ss$Top(Names))));
+	       except when Negative_Field_Width:
+		      end;
+	    if (_rtn_info$Is_Parameterized(Rtn))
+	       then _obj$Print(Frm[-2], PS);
+	       else _obj$Print(Frm[-1], PS);
+	       end;
+	    pstream$Pause(PS, "");
+       end;
+    end _Print_Long_Frame;
+
+
+%%% Print the values in Vs in long or short mode (i.e, with or without
+%%% newlines between values).
+%%% (SEP/Nov  6 1984)
+
+_Print_Vals = proc (Vs: objs, Is_Short: bool);
+    PS: pstream := pstream$Primary_Output();
+    Old_Flat: bool := PS.Flat;
+    PS.Flat := Is_Short;
+    if (objs$Size(Vs) < 2)
+       then if (~ objs$Empty(Vs))
+	       then pstream$Text(PS, " ");
+		    _obj$Print(objs$Bottom(Vs), PS);
+	       end;
+       else for V: _obj in objs$Elements(Vs) do
+		pstream$Pause(PS, "");
+		pstream$Text(PS, " ");
+		_obj$Print(V, PS);
+		end;
+       end;
+    PS.Flat := Old_Flat;
+    end _Print_Vals;

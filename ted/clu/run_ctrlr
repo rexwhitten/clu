@@ -1,0 +1,59 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+run_ctrlr = proc (e: env, c: char) signals (errmsg(string), stop(env, string))
+    clobber = "Clobber unsaved buffer contents"
+    prompt: string
+    arg: int := e.this_arg
+    if arg = 1
+       then prompt := "Read file(s)"
+     elseif arg > 1
+       then prompt := "Insert text of file(s)"
+     else prompt := "Insert file(s)" end
+    fns: string, afn: afnt := get_file_list(e, prompt, arg >= 1)
+       resignal errmsg
+    b: buf := e.buffer
+    if arg > 1
+       then arg := afnt$size(afn)
+	    chars: string := _flush_macro_chars()
+	    line, pos: int := buf$get_cursor(b)
+	    nb: buf
+	    for fn: fname in afnt$elements(afn) do
+		if check_for_interrupt()  cand
+		   mconfirm(e, "Stop reading files", true)
+		   then break end
+		fn, nb := read_from_file(e, fn, false, true)
+		   except when not_possible (why: string):
+			       top_display(e, "'" || fname$unparse(fn) ||
+					      "' - " || why)
+			       arg := arg - 1
+			       continue
+			  end
+		buf$insert_buf(b, nb)
+		end except when errmsg (*): end
+	    buf$set_cursor(b, line, pos)
+	    _push_macro_chars(chars)
+	    if arg > 1
+	       then top_display(e, int$unparse(arg) || " files read.") end
+	    env$change_all(e)
+	    return
+       end
+    if arg = 1  cand  afnt$size(afn) = 1
+       then if ~b.changed  cor  mconfirm(e, clobber, true)
+	       then read_file(e, afnt$bottom(afn))
+	       else signal errmsg("Read aborted!")
+	       end
+       else if arg = 1
+	       then if ~buf$any_changed(b)  cor  mconfirm(e, clobber, true)
+		       then buf$flush(b)
+		       else signal errmsg("Read aborted!")
+		       end
+	     elseif ~buf$empty(b)
+	       then if buf$any_changed(b)
+		       then prompt := "Delete existing file(s), some unsaved"
+		       else prompt := "Delete existing file(s)"
+		       end
+		    if mconfirm(e, prompt, true) then buf$flush(b) end
+	     end
+	    insert_new_files(e, fns, afn)
+       end resignal errmsg
+    if arg = 1 then env$choose_window(e) end
+    end run_ctrlr

@@ -1,0 +1,24 @@
+# VT100 definitions that work well with TED
+
+d1|vt100v|vt100 in vt52 mode:\
+	:ce=3\EK:sf=2\n:sr=2\EI:cs=\E<\E[%i%2;%2r\E[?2l:\
+	:so=2\E<\E[7m:se=2\E[m\E[?2l:us=2\E<\E[4m:ue=2\E[m\E[?2l:\
+	:is=\E<\E[m\E>\E[?3;4;6;7l\E[?2l\200\200\200\200\200\200\200\200:\
+	:dC#1:tc=vt52:
+d1|vt100a|vt100 w/no wrap:am@:\
+	:is=\E<\E[m\E>\E[?3;4;6;7l\200\200\200\200\200\200\200\200:\
+	:tc=vt100:
+d1|vt100|vt-100|pt100|pt-100|dec vt100:\
+	:co#80:li#24:cl=50\E[;H\E[2J:bs:am:cm=5\E[%i%2;%2H:nd=\E[C:up=\E[A:\
+	:ce=3\E[K:cd=50\E[J:so=2\E[7m:se=2\E[m:us=2\E[4m:ue=2\E[m:ms:\
+	:is=\E<\E[m\E>\E[?7h\E[?3;4;6l\200\200\200\200\200\200\200\200:\
+	:if=/usr/lib/tabset/vt100:ku=\EOA:kd=\EOB:kr=\EOC:kl=\EOD:\
+	:cs=\E[%i%2;%2r:ks=\E[?1h\E=:ke=\E[?1l\E>:\
+	:kh=\E[H:k1=\EOP:k2=\EOQ:k3=\EOR:k4=\EOS:pt:sf=11\n:sr=11\EM:xn:dC#1:
+d1|vt125|vt-125|pt125|pt-125|dec vt125:\
+	:co#80:li#24:cl=\E[;H\E[2J:bs:cm=\E[%i%2;%2H:nd=\E[C:up=\E[A:\
+	:ce=\E[K:cd=\E[J:so=\E[7m:se=\E[m:us=\E[4m:ue=\E[m:ms:\
+	:is=\E<\E[m\E>\E[?3;4;6;7l:\
+	:ku=\EOA:kd=\EOB:kr=\EOC:kl=\EOD:\
+	:cs=\E[%i%2;%2r:ks=\E[?1h\E=:ke=\E[?1l\E>:\
+	:kh=\E[H:k1=\EOP:k2=\EOQ:k3=\EOR:k4=\EOS:pt:sf=\n:sr=\EM:xn:

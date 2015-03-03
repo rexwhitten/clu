@@ -1,0 +1,15 @@
+% The remainder of this file is a macro for taking a  _ted.sav.#  file  and
+% restoring  it  to  a  multi-file  buffer.   Go  to  the ^U below and type
+% ^T^U^E^VS and then type ^Y^@^Y^VI and then carriage return.  Then read in
+% your  _ted.sav.#  file  and  type ^O.  Then type ^Unm^Y^Y where nm is (at
+% least) the number of files there should be.  You  should  eventually  get
+% the error
+%	Oops: Text cannot include file boundaries
+% Finally, type ^U^A^V^K.
+
+
+A
+
+% SOI3
+
+% WIA

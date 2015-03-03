@@ -1,0 +1,50 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+space_block = cluster is
+	create,
+	make_null,
+	get_address,
+	output,
+	print, _gcd;
+
+    rep = struct[
+	      Addr:   address,        %% Address of (header of) block.
+	      Size:   int             %% Number of longs (after header) in block.
+		 ];
+
+    Create = proc (Size: int, Env: lnk_env) returns  (cvt);
+	return (rep${
+		    Addr:   locate$Address_Advance(Env.Locates.Space_Blocks,
+						   (vVec_Head_Size +
+						    (Size * vLong_Size))
+						   ),
+		    Size:   Size
+		     });
+	end Create;
+
+    Make_Null = proc () returns  (cvt);
+	return (rep${
+		    Addr:   address$Make_Null(),
+		    Size:   0
+		     });
+	end Make_Null;
+
+    Get_Address = proc (SB: cvt) returns (address);
+	return (SB.Addr);
+	end Get_Address;
+
+    Output = proc (SB: cvt, Env: lnk_env);
+	Output_Vec_Head(SB.Size, Env);
+	for I: int in int$From_To(1, SB.Size) do
+	    Output_Zero_Ref(Env);
+	    end;
+	end Output;
+
+    Print = proc (SB: cvt, S: pstream);
+	rep$Print(SB, S);
+	end Print;
+
+    _gcd = proc (SB: cvt, Tab: gcd_tab) returns (int);
+	return (rep$_gcd(SB, Tab));
+	end _gcd;
+    end space_block;

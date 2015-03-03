@@ -1,0 +1,16 @@
+%% Copyright Massachusetts Institute of Technology 1988, 1989
+
+vVax = false		%% True if linker is to run on a Vax.
+
+System_Root = proc () returns (string);
+    own Initialized: bool := false
+    own SR: string
+    if (~ Initialized)
+       then if (vVAX)
+	       then SR := "/usr/clu"
+	       else SR := _System_Root();
+	       end
+	    Initialized := true
+       end
+    return (SR);
+    end System_Root;

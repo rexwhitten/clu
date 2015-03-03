@@ -1,0 +1,14 @@
+% Copyright Massachusetts Institute of Technology 1980, 1989
+%%% Start up a listen loop on the primary input, printing out the reason for
+%%% doing so (why) on the primary output.
+%%% (SEP/Nov  6 1984)
+
+_enter_debugger = proc (why: string)
+	flag: bool := _enter_system();
+	tyo: stream := stream$primary_output()
+	stream$putc_image(tyo, '\007')
+	stream$putc(tyo, '\n')
+	stream$putl(tyo, why)
+	_listen(stream$primary_input())
+	_exit_system(flag);
+	end _enter_debugger

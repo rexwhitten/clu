@@ -1,0 +1,89 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+vri_Name_Index      = 1
+vri_Code_Addr_Index = 2
+
+Create_Rtn_Info = proc (R: r_template, Ent_Addr: address, Env: lnk_env)
+		    returns (constant);
+
+    %% a Rtn_Info is a constant corresponding to the following struct:
+    %%
+    %%  Rtn_Info = struct[
+    %%	           a_Name:	       constant, %% 1  Rtn name string
+    %%	           b_Code_Addr:        address,	 %% 2  Code address
+    %%	 	   c_Code_Size:        constant, %% 3  Size of code (but not ent vecs).
+    %%             d_C_Owns:           consts,   %% 4  Seq of string cluster owns
+    %%                                           %%    (empty => no cluster owns).
+    %%             e_R_Owns:           consts,   %% 5  Seq of string routine owns (per inst.)
+    %%                                           %%    (empty => no routine owns).
+    %%	           f_Args:             consts,	 %% 6  Seq of string arg names.
+    %%             g_Locals:           consts,	 %% 7  Seq of string locals names.
+    %%	           h_Num_Returns:      constant, %% 8  Number of returned (yielded)
+    %%						 %%    results (<0 => iter).
+    %%	           i_Uses_Params:      constant, %% 9  ture if uses parameters.
+    %%		   j_Is_Parameterized: constant, %%10  true if parameterized.
+    %%		   k_Entry_Addr:       address	 %%11  address of entry (same as
+    %%						 %%    Code_Addr for parameterized rtns.
+    %%			  ];
+
+    ac = array[constant];
+    own Cs: ac := ac$Predict(1, 10);
+    own No_Owns_Names: constant := constant$Make_Seq(consts$New());
+
+    if (constant$Is_Address(No_Owns_Names))
+       then No_Owns_Names := constant$Make_Seq(consts$New());
+       end;
+    ac$Trim(Cs, 1, 0);
+    ac$AddH(Cs, constant$Instantiate(R.Name_Constant,			%% 1
+				     true, Env));
+    ac$AddH(Cs, constant$Make_Address(R.Code_Address));			%% 2
+    Cd_Size: int := R.Code_Size;
+    ac$AddH(Cs, constant$Make_Int(Cd_Size));				%% 3
+    C_Owns: constant;
+    if (r_template$Is_Clust_Rtn(R))
+       then Names: consts := R.C_Template.Own_Names;
+	    if (consts$Empty(Names))
+	       then C_Owns := No_Owns_Names;
+	       else C_Owns := constant$Make_Seq(Names);
+	       end;
+       else C_Owns := No_Owns_Names;
+       end;
+    ac$AddH(Cs, constant$Instantiate(C_Owns, true, Env));		%% 4
+    ac$AddH(Cs, constant$Instantiate(R.Owns_Names, true, Env));		%% 5
+    ac$AddH(Cs, constant$Instantiate(R.Arg_Names, true, Env));		%% 6
+    ac$AddH(Cs, constant$Instantiate(R.Local_Var_Names, true, Env));	%% 7
+    ac$AddH(Cs, constant$Make_Int(R.Num_Returns));			%% 8
+    ac$AddH(Cs, constant$Make_Bool(r_template$Is_Parameterized(R)));	%% 9
+    Is_Parmd: bool;
+    if (R.Param_Count > 0)
+       then Is_Parmd := true;
+       else if (r_template$Is_Clust_Rtn(R))
+	       then Is_Parmd := (R.C_Template.Param_Count ~= 0);
+	       else Is_Parmd := false;
+	       end;
+       end;
+    ac$AddH(Cs, constant$Make_Bool(Is_Parmd));				%% 10
+
+    ac$AddH(Cs, constant$Make_Address(Ent_Addr));			%% 11
+
+    return (constant$Make_Struct(consts$A2S(Cs)));
+    end Create_Rtn_Info;
+
+Fixup_Rtn_Info_Address = proc (R: constant, Locs: locates)
+    RI_Struct: consts  := constant$Get_Struct(R)
+    Addr:      address := RI_Struct[vri_Code_Addr_Index].Address
+    Addr_C:  constant  := constant$Make_Address(
+			      address$Fix_Address(Addr, Locs))
+    %% Put the new address back into the struct.
+    _cvt[consts, _vec[constant]](RI_Struct)[vri_Code_Addr_Index] := Addr_C
+    end Fixup_Rtn_Info_Address
+
+Rtn_Info_LT_by_Name = proc (R1, R2: constant) returns (bool);
+    return (constant$Get_String(constant$Get_Struct(R1)[vri_Name_Index]) <
+	    constant$Get_String(constant$Get_Struct(R2)[vri_Name_Index]));
+    end Rtn_Info_LT_by_Name;
+
+Rtn_Info_LT_by_Address = proc (R1, R2: constant) returns (bool);
+    return (constant$Get_Struct(R1)[vri_Code_Addr_Index].Address <
+	    constant$Get_Struct(R2)[vri_Code_Addr_Index].Address);
+    end Rtn_Info_LT_by_Address;

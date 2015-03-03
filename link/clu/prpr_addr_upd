@@ -1,0 +1,23 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+Prepare_for_Address_Update = proc (Env: lnk_env);
+    as  = array[string];
+    urs = array[call_info];
+    own Unknowns: urs := urs$Predict(1, 50);
+    own Keys: as := as$Predict(1, 50);
+    urs$Trim(Unknowns, 1, 0);
+    as$Trim(Keys, 1, 0);
+    Unk_Rtns: unknown_rtns := Env.Mach_Dependent.Unknown_Rtns;
+    for S: string, UCI: call_info in unknown_rtns$Elements(Unk_Rtns) do
+	urs$AddH(Unknowns, UCI);
+	as$Addh(Keys, S);
+	end;
+    for I: int in urs$Indexes(Unknowns) do
+	if (Check_Unknown_Rtns(Unknowns[I], Env))
+	   then unknown_rtns$Delete(Unk_Rtns, Keys[I]);
+	   end;
+	end;
+    Update_Rtn_Chains(Env);
+    urs$Trim(Unknowns, 1, 0);
+    as$Trim(Keys, 1, 0);
+    end Prepare_for_Address_Update;

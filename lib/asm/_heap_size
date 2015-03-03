@@ -1,0 +1,11 @@
+;; Copyright Massachusetts Institute of Technology Liskov, 1989
+
+_heap_size = qproc () returns (int)
+	move	heaphi, n1
+	sub	heaplo, n1		;; Current heap size in bytes.
+	asr	1, n1			;; Current heap size in lwords * 2.
+	addqb	1, n1			;; Integerize.
+	return	(n1)
+	end _heap_size
+
+	

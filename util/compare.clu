@@ -1,0 +1,913 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+%	COMPARE CLU
+%
+%	Program to compare two text/binary files and print the differences.
+%	Can detect reordered lines/bytes.
+
+str		= string
+as		= array[str]
+ac		= array[char]
+fname		= file_name
+fspec		= file_spec
+uptype		= proctype (int) returns (string)
+entry		= record[line: str,		% actual line
+			 old:  int,		% line number in old file
+			 new:  int,		% line number in new file
+			 code: code]		% occurrence code
+entrylist	= array[entry]
+tab		= table[str, entry]
+tabsize		= 2000
+match		= record[new: int,		% line/byte number in new file
+			 len: int,		% length of match
+			 old: int]		% line/byte number in old file
+matchlist	= array[match]
+bentry		= record[byte: int,		% actual byte
+			 old:  int,		% offset in old file
+			 new:  int,		% offset in new file
+			 code: code]		% occurrence code
+bentrylist	= array[bentry]
+btab		= table[int, bentry]
+btabsize	= 256
+code		= oneof[old,			% occurs only in old file
+			new,			% occurs only in new file
+			each,			% occurs once in each file
+			mult: null]		% occurs lots in each file
+old_code	= code$make_old(nil)
+new_code	= code$make_new(nil)
+each_code	= code$make_each(nil)
+mult_code	= code$make_mult(nil)
+
+start_up = proc ()
+    compare(str$s2ac(get_jcl()))
+    end start_up
+
+compare = proc (line: ac)
+    sec0, msec0, usec0: int := _get_runtime()
+    outfs: str := get_output_part(line)
+       except when none: outfs := "/dev/p" end
+    binary: bool := false
+    ignore: bool := false
+    ptime: bool := false
+    switch: bool := false
+    diffs: bool := false
+    quick: bool := false
+    unparse: uptype := int$unparse
+    for opt: str in as$elements(get_option_parts(line)) do
+	for c: char in str$chars(opt) do
+	    if c = 'o'
+	       then binary := true
+		    unparse := i_ounparse
+	     elseif c = 'h'
+	       then binary := true
+		    unparse := i_hunparse
+	     elseif c = 's'
+	       then ignore := true
+	     elseif c = 't'
+	       then ptime := true
+	     elseif c = 'r'
+	       then switch := true
+	     elseif c = 'd'
+	       then diffs := true
+	     elseif c = 'l'
+	       then quick := true end
+	    end
+	end
+    args: as := get_input_parts(line)
+    if as$empty(args)  cor  as$size(args) > 2
+       then tyo: stream := stream$primary_output()
+	    stream$putl(tyo, "compare [-dhlorst] new_file [old_file] [^out_file]")
+	    stream$putl(tyo, "   d   list differences only")
+	    stream$putl(tyo, "   h   treat files as binary, hex output")
+	    stream$putl(tyo, "   l   list line numbers only")
+	    stream$putl(tyo, "   o   treat files as binary, octal output")
+	    stream$putl(tyo, "   r   do not try to match reordered lines if text")
+	    stream$putl(tyo, "       try to match reordered bytes if binary")
+	    stream$putl(tyo, "   s   ignore spacing differences within text lines")
+	    stream$putl(tyo, "   t   print CPU time used")
+	    return
+       end
+    nfs: str := args[1]
+    ofs: str := args[2]
+       except when bounds: ofs := "" end
+    nfn: fname
+    for fn: fname in all_file_names(nfs) do
+	nfn := fn
+	break
+	end
+       except when bad_format:
+		   tyo: stream := stream$primary_output()
+		   stream$puts(tyo, "bad format file spec: ")
+		   stream$putl(tyo, nfs)
+		   return
+	      when none:
+		   tyo: stream := stream$primary_output()
+		   stream$puts(tyo, "no files match: ")
+		   stream$putl(tyo, nfs)
+		   return
+	      when not_possible (why: str):
+		   tyo: stream := stream$primary_output()
+		   stream$puts(tyo, why)
+		   stream$puts(tyo, ": ")
+		   stream$putl(tyo, nfs)
+		   return
+	      end
+    fs: fspec := fspec$parse(ofs)
+       except when bad_format:
+		   tyo: stream := stream$primary_output()
+		   stream$puts(tyo, "bad format file spec: ")
+		   stream$putl(tyo, ofs)
+		   return
+	      end
+    nst: stream
+    nch: bchan
+    nsize: int
+    if binary
+       then nch, nfn, nsize := bchan$open(nfn)
+       else nst := stream$open(nfn, "read")
+	    nfn := nst.name
+       end except when not_possible (why: str):
+		       tyo: stream := stream$primary_output()
+		       stream$puts(tyo, why)
+		       stream$puts(tyo, ": ")
+		       stream$putl(tyo, fname$unparse(nfn))
+		       return
+		  end
+    ofn: fname
+    if str$empty(ofs)
+       then ofs := fname$unparse(nfn)
+	    ofs := str$substr(ofs, 1, 10 + _last_indexc('/', ofs))
+	    if fexists(ofs || ".old")
+	       then ofs := ofs || ".old"
+	     elseif fexists(ofs || ".bak")
+	       then ofs := ofs || ".bak"
+	     elseif fexists(ofs || ".ckp")
+	       then ofs := ofs || ".ckp"
+	     else ofs := ofs || ".old" end
+	    ofn := fname$parse(ofs)
+     elseif fexists(ofs)
+       then ofn := fname$parse(ofs)
+     else if ofs[str$size(ofs)] = '/'  cor  dexists(ofs)
+	     then ofs := fspec$unparse(fspec$create(ofs, nfn.name,
+						    nfn.suffix, nfn.other))
+	     else dir: str := fs.dir
+		  nam: str := fs.name
+		  suf: str := fs.suffix
+		  oth: str := fs.other
+		  if str$empty(dir)
+		     then dir := nfn.dir end
+		  if str$empty(nam)
+		     then nam := nfn.name end
+		  if str$empty(suf)
+		     then suf := nfn.suffix end
+		  if ~str$empty(oth)
+		     then z: int := _dir_ent_size() - str$size(oth) - 2
+			  if z > 0  cand  str$size(nam) + str$size(suf) > z
+			     then nam, suf, oth :=
+				      _split_name_part
+					  (str$substr(nam || "." || suf,
+						      1,
+						      z + 1)
+					     || "." || oth)
+			     end
+		     end
+		  ofs := fspec$unparse(fspec$create(dir, nam, suf, oth))
+	     end
+	  for fn: fname in all_file_names(ofs) do
+	      ofn := fn
+	      break
+	      end
+	     except when none:
+			 tyo: stream := stream$primary_output()
+			 stream$puts(tyo, "no files match: ")
+			 stream$putl(tyo, ofs)
+			 if binary
+			    then bchan$close(nch)
+			    else stream$close(nst)
+			    end
+			 return
+		    when not_possible (why: str):
+			 tyo: stream := stream$primary_output()
+			 stream$puts(tyo, why)
+			 stream$puts(tyo, ": ")
+			 stream$putl(tyo, ofs)
+			 if binary
+			    then bchan$close(nch)
+			    else stream$close(nst)
+			    end
+			 return
+		    end
+     end
+    ost: stream
+    och: bchan
+    osize: int
+    if binary
+       then och, ofn, osize := bchan$open(ofn)
+       else ost := stream$open(ofn, "read")
+	    ofn := ost.name
+       end except when not_possible (why: str):
+		       tyo: stream := stream$primary_output()
+		       stream$puts(tyo, why)
+		       stream$puts(tyo, ": ")
+		       stream$putl(tyo, fname$unparse(ofn))
+		       if binary
+			  then bchan$close(nch)
+			  else stream$close(nst)
+			  end
+		       return
+		  end
+    outst: stream := stream$open(fname$parse(outfs), "write")
+       except when bad_format:
+		   outst := stream$primary_output()
+		   stream$puts(outst, "bad format file name: ")
+		   stream$putl(outst, outfs)
+	      when not_possible (why: str):
+		   outst := stream$primary_output()
+		   stream$puts(outst, why)
+		   stream$puts(outst, ": ")
+		   stream$putl(outst, outfs)
+	      end
+    ofs := fname$unparse(ofn)
+    nfs := fname$unparse(nfn)
+    stream$puts(outst, "FILE 1 = ")
+    stream$putl(outst, nfs)
+    stream$puts(outst, "FILE 2 = ")
+    stream$putl(outst, ofs)
+    stream$putc(outst, '\n')
+    if ~binary  cand  switch
+       then ln: int := 0
+	    lln: int := 0
+	    while true do
+		ln := ln + 1
+		ol: str := stream$getl(ost)
+		nl: str := stream$getl(nst)
+		   except when end_of_file:
+			       if lln ~= 0
+				  then output_pair(lln, ln - 1, unparse, outst)
+				       stream$putc(outst, '\n')
+				  end
+			       if quick
+				  then stream$putright(outst, unparse(ln), 5)
+				       stream$puts(outst, " -   eof   ")
+				  else stream$puts(outst, "*** ")
+				       stream$puts(outst, unparse(ln))
+				       stream$puts(outst, "-eof: ")
+				  end
+			       stream$putl(outst, ofs)
+			       while ~quick do
+				   stream$putl(outst, ol)
+				   ol := stream$getl(ost)
+				   end
+				  except when end_of_file: end
+			       break
+			  end
+		if (ignore  cand  unify_spacing(ol) = unify_spacing(nl))
+		     cor
+		   (~ignore  cand  ol = nl)
+		   then if lln ~= 0
+			   then output_pair(lln, ln - 1, unparse, outst)
+				stream$putc(outst, '\n')
+				lln := 0
+			   end
+			continue
+		   end
+		if ~quick
+		   then stream$puts(outst, "*** ")
+			stream$puts(outst, unparse(ln))
+			stream$putl(outst, ":")
+			stream$putl(outst, nl)
+			stream$putl(outst, ol)
+			stream$putc(outst, '\n')
+		 elseif lln = 0
+		   then lln := ln end
+		end
+	       except when end_of_file:
+			   nl: str := stream$getl(nst)
+			   if lln ~= 0
+			      then output_pair(lln, ln - 1, unparse, outst)
+				   stream$putc(outst, '\n')
+			      end
+			   if quick
+			      then stream$putright(outst, unparse(ln), 5)
+				   stream$puts(outst, " -   eof   ")
+			      else stream$puts(outst, "*** ")
+				   stream$puts(outst, unparse(ln))
+				   stream$puts(outst, "-eof: ")
+			      end
+			   stream$putl(outst, nfs)
+			   while ~quick do
+			       stream$putl(outst, nl)
+			       nl := stream$getl(nst)
+			       end
+			      except when end_of_file: end
+		      end
+	       except when end_of_file: end
+	    stream$close(ost)
+	    stream$close(nst)
+     elseif ~binary  cand  ~switch
+       then t: tab := tab$create(tabsize, hash, str$equal)
+	    NE: entrylist := entrylist$predict(1, 1000)
+	    do_new_file(nst, NE, t, ignore)
+	    stream$close(nst)
+	    OE: entrylist := entrylist$predict(1, entrylist$size(NE) + 100)
+	    do_old_file(ost, OE, t, ignore)
+	    stream$close(ost)
+	    NM, OM: matchlist := match_lines(NE, OE)
+	    if ~diffs
+	       then print_matches(NM, OM, unparse, outst) end
+	    if ~quick
+	       then print_inserts(NM, OM, NE, OE, nfs, ofs, unparse, outst) end
+     elseif binary  cand  ~switch
+       then ln: int := -1
+	    lln: int := -1
+	    if ~quick
+	       then stream$putl(outst, "OFFSET   FILE1   FILE2   DIFF")
+		    stream$putl(outst, "------   -----   -----   ----")
+	       end
+	    while true do
+		ln := ln + 1
+		ob: int := bchan$get(och)
+		nb: int := bchan$get(nch)
+		   except when end_of_file:
+			       if lln >= 0
+				  then output_pair(lln, ln - 1, unparse, outst)
+				       stream$putc(outst, '\n')
+				  end
+			       if quick
+				  then stream$putright(outst, unparse(ln), 5)
+				       stream$puts(outst, " -   eof   ")
+				  end
+			       stream$putl(outst, ofs)
+			       while ~quick do
+				   stream$putright(outst, unparse(ln), 6)
+				   stream$putc(outst, ':')
+				   stream$putright(outst, unparse(ob), 7)
+				   stream$putc(outst, '\n')
+				   ob := bchan$get(och)
+				   ln := ln + 1
+				   end
+				  except when end_of_file: end
+			       break
+			  end
+		if ob = nb
+		   then if lln >= 0
+			   then output_pair(lln, ln - 1, unparse, outst)
+				stream$putc(outst, '\n')
+				lln := -1
+			   end
+			continue
+		   end
+		if ~quick
+		   then stream$putright(outst, unparse(ln), 6)
+			stream$putc(outst, ':')
+			stream$putright(outst, unparse(nb), 7)
+			stream$putright(outst, unparse(ob), 8)
+			stream$putright(outst, unparse(int$abs(nb - ob)), 7)
+			stream$putc(outst, '\n')
+		 elseif lln < 0
+		   then lln := ln end
+		end
+	       except when end_of_file:
+			   nb: int := bchan$get(nch)
+			   if lln >= 0
+			      then output_pair(lln, ln - 1, unparse, outst)
+				   stream$putc(outst, '\n')
+			      end
+			   if quick
+			      then stream$putright(outst, unparse(ln), 5)
+				   stream$puts(outst, " -   eof   ")
+			      end
+			   stream$putl(outst, nfs)
+			   while ~quick do
+			       stream$putright(outst, unparse(ln), 6)
+			       stream$putc(outst, ':')
+			       stream$putright(outst, unparse(nb), 7)
+			       stream$putc(outst, '\n')
+			       nb := bchan$get(nch)
+			       ln := ln + 1
+			       end
+			      except when end_of_file: end
+		      end
+	       except when end_of_file: end
+	    bchan$close(och)
+	    bchan$close(nch)
+     elseif binary  cand  switch
+       then t: btab := btab$create(btabsize, hash_int, int$equal)
+	    ent: bentry := bentry${byte: 0,
+				   old:  osize,
+				   new:  nsize,
+				   code: each_code}
+	    NE: bentrylist := bentrylist$fill(0, nsize + 1, ent)
+	    OE: bentrylist := bentrylist$fill(0, osize + 1, ent)
+	    do_new_bfile(nch, NE, t)
+	    bchan$close(nch)
+	    do_old_bfile(och, OE, t)
+	    bchan$close(och)
+	    NM, OM: matchlist := match_bytes(NE, OE)
+	    if ~diffs
+	       then print_matches(NM, OM, unparse, outst) end
+	    if ~quick
+	       then print_binserts(NM, OM, NE, OE, nfs, ofs, unparse, outst)
+	       end
+     end
+    if ptime
+       then sec1, msec1, usec1: int := _get_runtime()
+	    sec2, msec2, usec2: int := _longsub(sec1, msec1, usec1,
+						sec0, msec0, usec0)
+	    stream$puts(outst, "\n\ntime = ")
+	    stream$putl(outst, _time_format(sec2, msec2, usec2))
+       end
+    stream$close(outst)
+    end compare
+
+fexists = proc (s: string) returns (bool)
+    return(_file_exists(s, 8))
+       except when not_possible (*): end
+    return(false)
+    end fexists
+
+dexists = proc (s: string) returns (bool)
+    return(_file_exists(s, 4))
+       except when not_possible (*): end
+    return(false)
+    end dexists
+
+%  Reads input from the new file and places each line in NE, each
+%  unique line in T, and updates occurrence codes.
+
+do_new_file = proc (st: stream, NE: entrylist, t: tab, ignore: bool)
+    xent: entry := entry${line: "",		% next entry to use
+			  old:  0,
+			  new:  0,
+			  code: new_code}
+    ncount: int := 0				% line number
+    while true do
+	s: str := stream$getl(st)
+	ss: str := s
+	if ignore
+	   then ss := unify_spacing(s) end
+	ncount := ncount + 1
+	ent: entry := tab$mbind(t, ss, xent)
+	if ent = xent
+	   then ent.line := s
+		xent := entry$copy1(xent)	% make new entry for next use
+	   else ent.code := mult_code
+	   end
+	ent.new := ncount
+	entrylist$addh(NE, ent)
+	end except when end_of_file: end
+    end do_new_file
+
+%  Reads input from the old file and places each line in OE, each
+%  new unique line in T, and updates occurrence codes.
+
+do_old_file = proc (st: stream, OE: entrylist, t: tab, ignore: bool)
+    xent: entry := entry${line: "",		% next entry to use
+			  old:  0,
+			  new:  0,
+			  code: old_code}
+    ocount: int := 0				% line number
+    while true do
+	s: str := stream$getl(st)
+	ss: str := s
+	if ignore
+	   then ss := unify_spacing(ss) end
+	ocount := ocount + 1
+	ent: entry := tab$mbind(t, ss, xent)
+	if ent = xent
+	   then ent.line := s
+		xent := entry$copy1(xent)	% make new entry for next use
+	   else tagcase ent.code
+		   tag new:     ent.code := each_code
+		   others:      ent.code := mult_code
+		   end
+	   end
+	ent.old := ocount
+	entrylist$addh(OE, ent)
+	end except when end_of_file: end
+    end do_old_file
+
+% Goes through NE and OE looking for matches and places information
+% about the matches in NM and OM
+
+match_lines = proc (NE, OE: entrylist) returns (matchlist, matchlist)
+    ncount: int := entrylist$size(NE) + 1
+    ocount: int := entrylist$size(OE) + 1
+    ent: entry := entry${line: "",		% marks last entry in both
+			 old:  ocount,
+			 new:  ncount,
+			 code: each_code}
+    entrylist$addh(NE, ent)
+    entrylist$addh(OE, ent)
+    NM: matchlist := matchlist$predict(1, 50)
+    OM: matchlist := matchlist$predict(1, 50)
+    nprev: int := 1		% index into NE where match started
+    nptr: int := 1		% current index into NE
+    optr: int := 1		% current index into OE
+    optr_ok: bool := true	% true while matches are contiguous
+    count: int := 0
+    while nptr <= ncount do
+	ent := NE[nptr]
+	tagcase ent.code
+	   tag each:
+	       if optr_ok
+		  then if ent.old ~= optr
+			  then len: int := nptr - nprev
+			       if len > 0
+				  then add_match(NM, OM, nprev, len, optr) end
+			       nprev := nptr
+			       optr := ent.old
+			  end
+		  else optr := ent.old
+		       optr_ok := true
+		       opt: int := optr - 1
+		       npt: int := nptr - 1
+		       while npt >= nprev  cand  opt > 0  cand
+			     NE[npt] = OE[opt]  cand  un_found(opt, OM) do
+			   npt := npt - 1
+			   opt := opt - 1
+			   end
+		       nprev := npt + 1
+		  end
+	   others:
+	       if optr_ok  cand  OE[optr] ~= ent
+		  then len: int := nptr - nprev
+		       if len > 0
+			  then add_match(NM, OM, nprev, len, optr) end
+		       nprev := nptr
+		       optr_ok := false
+		  end
+	   end
+	nptr := nptr + 1
+	optr := optr + 1
+	end
+    len: int := nptr - 1 - nprev
+    if len > 0
+       then add_match(NM, OM, nprev, len, optr - 1) end
+    add_match(NM, OM, ncount, 0, ocount)
+    return(NM, OM)
+    end match_lines
+
+% Enters the information about matched lines/bytes into NM and OM.
+% Entries in NM are in increasing order by new line/byte number, entries in
+% OM are in increasing order by old line/byte number.  We do a linear
+% insertion into OM.
+
+add_match = proc (NM, OM: matchlist, nprev, len, optr: int)
+    old: int := optr - len			% start index into OE
+    mat: match := match${new: nprev,
+			 len: len,
+			 old: old}
+    matchlist$addh(NM, mat)
+    i: int := matchlist$high(OM)
+    l: int := matchlist$low(OM)
+    matchlist$addh(OM, mat)
+    while i >= l do
+	mat1: match := OM[i]
+	if mat1.old > old
+	   then OM[i + 1] := mat1
+		i := i - 1
+	   else OM[i + 1] := mat
+		return
+	   end
+	end
+    OM[l] := mat
+    end add_match
+
+% Checks if old line/byte number is already in a match.
+
+un_found = proc (opt: int, OM: matchlist) returns (bool)
+    for mat: match in matchlist$elements(OM) do
+	old: int := mat.old
+	if opt < old
+	   then return(true)
+	 elseif opt <= old + mat.len
+	   then return(false) end
+	end
+    return(true)
+    end un_found
+
+% Formatted print-out of all lines/bytes that match
+
+print_matches = proc (NM, OM: matchlist, unparse: uptype, st: stream)
+    stream$putl(st, "    FILE 1          FILE 2\t\t    FILE 2          FILE 1")
+    stream$putl(st, "-------------   -------------\t\t-------------   -------------")
+    count: int := matchlist$high(NM)
+    ncount: int := matchlist$low(NM)	% index into NM
+    ocount: int := ncount		% index into OM
+    nline: int := ocount		% line/byte number in NE
+    oline: int := nline			% line/byte number in OE
+    while ncount <= count  cor  ocount <= count do
+	if ncount <= count
+	   then mat: match := NM[ncount]
+		new: int := mat.new
+		if new > nline		% no match in old for item in new
+		   then output_pair(nline, new - 1, unparse, st)
+			if ocount <= count
+			   then stream$puts(st, "\t\t\t\t") end
+		   else len: int := mat.len
+			if len > 0
+			   then old: int := mat.old
+				new := new + len
+				output_pair(nline, new - 1, unparse, st)
+				stream$puts(st, "   ")
+				output_pair(old, old + len - 1, unparse, st)
+				if ocount <= count
+				   then stream$puts(st, "\t\t") end
+			 elseif ocount <= count
+			   then stream$puts(st, "\t\t\t\t\t") end
+			ncount := ncount + 1
+		   end
+		nline := new		% set to next entry in NE
+	 elseif ocount <= count
+	   then stream$puts(st, "\t\t\t\t\t") end
+	if ocount <= count
+	   then mat: match := OM[ocount]
+		old: int := mat.old
+		if old > oline
+		   then output_pair(oline, old - 1, unparse, st)
+		   else len: int := mat.len
+			if len > 0
+			   then new: int := mat.new
+				old := old + len
+				output_pair(oline, old - 1, unparse, st)
+				stream$puts(st, "   ")
+				output_pair(new, new + len - 1, unparse, st)
+			   end
+			ocount := ocount + 1
+		   end
+		oline := old
+	   end
+	stream$putc(st, '\n')
+	end
+    end print_matches
+
+% Outputs a range of line numbers.
+
+output_pair = proc (low, high: int, unparse: uptype, st: stream)
+    if low = high
+       then stream$putright(st, unparse(low), 13)
+       else stream$putright(st, unparse(low), 5)
+	    stream$puts(st, " - ")
+	    stream$putright(st, unparse(high), 5)
+       end
+    end output_pair
+
+% Prints out all lines from each file with no match on the other file.
+
+print_inserts = proc (NM, OM: matchlist, NE, OE: entrylist, nfs, ofs: str, unparse: uptype, st: stream)
+    count: int := matchlist$size(NM)
+    ncount: int := 1
+    ocount: int := 1
+    nline: int := 1
+    oline: int := 1
+    while ncount <= count  cor  ocount <= count do
+	if ncount <= count
+	   then mat: match := NM[ncount]
+		new: int := mat.new
+		if new > nline
+		   then if nline <= oline
+			   then output_lines(nline, new - 1, NE, nfs, unparse, st)
+				nline := new
+			   end
+		   else nline := new + mat.len
+			ncount := ncount + 1
+		   end
+	   else nline := oline
+	   end
+	if ocount <= count
+	   then mat: match := OM[ocount]
+		old: int := mat.old
+		if old > oline
+		   then if oline <= nline
+			   then output_lines(oline, old - 1, OE, ofs, unparse, st)
+				oline := old
+			   end
+		   else oline := old + mat.len
+			ocount := ocount + 1
+		   end
+	   else oline := nline
+	   end
+	end
+    end print_inserts
+
+% Outputs a group of lines.
+
+output_lines = proc (low, high: int, AA: entrylist, fs: str, unparse: uptype, st: stream)
+    stream$puts(st, "\n\n*** ")
+    stream$puts(st, fs)
+    stream$puts(st, " (")
+    stream$puts(st, unparse(low))
+    if low < high
+       then stream$puts(st, " - ")
+	    stream$puts(st, unparse(high))
+       end
+    stream$putl(st, ")")
+    while low <= high do
+	stream$putl(st, AA[low].line)
+	low := low + 1
+	end
+    stream$putl(st, "***")
+    end output_lines
+
+%  Reads input from the new file and places each byte in NE, each
+%  unique byte in T, and updates occurrence codes.
+
+do_new_bfile = proc (ch: bchan, NE: bentrylist, t: btab)
+    xent: bentry := bentry${byte: 0,		% next entry to use
+			    old:  0,
+			    new:  0,
+			    code: new_code}
+    ncount: int := -1				% line number
+    while true do
+	b: int := bchan$get(ch)
+	ncount := ncount + 1
+	ent: bentry := btab$mbind(t, b, xent)
+	if ent = xent
+	   then ent.byte := b
+		xent := bentry$copy1(xent)	% make new entry for next use
+	   else ent.code := mult_code
+	   end
+	ent.new := ncount
+	NE[ncount] := ent
+	end except when end_of_file: end
+    end do_new_bfile
+
+%  Reads input from the old file and places each byte in OE, each
+%  new unique byte in T, and updates occurrence codes.
+
+do_old_bfile = proc (ch: bchan, OE: bentrylist, t: btab)
+    xent: bentry := bentry${byte: 0,		% next entry to use
+			    old:  0,
+			    new:  0,
+			    code: old_code}
+    ocount: int := -1				% line number
+    while true do
+	b: int := bchan$get(ch)
+	ocount := ocount + 1
+	ent: bentry := btab$mbind(t, b, xent)
+	if ent = xent
+	   then ent.byte := b
+		xent := bentry$copy1(xent)	% make new entry for next use
+	   else tagcase ent.code
+		   tag new:     ent.code := each_code
+		   others:      ent.code := mult_code
+		   end
+	   end
+	ent.old := ocount
+	OE[ocount] := ent
+	end except when end_of_file: end
+    end do_old_bfile
+
+% Goes through NE and OE looking for matches and places information
+% about the matches in NM and OM
+
+match_bytes = proc (NE, OE: bentrylist) returns (matchlist, matchlist)
+    ncount: int := bentrylist$high(NE)
+    ocount: int := bentrylist$high(OE)
+    NM: matchlist := matchlist$predict(0, 50)
+    OM: matchlist := matchlist$predict(0, 50)
+    nprev: int := 0		% index into NE where match started
+    nptr: int := 0		% current index into NE
+    optr: int := 0		% current index into OE
+    optr_ok: bool := true	% true while matches are contiguous
+    count: int := 0
+    while nptr <= ncount do
+	ent: bentry := NE[nptr]
+	tagcase ent.code
+	   tag each:
+	       if optr_ok
+		  then if ent.old ~= optr
+			  then len: int := nptr - nprev
+			       if len > 0
+				  then add_match(NM, OM, nprev, len, optr) end
+			       nprev := nptr
+			       optr := ent.old
+			  end
+		  else optr := ent.old
+		       optr_ok := true
+		       opt: int := optr - 1
+		       npt: int := nptr - 1
+		       while npt >= nprev  cand  opt > 0  cand
+			     NE[npt] = OE[opt]  cand  un_found(opt, OM) do
+			   npt := npt - 1
+			   opt := opt - 1
+			   end
+		       nprev := npt + 1
+		  end
+	   others:
+	       if optr_ok  cand  OE[optr] ~= ent
+		  then len: int := nptr - nprev
+		       if len > 0
+			  then add_match(NM, OM, nprev, len, optr) end
+		       nprev := nptr
+		       optr_ok := false
+		  end
+	   end
+	nptr := nptr + 1
+	optr := optr + 1
+	end
+    len: int := nptr - 1 - nprev
+    if len > 0
+       then add_match(NM, OM, nprev, len, optr - 1) end
+    add_match(NM, OM, ncount, 0, ocount)
+    return(NM, OM)
+    end match_bytes
+
+% Prints out all bytes from each file with no match on the other file.
+
+print_binserts = proc (NM, OM: matchlist, NE, OE: bentrylist, nfs, ofs: str, unparse: uptype, st: stream)
+    count: int := matchlist$high(NM)
+    ncount: int := 0
+    ocount: int := 0
+    nline: int := 0
+    oline: int := 0
+    while ncount <= count  cor  ocount <= count do
+	if ncount <= count
+	   then mat: match := NM[ncount]
+		new: int := mat.new
+		if new > nline
+		   then if nline <= oline
+			   then output_bytes(nline, new - 1, NE, nfs, unparse, st)
+				nline := new
+			   end
+		   else nline := new + mat.len
+			ncount := ncount + 1
+		   end
+	   else nline := oline
+	   end
+	if ocount <= count
+	   then mat: match := OM[ocount]
+		old: int := mat.old
+		if old > oline
+		   then if oline <= nline
+			   then output_bytes(oline, old - 1, OE, ofs, unparse, st)
+				oline := old
+			   end
+		   else oline := old + mat.len
+			ocount := ocount + 1
+		   end
+	   else oline := nline
+	   end
+	end
+    end print_binserts
+
+% Outputs a group of bytes.
+
+output_bytes = proc (low, high: int, AA: bentrylist, fs: str, unparse: uptype, st: stream)
+    stream$puts(st, "\n\n*** ")
+    stream$puts(st, fs)
+    stream$puts(st, " (")
+    stream$puts(st, unparse(low))
+    if low < high
+       then stream$puts(st, " - ")
+	    stream$puts(st, unparse(high))
+       end
+    stream$putl(st, ")")
+    while low <= high do
+	stream$putright(st, unparse(AA[low].byte), 3)
+	stream$putc(st, '\n')
+	low := low + 1
+	end
+    stream$putl(st, "***")
+    end output_bytes
+
+% byte channel
+
+bchan = cluster is open, get, close
+
+    rep             = record[chan:  _chan,	% real channel
+			     buf:   _bytevec,	% buffer
+			     index: int,	% index of last byte read
+			     max:   int]	% index of final byte
+    _buf_size       = 8192
+
+    % Opens a byte channel in correct byte size.
+
+    open = proc (fn: fname) returns (cvt, fname, int)
+	     signals (not_possible(string))
+	ch: _chan := _chan$open(fn, "read", 0)
+	   resignal not_possible
+	return(rep${chan:  ch,
+		    buf:   _bytevec$create(_buf_size),
+		    index: 0,
+		    max:   0},
+	       ch.name,
+	       ch.length)
+	end open
+
+    % Gets the next byte.
+
+    get = proc (bc: cvt) returns (int) signals (end_of_file, not_possible(string))
+	if bc.index = bc.max
+	   then bc.max := _chan$getb(bc.chan, bc.buf)
+		bc.index := 0
+	   end resignal end_of_file, not_possible
+	bc.index := bc.index + 1
+	return(char$c2i(bc.buf[bc.index]))
+	end get
+
+    close = proc (bc: cvt)
+	_chan$close(bc.chan)
+	end close
+
+    end bchan

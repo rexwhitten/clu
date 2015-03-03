@@ -1,0 +1,26 @@
+; Copyright Massachusetts Institute of Technology 1980, 1989
+
+hash = proc (s: string, i: int) returns (int)
+	movea	s,r1
+	move	(r1)+,n2			; get number of chars
+	ifge	subq	3,n2
+	then	asr	3,n2			; divide down
+		moveq	0,n1
+		loop
+			add	(r1)+,n1	; add next word in
+			dbra	n2,this
+			swap	n2
+			subqw	1,n2
+			blt	next
+			swap	n2
+		end
+		movea	n0,r1
+		add	n1,n1			; make a positive integer
+		addqb	1,n1
+		bclr	31,n1
+		int$mod(n1, rr)			; modulus
+		return(rr)
+	end
+	movea	n0,r1
+	return(0)
+	end hash

@@ -1,0 +1,10 @@
+%% Copyright Massachusetts Institute of Technology 1981, 1989
+
+%%% Create the signal table on the first call, storing it in an own variable,
+%%% and  return it each time.
+%%% (SEP/Nov  6 1984)
+
+_Get_Signal_Table = proc () returns (_signal_table);
+    own ST: _signal_table := _signal_table$Create(50);
+    return (ST);
+    end _Get_Signal_Table;

@@ -1,0 +1,15 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+Output_W_Vecs = proc (Env: lnk_env);
+    %% Only output for W_Vecs is entry in seg map.
+    Out: out_link_chan := Env.Output;
+    Loc: locate := Start_W_Vecs(Env);
+    if (Env.Options.Do_Type_W_Vecs)
+       then LS: stream := Env.Options.List_Stream;
+	    stream$PutS(LS, "\nW_Vecs: " );
+	    stream$PutS(LS, out_link_chan$Cur_Addr_to_String(Out));
+	    stream$PutC(LS, ' ');
+	    stream$PutS(LS, int$Unparse(Loc.Size));
+	    stream$PutL(LS, " bytes");
+       end;
+    end Output_W_Vecs;

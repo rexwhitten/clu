@@ -1,0 +1,9 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+Update_Excepts_Addresses = proc (Env: lnk_env);
+    I_Es: inst_excepts := Env.Inst_Excepts;
+    Debugging: bool := Env.Options.Debugging;
+    for I_E: inst_except in inst_excepts$Elements(I_Es) do
+	inst_except$Update_Ranges_Address(I_E, Env, Debugging);
+	end;
+    end Update_Excepts_Addresses;

@@ -1,0 +1,19 @@
+compare [-dhlorst] new_file [old_file] [^out_file]
+   d   list differences only
+   h   treat files as binary, hex output
+   l   list line numbers only
+   o   treat files as binary, octal output
+   r   do not try to match reordered lines if text
+       try to match reordered bytes if binary
+   s   ignore spacing differences within text lines
+   t   print CPU time used
+
+"old_file" and "new_file" may contain "*"s.  If "old_file" is missing, the
+extensions ".old", ".bak", and ".ckp" are tried.  Missing components of
+"old_file" will be filled in from "new_file".  "out_file" defaults to standard
+output.
+
+COMPARE will compare text or binary files.  For text files, it will normally
+try to find reordered groups of lines, but can be made to simply compare line
+by line with -r.  For binary files, it will normally compare byte by byte, but
+can be made to find reordered groups of bytes with -r.

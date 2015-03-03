@@ -1,0 +1,255 @@
+	PRESS is a program for creating PRESS files from text files  and
+programming  language  source  files.   It  has  a number of options and
+variables, outlined below, for flexibility, but if you  are  not  overly
+picky,  you  will  most likely be satisfied with the output you get with
+the defaults.
+	ENLIST is a one line shell script:    press $* | dover
+	PRESS  produces  a  single  output file, which is written to the
+standard output.  The command line  consists  of  one  or  more  GROUPs,
+separated  by ',' characters.  A GROUP describes one or more files to be
+output with the same flag settings, hence, you only need more  than  one
+group  when  you  want  to  list  files with different flags in the same
+output file.  A GROUP consists of a  list  of  one  or  more  FILE-SPECs
+followed by zero or more FLAGs.  The FILE-SPECs are separated by spaces.
+The '\' character may be used to quote unusual characters in FILE-SPECs,
+and to avoid command parsing problems.
+	There are three kinds of FLAGs: boolean, numerical,  and  string
+flags.   Each  begins  with a '@' character, followed by the name of the
+flag.  Numerical flags continue with a ':' character and an integer, and
+string flags continue with a ':' character followed by all characters up
+to the next FLAG or the end of the GROUP.  If the ':' following a string
+flag is omitted, then the argument is taken to be the null string.
+
+Here is a summary of the syntax:
+
+command ::= groups
+groups ::= group
+	|  group , groups
+group ::= file-specs flags
+file-specs ::= file-spec
+	    |  file-spec file-specs
+flags ::=
+       | flag flags
+flag ::= boolean-flag | numerical-flag | string-flag
+boolean-flag ::= @ flag-name
+numerical-flag ::= @flag-name:integer
+string-flag ::= @flag-name:characters  |  @flag-name
+
+When writing a flag-name,  only  enough  characters  need  be  given  to
+determine it uniquely, hence @Q will do for @QUOTE, etc.  There are some
+examples at the end.
+
+Flags:
+
+BOOLEAN FLAGS:
+
+	There  are  three classes of boolean flags: switches, font group
+selectors, and language selectors.  Each switch has a flag  for  turning
+the option on and for turning it off.  Language selectors and font group
+selectors, on the other hand, are mutually exclusive.  For each,  either
+one  or  none  should be specified per GROUP.  Usually the language flag
+need not be specified, since it will default on a  per-file  basis  from
+the  second  name  of  the input file.  This is explained in more detail
+below.
+
+Here are the switches and their interpretations:
+
+	@FF, @NOFF - @FF means to interpret ^L  in  the  input  file  as
+	meaning  to start a new page; with @NOFF, a control-L will print
+	according to the setting of @CTL.  @FF is the default.
+
+	@CTL, @NOCTL - @CTL means to print control characters as ^letter
+	instead of their  normal  ASCII  code.   @CTL  is  the  default.
+	Certain  control characters are always handled specially, unless
+	quoted, etc., namely: ^I (tab - tabs to next tab stop; tab stops
+	are  placed  every  8  characters  according to the width of the
+	space character in the text font; for more info  on  fonts,  see
+	below),  ^H  (moves back by the width of a space), ^J (newline -
+	moves down to the beginning of a new line), ^L (formfeed  -  see
+	the  @FF  and @NOFF flags), ^M (carriage return - returns to the
+	beginning of the line), ^[ (escape - see  the  @ESC  and  @NOESC
+	flags).
+
+	@LIT,  @NOLIT  -  @LIT  means  to  interpret ' and " as starting
+	character and string literals as in CLU and C.  These are parsed
+	in  their  entirety.  The main effect is that comment characters
+	are not recognized in literals, and some control characters  (^I
+	and  ^L)  are  printed according to @CTL instead of having their
+	usual function.  The default is @LIT except when the language is
+	TEXT.
+
+	@HDR,  @NOHDR  - @HDR means to print a header at the top of each
+	page.  The left heading is the  name  of  the  input  file;  the
+	center  heading  is  its  creation  date and time, and the right
+	heading is the page number.  There  are  two  formats  for  page
+	numbers;  see  the  @MINOR  and  @NOMINOR flags.  The default is
+	@HDR.
+
+	@MINOR,  @NOMINOR  -  @MINOR  indicates that page numbers in the
+	header are to be printed as page.subpage,  e.g.,  1,  1.1,  1.2,
+	etc.   The  sub-page  number  increments  as each output page is
+	filled, and a ^L increments the major page number, resetting the
+	minor  page number.  @MINOR is obviously useless in the presence
+	of @NOHDR or @NOFF.  The default is @NOMINOR.
+
+	@DIR, @NODIR - @DIR indicates that the header should contain the
+	complete file name.  @NODIR indicates that the directory part of
+	the file name should not be used.  The default is @DIR.
+
+	@KEY, @NOKEY - @KEY indicates that keywords,  defined  according
+	to the language selected, are to be printed in the keyword font,
+	and @NOKEY says to print them in the text  font.   @KEY  is  the
+	default.
+
+	@ESC,  @NOESC - @ESC indicates that escape is to be printed as a
+	dollar sign overstruck with a  capital  O,  instead  of  as  ^[.
+	@NOESC is the default.
+
+	@CHK, @NOCHK - @CHK forces a simple check that each  input  file
+	is really a text file.  @NOCHK disables this check.  @CHK is the
+	default.
+
+Here are the language selector flags:
+
+	@CLU - for CLU code, default if suffix is ".clu", ".equ", or
+		".spc".
+	@C - for C code, default if suffix is ".c" or ".h".
+	@ASM - for ASM code, default if the suffix is ".asm".
+	@VAL - for the Dataflow language VAL (a few obscure forms of
+		literals are not treated exactly right), default
+		if the suffix is ".val".
+	@ARGUS - for Argus code, default if suffix is ".arg".
+	@TEXT - for general text files, default for all others.
+
+The  language  selected  determines  the  standard  keyword  table,  the
+recognition  of  literals  (see @LIT and @NOLIT), and the recognition of
+comments.  This is interesting because  text,  keywords,  comments,  and
+headers  may  all  be  printed in different fonts.  This is described in
+more detail below.  Using a language flag explicitly  is  generally  not
+necessary   because   of  the  defaults.   In  some  cases  it  is  even
+undesirable, e.g.:
+
+	press foo.c ralph.clu
+
+Font group selector flags:
+
+	There are four different fonts for any particular file,  namely:
+the  text font, the keyword font, the comment font, and the header font.
+Font group selectors select a set of four fonts for these, as  noted  in
+the  table  below.  The default is @FIXED.  Note that the fonts selected
+by these flags can be selectively overruled by the individual font flags
+@TFONT, @KFONT, @CFONT, and @HFONT, described below.
+
+	FLAG	TEXT FONT	KEYWORD FONT	COMMENT FONT	HEADER FONT
+
+	@FIXED	gacha8		gacha8b		gacha8i		gacha8i
+	@SMALL	helvetica7	helvetica7b	helvetica7	helvetica7b
+	@MEDIUM	helvetica8	helvetica8b	helvetica8	helvetica8b
+	@BIG	helvetica10	helvetica10b	helvetica10	helvetica10b
+	@VERYBIG helvetica12	helvetica12b	helvetica12	helvetica12b
+
+NUMERICAL FLAGS:
+
+	Here are the numerical flags.  Note that distance specifications
+are in MICAS; there are 2540 micas to the inch.
+
+	@COPIES:n - number of copies of the output to produce.  This  is
+		a  global  flag  applying  to  the  entire output, not a
+		particular group.
+
+	@TOP:n  -  the top margin is set to n micas, default is 2540
+
+	@LEFT:n - the left margin is set to n micas, default is	2540
+
+	@BOTTOM:n - the bottom margin is set to n micas, default is 2540
+
+	@HPOS:n    -   the  baseline  of the header is set to be n micas
+		from the top of the page, default is 1270  (.5 inch).
+
+	@LEADING:n - the leading is set to be n percent, default is  20.
+		Leading is the extra white space between lines. The line
+		spacing is set according to the  tallest  of  the  text,
+		keyword, and comment fonts.
+
+STRING FLAGS:
+
+	Here are the string flags:
+
+	@TFONT:font,   @KFONT:font,  @CFONT:font,  @HFONT:font  -  these
+		define the font to be used for  normal  text,  keywords,
+		comments,  and  headers, respectively.  The defaults are
+		GACHA8, GACHA8I, GACHA8I, and GACHA8I, respectively.   A
+		font is specified in the normal way for PRESS fonts:
+			<family><point-size><optional-face-code>
+		In addition, a font may be followed by the character '+'
+		and one or both of 'U' and 'N', in  either  order.   'U'
+		means  to  underscore any use of the font, and 'N' means
+		to print the '_' character as it is in the font, instead
+		of as an underscore.
+
+	@XKEY:file-name  -  indicates  to  add  keywords  to  the set of
+		keywords already defined.  Each keyword should be  on  a
+		single  line  of  the file, and the lines should contain
+		only  upper-  or   lower-case   alphabetics,   and   '_'
+		characters.   The  keywords  do  not  have  to be in any
+		particular order; duplicates will be discarded.
+
+	@COMCHAR:char  -  indicates  to  use the character 'char' as the
+		character   that   starts   comments.    Such   comments
+		automatically  end when a carriage return is encountered
+		in the input.  This will override the default  character
+		supplied by choice of language, if there is one.  'char'
+		must be a single character, or two characters, the first
+		one  being  \ (to quote the second one, e.g., if it is \
+		or some other difficult character), or three  characters
+		(specifying the octal code of the character in question,
+		e.g., 021 for ^Q).
+
+	@QUOTE:char  -  indicates  that 'char' (which is specified as in
+		@COMCHAR) is to be used as a quoting character.  Such  a
+		quoting   character  does  not  appear  in  the  output.
+		Rather, it forces the next character (even if it is  the
+		quoting  character)  to  be  interpreted  literally  and
+		passed through to the output file.  This  is  useful  in
+		order  to  get  a  special symbol in the output for some
+		characters that normally  perform  a  special  function,
+		such as ^M, ^J, ^I, etc.
+
+	@SHIFT:char  -  indicates that 'char' (which is specified as  in
+		@COMCHAR) is to be used as a font-shift character.  When
+		a font-shift  character is encountered, the next charac-
+		ter in the input stream is used as a switch to determine
+		which font to shift to.   Both the font-shift  character
+		and the switch character are deleted  from  the  stream. 
+		The allowed switch characters are 'T' for text font, 'K'
+		for keyword font, 'C' for  comment  font,  and  'H'  for
+		header font.  If any other switch character is  encount-
+		ered, the font-shift character is handled as an ordinary
+		control character.  If a  @SHIFT flag appears but 'char'
+		is omitted, font-switching is enabled, using  the  ASCII
+		SO character (016 octal) as a default.  In  the  absence
+		of a @SHIFT flag, the feature is completely disabled.
+
+	@START:place, @SKIP:place - These tell  PRESS  to  omit  certain
+		pages from the output.  "place" is either an integer, or
+		two integers separated by '.'  (e.g.,  "6.3").   In  the
+		case  of @START, all pages before the indicated page are
+		skipped; in the case of  @SKIP,  all  pages  up  to  and
+		including  the  indicated page are skipped.  The numbers
+		are the same as the number PRESS would put on the pages,
+		and the interpretation therefore varies with the setting
+		of @MINOR.
+
+	@STOP:place, @LASTPAGE:place - these are  analogous  to  @START,
+		and  tell  PRESS the number of the last page to produce.
+		@STOP and @LASTPAGE mean exactly the same thing.
+
+Examples:
+
+	press *.clu *.asm | dover
+
+	press weird@nodir@nochk | dover
+
+	press paper.txt@tfont:timesroman10@nohdr@top:1270@bot:1270 > foo
+
+Bugs to RWS@MIT-XX.

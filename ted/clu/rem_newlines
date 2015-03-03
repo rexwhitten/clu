@@ -1,0 +1,8 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+rem_newlines = proc (s: string) returns (string)
+    while true do
+	i: int := string$indexc('\n', s)
+	if i = 0 then return(s) end
+	s := string$substr(s, 1, i - 1) || string$rest(s, i + 1)
+	end
+    end rem_newlines

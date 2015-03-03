@@ -1,0 +1,12 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+Open_Output_File = proc (Env: lnk_env)
+		     signals (not_possible(string));
+    if (Env.Options.Init_Debug)
+       then Env.Output := out_link_chan$Open(Env.Options.Image_File_Name,
+					     Env.Locates);
+       else Env.Output := out_link_chan$Open(Env.Out_File_Name,
+					     Env.Locates);
+       end;
+       resignal Not_Possible;
+    end Open_Output_File;

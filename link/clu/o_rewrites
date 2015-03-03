@@ -1,0 +1,9 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+Output_Rewrites = proc (Env: lnk_env, Get_Times: bool);
+    if (Get_Times) then Env.Times.Outs.ReWrts := Run_Time(); end;
+    Output: out_link_chan := Env.Output;
+    for Rew: rewrite in rewrites$Elements(Env.Mach_Dependent.Rewrites) do
+	rewrite$Output(Rew, Output, Env);
+	end;
+    end Output_Rewrites;

@@ -1,0 +1,13 @@
+; Copyright Massachusetts Institute of Technology 1980, 1989
+
+_event = cluster is defer, undefer
+
+defer = qproc ()
+	addqw	1,defer
+	end defer
+
+undefer = qproc ()
+	subqw	1,defer
+	end undefer
+
+end _event

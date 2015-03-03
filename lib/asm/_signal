@@ -1,0 +1,260 @@
+;; Copyright Massachusetts Institute of Technology 1985, 1989
+
+_signal = cluster is set, get, unset, set_message, get_message
+
+sv%handler	= 0
+sv%mask 	= 4
+sv%onstack 	= 8
+
+wvec	vec	{3}
+wvec	ovec	{3}
+wvec	flags	{1}			; which signals are set
+wvec	holds	{1}			; which signals are held
+wvec	cnts	{32}			; number of times signalled
+wvec	ohands	{32}			; old handlers
+wvec	omasks	{32}			; old masks
+wvec	ostks	{32}			; old on stacks
+wvec	ibuf	{4}
+own	msgs
+
+set = qproc (sig: int, hold: bool) signals (bad_code)
+	; set to count occurrences of given signal if hold = FALSE
+	; place signal on hold if hold = TRUE
+	; NOTE: signal 8 (SIGFPE) should be avoided if real arithmetic is used
+	; NOTE: signals 2 (SIGINT), 3 (SIGQUIT), 4 (SIGILL), 10 (SIGBUS),
+	; 11 (SIGSEGV), and 18 (SIGTSTP) should not be set until after a
+	; call to stream/_chan primary_input/output
+
+	;; Check for a valid signal number.
+	ifge	move	sig, n5		;; Get sig number.
+		asr	1, n5		;; De-integerize sig.
+		cmpi	33, n5
+	then	signal	bad_code
+		end
+	iff				;; hold false?
+
+	;; Hold is false -- set up to count occurrances of
+	;; signal sig. First we set up a  handler for sig which
+	;; will count the signal occurrances and print a message if one
+	;; was specified for that signal. If this signal was not already set
+	;; then its old vector (handler,mask,onstack) is saved in static
+	;; storage. If the signal was on hold it is unblocked.
+	then	lea	vec, r1		;; Get ovec buffer and fill it in.
+		pea	hand		;; Get hacked handler address.
+		move	(sp)+, sv%handler(r1)
+		move	#0000,,#f8e7, sv%mask(r1)	;; Put in mask.
+		move	n0, sv%onstack(r1)	;; Use signal stack = true.
+		pea	ovec		;; Push addr of ovec buffer.
+		pea	vec		;; Push addr of vec buffer.
+		move	n5, -(sp)	;; Push signal number.
+		clr	-(sp)		;; Hack pc.
+		moveq	%sigvec, n0
+		move	n0, -(sp)
+		trap	0		;; Do the call.
+		ifeq	subq	1, n5	;; Is signal info already saved?
+			move	flags, n2
+			bset	n5, n2	;; (test and set)
+		then	move	n2, flags	;; Record modified flags.
+			lea	ovec, r2	;; No. Save old vec.
+			move	n5, n6
+			asl	2, n6	;; Index into sav wvecs for signal.
+			lea	ohands, r1
+			move	sv%handler(r2), (r1, n6);; Save handler.
+			lea	omasks, r1
+			move	sv%mask(r2), (r1, n6)	;; Save mask.
+			lea	ostks, r1
+			move	sv%onstack(r2), (r1, n6);; Save onstack.
+			movea	n0, r1	;; Make r-registers valid refs.
+			movea	n0, r2
+			end
+		ifne	move	holds, n2
+			bclr	n5, n2	;; Is sig already on hold? (test and clear)
+		then	move	n2, holds	;; Record modified holds.
+			moveq	%sigblock, n0
+			move	n0, -(sp)
+			trap	0	;; Get signal mask of blocked signals.
+			bclr	n5, n0	;; Unblock sig.
+			move	n0, 4(sp)	;; Arg to sigsetmask.
+			moveq	%sigsetmask, n0	
+			move	n0, -(sp)
+			trap	0		;; Set the mask.
+			end
+		;; Fix up the stack from the system calls.
+		addq	4, sp		;; Pop the hack pc.
+		clr	(sp)+		;; Pop the args.
+		clr	(sp)+
+		clr	(sp)+
+
+	;; Hold is true --- place signal sig on hold.
+	else	subq	1, n5
+		move	holds, n2
+		ifeq	bset	n5, n2	;; Set sig bit in holds mask
+		then	move	n2, holds	;; Record modified holds.
+			end
+		clr	n6
+		bset	n5, n6		;; Create a mask for sigblock.
+		move	n6, -(sp)	;; Push it.
+		clr	-(sp)		;; Hack pc.
+		moveq	%sigblock, n0
+		move	n0, -(sp)
+		trap	0		;; Set the new mask of blocked signals.
+		addq	4, sp		;; Pop pc.
+		clr	(sp)+		;; Pop arg.
+		end
+	moveq	1, n0			;; Restore n0.
+	return
+
+hand:	;; Signal handler to count signals and print messages.
+	movem	n0/n1/r1/pp, -(sp)	;; Save registers.
+	move	16(sp), n1		;; Get signal number.
+	subq	1, n1			;; Sig - 1.
+	asl	2, n1			;; Get index for signal.
+	lea	cnts, pp
+	addq	1, (pp, n1)		;; Count the signal.
+	ifne	tst	gcflag
+		bne	next		;; See if there's a message to print.
+		tst	msgs		;; Any messages at all?
+		beq	next
+		movea	msgs, pp
+		move	4(pp, n1), n1	;; Message?
+	then	movea	n1, r1
+		move	(r1), n1	;; Size of message * 2 + 1
+		asr	1, n1		;; De-integerize size.
+		move	n1, -(sp)	;; Push it.
+		pea	4(r1)		;; Push string addr of message.
+		move	1, -(sp)	;; Descriptor.
+		clr	-(sp)		;; Hack pc.
+		moveq	%write, n0
+		move	n0, -(sp)
+		trap	0		;; Write the message.
+		lea	16(sp), sp	;; Pop pc and args.
+		end
+	movem	(sp)+, n0/n1/r1/pp	;; Restore registers.
+	addq	4, sp			;; Clean up and return from hand.
+	move	139, (sp)
+	trap	0
+		
+	end set
+
+unset = qproc (sig: int) signals (bad_code)
+ 	; restore signal to its orignal setting
+
+	;; Check for a valid signal number.
+	ifge	move	rr, n5		;; Get sig number.
+		asr	1, n5		;; De-integerize sig.
+		cmpi	33, n5
+	then	signal	bad_code
+		end
+
+	subq	1, n5
+	move	n5, n6
+	asl	2, n6		;; Get index for signal
+	ifne	move	flags, n2
+		bclr	n5, n2	;; Is sig set? (test and clear)
+	then	move	n2, flags	;; Record modified flags.
+		lea	vec, r1		;; Set up new sig vector from saved values.
+		lea	ohands, r2
+		move	(r2, n6), sv%handler(r1)
+		lea	omasks, r2
+		move	(r2, n6), sv%mask(r1)
+		lea	ostks, r2
+		move	(r2, n6), sv%onstack(r1)
+		movea	n0, r1		;; Make r-registers valid refs.
+		movea	n0, r2
+		clr	-(sp)		;; ovec = 0
+		pea	vec		;; Push vec.
+		move	n5, -(sp)
+		addb	n0, 3(sp)	;; Signal number (add back 1).
+		clr	-(sp)		;; Hack pc.
+		moveq	%sigvec, n0
+		move	n0, -(sp)
+		trap	0		;; Change the vector.
+		addq	4, sp		;; Pop pc.
+		clr	(sp)+		;; Pop args.
+		clr	(sp)+
+		addq	4, sp
+		end
+	ifne	move	holds, n2
+		bclr	n5, n2		;; Was sig on hold?
+	then	move	n2, holds	;; Record modified holds.
+		clr	-(sp)		;; Mask.
+		clr	-(sp)		;; Hack pc.
+		moveq	%sigblock, n0
+		move	n0, -(sp)
+		trap	0		;; Get mask.
+		bclr	n5, n0		;; Clear sig's bit
+		move	n0, 4(sp)	;; Put in arg.
+		moveq	%sigsetmask, n0
+		move	n0, -(sp)
+		trap	0		;; Set new mask with sig bit cleared.
+		addq	4, sp		;; Pop pc
+		clr	(sp)+		;; Pop arg
+		end
+	moveq	1, n0			;; Make sure n0 is set correctly.
+	end unset
+
+get = qproc (sig: int) returns (int) signals (bad_code)
+	; get number of occurrences of signal since last get call
+	;; Check for a valid signal number.
+	ifge	move	rr, n5		;; Get sig number.
+		cmpi	67, n5		;; Compare with 33 (as CLU int)
+	then	signal	bad_code
+		end
+
+	asl	1, n5			;; Get index for signal
+	subq	6, n5			;; (sig - 1) * 4
+	lea	cnts, r1
+	movea	(r1, n5), rr		;; Get count.
+	lea	1(rr, rr), rr		;; Integerize it.
+	clr	(r1, n5)		;; Set stored count to 0.
+	movea	n0, r1			;; Make r1 a valid ref.
+	return (rr)
+	end get
+
+set_message = qproc (sig: int, msg: string) signals (bad_code)
+	; set message to be output (on primary output) on every
+	; occurrence of signal
+	;; Check for a valid signal number.
+	ifge	move	sig, n5		;; Get sig number.
+		cmpi	67, n5		;; Compare with 33 (as CLU int)
+	then	signal	bad_code
+		end
+
+	asl	1, n5			;; Get index for signal.
+	subq	6, n5			;; (sig - 1) * 4
+	movea	rr, r1			;; Save message string.
+	ifeq	tst	msgs		;; Is there already a msgs sequence?
+	then	move	132, n2		;; No, allocate one from the heap.
+		movea	heaphi, rr
+		iflt	sub	n2, freecnt	;; Alloc mem. for the sequence.
+		then	jsr	memout
+			end
+		add	n2, heaphi
+		move	130, (rr)	;; Header = (Size of seq. * 4) + 2
+		move	rr, msgs	;; Store pointer to sequence.
+	else	movea	msgs, rr
+		end
+	move	r1, 4(rr, n5)		;; Store message.
+	end set_message
+
+get_message = qproc (sig: int) returns (string) signals (bad_code)
+	; get message to be output for signal
+	;; Check for a valid signal number.
+	ifge	move	rr, n5		;; Get sig number.
+		cmpi	67, n5		;; Compare with 33 (as CLU int).
+	then	signal	bad_code
+		end
+
+	asl	1, n5			;; Get index for signal.
+	subq	6, n5			;; (sig - 1) * 4
+	ifeq	tst	msgs		;; Is there already a msgs sequence?
+	then	move	"", n1		;; No, return empty string.
+	else	movea	msgs, r1	;; Yes, get message.
+		ifeq	move	4(r1, n5), n1
+		then	move	"", n1	;; No message set. Return empty string.
+			end
+		end
+	return (n1)
+	end get_message
+
+end _signal

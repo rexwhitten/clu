@@ -1,0 +1,94 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+wstream = cluster is open, put, puts, close
+
+    _bvec_size = 16 * 512
+    cv = _cvt[string, _bytevec]
+
+    rep = null
+
+    own bvec: _bytevec
+    own chan: _chan
+    own index: int                  % last char written
+    own isopen: bool
+    own have: bool := false
+
+    open = proc (fn: fname, append: bool, fmode: int) returns (fname)
+	     signals (not_possible(string))
+	if ~have
+	   then bvec := _io_buf()
+		have := true
+	 elseif isopen
+	   then _chan$abort(chan)
+		   except when not_possible (*): end
+	 end
+	isopen := false
+	if append
+	   then chan := _chan$open(fn, "append", fmode)
+	   else chan := _chan$open(fn, "write", fmode)
+	   end resignal not_possible
+	isopen := true
+	index := 0
+	return(chan.name)
+	end open
+
+    put = proc (s: string, eol: bool) signals (not_possible(string))
+	i: int := 1
+	z: int := string$size(s)
+	n: int := _bvec_size - index
+	begin
+	    if z > n
+	       then if n > 0
+		       then _bytevec$move_lr(cv(s), 1, bvec, index + 1, n) end
+		    _chan$putb(chan, bvec, 1, _bvec_size, false)
+		    index := 0
+		    i := n + 1
+		    z := z - n
+		    if z >= _bvec_size
+		       then _chan$putb(chan, cv(s), i, z, false)
+			    z := 0
+		       end
+	       end
+	    if z > 0
+	       then _bytevec$move_lr(cv(s), i, bvec, index + 1, z)
+		    index := index + z
+	       end
+	    if eol
+	       then if index = _bvec_size
+		       then _chan$putb(chan, bvec, 1, _bvec_size, false)
+			    index := 0
+		       end
+		    index := index + 1
+		    bvec[index] := '\n'
+	       end
+	    end except when not_possible (why: string):
+			    _chan$abort(chan)
+			       except when not_possible (*): end
+			    isopen := false
+			    signal not_possible(why)
+		       end
+	end put
+
+    puts = proc (s: string) signals (not_possible(string))
+	low: int
+	low, index := _chan$put(chan, bvec, 1, index, s, false)
+	   except when not_possible (why: string):
+		       _chan$abort(chan)
+			  except when not_possible (*): end
+		       isopen := false
+		       signal not_possible(why)
+		  end
+	end puts
+
+    close = proc () signals (not_possible(string))
+	isopen := false
+	begin
+	    _chan$putb(chan, bvec, 1, index, false)
+	    _chan$close(chan)
+	    end except when not_possible (why: string):
+			    _chan$abort(chan)
+			       except when not_possible (*): end
+			    signal not_possible(why)
+		       end
+	end close
+
+    end wstream

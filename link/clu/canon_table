@@ -1,0 +1,133 @@
+%% Copyright Massachusetts Institute of Technology 1980, 1989
+
+canon_table = cluster [t, env: type] is create, equal, similar, enter,
+					flush, elements, count, empty, sizes
+	where t has similar: proctype (t, t) returns (bool),
+	      t has canon_hasher: proctype (t, int, env) returns (int)
+
+rep	= record[size:    int,
+		 seed:    int,
+		 first:   _obj,		% first item entered
+		 last:    _obj,		% last item entered
+		 buckets: buckets]
+
+buckets	= _vec[_obj]
+
+bucket	= record[item: t,
+		 succ: _obj,		% next item entered
+		 next: _obj]		% next item in chain
+
+mz	= _cvt[null, _obj]
+
+create = proc (size: int) returns (cvt) signals (bad_size)
+	if size <= 0
+	   then signal bad_size end
+	return(rep${size:    size,
+		    seed:    0,
+		    first:   mz(nil),
+		    last:    mz(nil),
+		    buckets: buckets$create(size)})
+	end create
+
+enter = proc (tab: cvt, item: t, e: env) returns (t, int)
+	i: int := t$canon_hasher(item, tab.size, e) + 1
+	xmb: _obj := tab.buckets[i]
+	mb: _obj := xmb
+	while mb ~= mz(nil) do
+		buck: bucket := _cvt[_obj, bucket](mb)
+		if t$similar(item, buck.item)
+		   then return(buck.item, 0) end
+		mb := buck.next
+		end
+	mb := _cvt[bucket, _obj](bucket${item: item,
+					 succ: mz(nil),
+					 next: xmb})
+	tab.buckets[i] := mb
+	if tab.first = mz(nil)
+	   then tab.first := mb end
+	if tab.last ~= mz(nil)
+	   then _cvt[_obj, bucket](tab.last).succ := mb end
+	tab.last := mb
+	tab.seed := tab.seed + 1
+	return(item, tab.seed)
+	end enter
+
+flush = proc (tab: cvt)
+	tab.seed := 0
+	tab.first := mz(nil)
+	tab.last := mz(nil)
+	bucks: buckets := tab.buckets
+	for i: int in int$from_to(1, tab.size) do
+		bucks[i] := mz(nil)
+		end
+	end flush
+
+elements = iter (tab: cvt) yields (t)
+	mb: _obj := tab.first
+	while mb ~= mz(nil) do
+		buck: bucket := _cvt[_obj, bucket](mb)
+		yield(buck.item)
+		mb := buck.succ
+		end
+	end elements
+
+equal = proc (tab1, tab2: cvt) returns (bool)
+	return(tab1 = tab2)
+	end equal
+
+similar = proc (tab1, tab2: cvt) returns (bool)
+	return(tab1 = tab2)
+	end similar
+
+% Return the total number of (key, value) pairs
+
+count = proc (tab: cvt) returns (int)
+	cnt: int := 0
+	bucks: buckets := tab.buckets
+	for i: int in int$from_to(1, tab.size) do
+		mb: _obj := bucks[i]
+		while mb ~= mz(nil) do
+			cnt := cnt + 1
+			mb := _cvt[_obj, bucket](mb).next
+			end
+		end
+	return(cnt)
+	end count
+
+% Test if table is empty
+
+empty = proc (tab: cvt) returns (bool)
+	bucks: buckets := tab.buckets
+	for i: int in int$from_to(1, tab.size) do
+		if bucks[i] ~= mz(nil)
+		   then return(false) end
+		end
+	return(true)
+	end empty
+
+% Return an array of integers with element i being the number of buckets with i
+% (key, val) pairs
+
+sizes = proc (tab: cvt) returns (ai)
+	ai = array[int]
+	z: ai := ai$create(0)
+	bucks: buckets := tab.buckets
+	for i: int in int$from_to(1, tab.size) do
+		cnt: int := 0
+		mb: _obj := bucks[i]
+		while mb ~= mz(nil) do
+			cnt := cnt + 1
+			mb := _cvt[_obj, bucket](mb).next
+			end
+		z[cnt] := z[cnt] + 1
+		    except when bounds:
+				 while ai$size(z) < cnt do
+					 ai$addh(z, 0)
+					 end
+				 ai$addh(z, 1)
+			   end
+		end
+	return(z)
+	end sizes
+
+end canon_table

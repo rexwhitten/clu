@@ -1,0 +1,571 @@
+%% Copyright Massachusetts Institute of Technology 1983, 1989
+
+%%% The routines defined here, up to and including _Untrace_All_Signals,
+%%% are user-interface routines.
+
+%%% Set routine P to be "traced-to". All calls to the routine and returns (and
+%%% yields for iters) from it will be caught and a break will be taken if
+%%% appropriate.
+%%% (SEP/Nov  7 1984)
+
+_Trace_To = proc (P: _obj) signals (not_found);
+    Flag: bool := _Enter_System();
+    RT_Inf: _rtn_trace_info := _Get_Trace_Info(P);
+       except when Not_Found:
+		   _Exit_System(Flag);
+		   signal Not_Found;
+	      end;
+    RT_Inf.Traced_To := true;
+    _Set_Trace_To(RT_Inf.Routine);		%% Set the break instr.
+    _Exit_System(Flag);
+    end _Trace_To;
+
+%%% Cancel a "traced-to" for routine P. If the routine was originally
+%%% trace_ranged, then it still will be after this call.
+%%% (SEP/Nov  7 1984)
+
+_Untrace_To = proc (P: _obj) signals (not_found);
+    Flag: bool := _Enter_System();
+    RT_Inf: _rtn_trace_info := _Get_Trace_Info(P);
+       except when Not_Found:
+		   _Exit_System(Flag);
+		   signal Not_Found;
+	      end;
+    RT_Inf.Traced_To := false;
+    Rtn: _obj := RT_Inf.Routine;
+    if (RT_Inf.Trace_Ranged)
+       then _Set_Trace_Ranged(Rtn);	%% Set the break instr.
+       else _Set_Trace_Normal(Rtn);	%% Set back to no break.
+	    _Forget_Trace_Info(Rtn);
+       end;
+    _Exit_System(Flag);
+    end _Untrace_To;
+
+%%% Trace all calls from routine P. Breaks will be taken at each call and at
+%%% each return if appropriate (no funny flags set). This takes effect for
+%%% currently active calls of P, as well as for future calls.
+%%% (SEP/Nov  7 1984)
+
+_Trace_From = proc (P: _obj) signals (not_found);
+    Flag: bool := _Enter_System();
+    RT_Inf: _rtn_trace_info := _Get_Trace_Info(P);
+       except when Not_Found:
+		   _Exit_System(Flag);
+		   signal Not_Found;
+	      end;
+    Rtn: _obj := RT_Inf.Routine;
+    RT_Inf.Trace_Ranged := true;
+    _trace_rng$Set_Entire_Range(RT_Inf.Trace_Range);
+    if (~ RT_Inf.Traced_To)
+       then _Set_Trace_Ranged(Rtn);	%% Set the break instr.
+       end;
+    _Update_Existing_Frames(Rtn);	%% Put in or update fake frames for existing Ps.
+    _Exit_System(Flag);
+    end _Trace_From;
+
+%%% Cancel a "trace-from" for routine P. If "trace-to" was in effect for P then
+%%% it will remain in effect.
+%%% (SEP/Nov  7 1984)
+
+_Untrace_From = proc (P: _obj) signals (not_found);
+    Flag: bool := _Enter_System();
+    RT_Inf: _rtn_trace_info := _Get_Trace_Info(P);
+       except when Not_Found:
+		   _Exit_System(Flag);
+		   signal Not_Found;
+	      end;
+    Rtn: _obj := RT_Inf.Routine;
+    RT_Inf.Trace_Ranged := false;
+    _trace_rng$Clear_Entire_Range(RT_Inf.Trace_Range);
+    if (~ RT_Inf.Traced_To)
+       then _Set_Trace_Normal(Rtn);	%% Set back to no break.
+	    _Forget_Trace_Info(Rtn);
+       end;
+    _Exit_System(Flag);
+    end _Untrace_From;
+
+
+%%% Set a routine to be fully traced, that is, "traced-to" and "traced-from".
+%%% (SEP/Nov  7 1984)
+
+_Trace = proc (P: _obj) signals (not_found);
+    Flag: bool := _Enter_System();
+    _Trace_To(P);
+    _Trace_From(P);
+    _Exit_System(Flag);
+    end _Trace;
+
+
+%%% Cancel all tracing for a routine (turns off "trace-to" and "trace-from").
+%%% (SEP/Nov  7 1984)
+
+_Untrace = proc (P: _obj) signals (not_found);
+    Flag: bool := _Enter_System();
+    _Untrace_To(P);
+    _Untrace_From(P);
+    _Exit_System(Flag);
+    end _Untrace;
+
+
+%%% Set a specified range of call slots in routine P to be traced. Breaks are
+%%% taken before and after those trace-ranged slots. Slots are numbered in
+%%% order, beginning at 1.
+%%% (SEP/Nov  7 1984)
+
+_Trace_Range = proc (P: _obj, From, To: int) signals (not_found);
+    Flag: bool := _Enter_System();
+    RT_Inf: _rtn_trace_info := _Get_Trace_Info(P);
+       except when Not_Found:
+		   _Exit_System(Flag);
+		   signal Not_Found;
+	      end;
+    Rtn: _obj := RT_Inf.Routine;
+    RT_Inf.Trace_Ranged := true;
+    _trace_rng$Set_Range(RT_Inf.Trace_Range, From, To);
+    if (~ RT_Inf.Traced_To)
+       then _Set_Trace_Ranged(Rtn);	%% Set the break instr.
+       end;
+    if (~ _trace_rng$Empty(RT_Inf.Trace_range))
+       then _Update_Existing_Frames(Rtn); %% Put in fake frames for existing Ps.
+       end;
+    _Exit_System(Flag);
+    end _Trace_Range;
+
+%%% Cancel "trace-ranging" for the specified range of slots in routine P.
+%%% (SEP/Nov  7 1984)
+
+_Untrace_Range = proc (P: _obj, From, To: int) signals (not_found);
+    Flag: bool := _Enter_System();
+    RT_Inf: _rtn_trace_info := _Get_Trace_Info(P);
+       except when Not_Found:
+		   _Exit_System(Flag);
+		   signal Not_Found;
+	      end;
+    Rtn: _obj := RT_Inf.Routine;
+
+    % All_Cleared will be true if there are no more trace-ranged slots in P
+    % after <from, to> is cleared.
+    All_Cleared: bool := _trace_rng$Clear_Range(RT_Inf.Trace_Range, From, To);
+
+    if (All_Cleared)
+       then RT_Inf.Trace_Ranged := false;
+	    if (~ RT_Inf.Traced_To)
+	       then _Set_Trace_Normal(Rtn);  %% Set back to no break.
+		    _Forget_Trace_Info(Rtn);
+	       end;
+       end;
+    _Exit_System(Flag);
+    end _Untrace_Range;
+
+%%% Cancel all tracing in the system. This includes: trace-ranging on
+%%% routines, trace-to on routines, tracing for uninitialized arguments, anda
+%%% tracing for signals.
+%%% (SEP/Nov  7 1984)
+
+_Untrace_All = proc();
+    Flag: bool := _Enter_System();
+    for RT_Inf: _rtn_trace_info in _All_Trace_Info() do
+	RT_Inf.Traced_To := false;
+	RT_Inf.Trace_Ranged := false;
+	_trace_rng$Clear_Entire_Range(RT_Inf.Trace_Range);
+	_Set_Trace_Normal(RT_Inf.Routine);	%% Set back to no break.
+        _Forget_Trace_Info(RT_Inf.Routine);
+	end;
+    _Untrace_All_Signals();
+    _Untrace_UnInitialized();
+    _Exit_System(Flag);
+    end _Untrace_All;
+
+
+%%% Restore tracing that was temporarily inhibited using the 'Q', 'Y' or 'T'
+%%% trace commands (options upon hitting a break point).
+%%% (SEP/Nov  7 1984)
+
+_Restore_Tracing = proc ();
+    Flag: bool := _Enter_System();
+    for BI: _break_info in _Fake_Frames(_frame$Current().Prev) do
+	BI.Enter_Trace := true;
+	BI.Leave_Trace := true;
+	BI.Yield_Break := true;
+	_Adjust_Break_Info(BI);   % fix the CHECK, BREAK and YLD_BREAK BI flags
+	end;
+    _Exit_System(Flag);
+    end _Restore_Tracing;
+
+
+%%% Trace signals of exceptions named Sig_Nm.
+%%% (SEP/Nov  7 1984)
+
+_Trace_Signal = proc (Sig_Nm: string) signals (unknown_signal);
+    Flag: bool := _Enter_System();
+    for SB: _signal_block in _signal_table$Lookup(_Get_Signal_Table(),
+						  _scan$Id(string$S2AC(Sig_Nm),
+							   false)) do
+	_Set_Trace_Signal(SB);
+	end;
+       except when Not_Found:
+		   _Exit_System(Flag);
+		   signal Unknown_Signal;
+	      end;
+    _Exit_System(Flag);
+    end _Trace_Signal;
+
+%%% Cancel tracing on signals of exceptions named Sig_Nm.
+%%% (SEP/Nov  7 1984)
+
+_Untrace_Signal = proc (Sig_Nm: string) signals (unknown_signal);
+    Flag: bool := _Enter_System();
+    for SB: _signal_block in _signal_table$Lookup(_Get_Signal_Table(),
+						  _scan$Id(string$S2AC(Sig_Nm),
+							   false)) do
+	_Set_Untrace_Signal(SB);
+	end;
+       except when Not_Found:
+		   _Exit_System(Flag);
+		   signal Unknown_Signal;
+	      end;
+    _Exit_System(Flag);
+    end _Untrace_Signal;
+
+%%% Cancel tracing of all signals.
+%%% (SEP/Nov  7 1984)
+
+_Untrace_All_Signals = proc ();
+    Flag: bool := _Enter_System();
+    for SB: _signal_block in _signal_table$Elements(_Get_Signal_Table()) do
+	_Set_Untrace_Signal(SB);
+	end;
+    _Exit_System(Flag);
+    end _Untrace_All_Signals;
+
+
+%%% Remove invocation BI from its caller's list of trace ranged slots.
+%%% (SEP/Nov  7 1984)
+
+_Kill_Trace_From = proc (BI: _break_info);
+    Caller_RTI: _rtn_trace_info := _Get_Trace_Info(BI.Caller);
+    All_Cleared: bool := _trace_rng$Kill_Slot(Caller_RTI.Trace_Range,
+					      BI.Call_Addr);
+    if (All_Cleared)
+       then Caller_RTI.Trace_Ranged := false;
+	    if (~ Caller_RTI.Traced_To)
+	       then P: _obj := BI.Caller;
+		    _Set_Trace_Normal(P);  %% Set back to no break.
+		    _Forget_Trace_Info(P);
+	       end;
+       end;
+    if (~ _Get_Trace_Info(BI.Callee).Traced_To)
+       then BI.Should_Break := false;	%% Clear break flags if not traced to.
+	    BI.Yield_Break := false;
+       end;
+    end _Kill_Trace_From;
+
+%%% Set invocation (call slot) BI to be trace-ranged in it's caller.
+%%% (SEP/Nov  7 1984)
+
+_Keep_Trace_From = proc (BI: _break_info);
+    Caller_RTI: _rtn_trace_info := _Get_Trace_Info(BI.Caller);
+    _trace_rng$Trace_Slot(Caller_RTI.Trace_Range, BI.Call_Addr);
+    BI.Should_Break := true;		%% Set break flags.
+    BI.Yield_Break := true;
+    if (~ Caller_RTI.Traced_To)
+       then _Set_Trace_Ranged(BI.Caller);	%% Set the break instr.
+       end;
+    _Update_Existing_Frames(BI.Caller);	%% Put in fake frames for existing Ps.
+    end _Keep_Trace_From;
+
+%%% Return the Nth slot (return address for Nth invocation) in routine P.
+%%% (SEP/Nov  7 1984)
+
+_Slot = proc (P: _obj, N: int) returns (_obj) signals (not_found, bounds);
+    Flag: bool := _Enter_System();
+    RT_Inf: _rtn_trace_info := _Get_Trace_Info(P);
+       except when Not_Found:
+		   _Exit_System(Flag);
+		   signal Not_Found;
+	      end;
+    S: _obj := _trace_rng$Fetch_Slot(RT_Inf.Trace_Range, N);
+       except when Bounds:
+		   _Exit_System(Flag);
+		   signal Bounds;
+	      end;
+    _Exit_System(Flag);
+    return (S);
+    end _Slot;
+
+%%% Yield all _rtn_trace_info objects recorded in the trace table.
+%%% (SEP/Nov  7 1984)
+
+_All_Trace_Info = iter () yields (_rtn_trace_info);
+    for Rtn: _obj,
+	RTI: _rtn_trace_info in _trace_table$Elements(_Get_Trace_Table()) do
+	yield (RTI);
+	end;
+    end _All_Trace_Info;
+
+%%% Return true if slot is a trace-ranged call slot of routine P.
+%%% (SEP/Nov  7 1984)
+
+_Is_Traced_Slot = proc (P: _obj, Slot: _obj) returns (bool);
+    objs = sequence[_obj];
+    RTI: _rtn_trace_info := _trace_table$Lookup(_Get_Trace_Table(), P);
+       except when Not_Found:
+		   return (false);
+	      end;
+    return (_trace_rng$Is_Traced(RTI.Trace_Range, Slot));
+    end _Is_Traced_Slot;
+
+
+%%% Turn single stepping off or on (according to flag) for invocation BI.
+%%% Entering is true if the callee of BI is about to be entered or resumed.
+%%% Resuming is true if the callee of BI is an iterator which is about to
+%%% be resumed.
+%%% (SEP/Nov  7 1984)
+
+_Set_Single_Stepping = proc (BI: _break_info, Entering: bool, Resuming: bool, Flag: bool)
+    if (Entering)
+       then BI.Single_Stepping := Flag;
+	    if (Resuming)
+	       then for Iter_BI: _break_info
+			  in _Suspended_Iter_Breaks(BI.Callee_Frame,
+							BI.Pseudo_Resume_Addr,
+							BI.Callee_Info) do
+			%% Make sure all suspended iters have fake eps.
+			_Adjust_Break_Info(Iter_BI);
+			end;
+	       end;
+       else Caller_BI: _break_info := _Get_Callers_BI(BI);
+	    Caller_BI.Single_Stepping := Flag;
+	    _Adjust_Break_Info(Caller_BI);
+	       for Iter_BI: _break_info
+        	     in _Suspended_Iter_Breaks(Caller_BI.Callee_Frame,
+    		   			       BI.Call_Addr,
+					       Caller_BI.Callee_Info) do
+	           %% Make sure all suspended iters have fake eps.
+	           _Adjust_Break_Info(Iter_BI);
+		   end;
+       end;
+    end _Set_Single_Stepping;
+
+
+%%% Return the _break_info object for the caller of the slot described by BI.
+%%% If there is no BI for the caller already then one is created.
+%%% (SEP/Nov  7 1984)
+
+_Get_Callers_BI = proc (BI: _break_info) returns (_break_info);
+    if (_break_info$Caller_Is_Traced(BI))
+       then return (_cvt[_obj, _break_info](BI.Caller_Frame[0]));
+       else return (_break_info$Create(BI.Caller_Frame, BI.Caller_Info,
+				       false, false));
+       end;
+    end _Get_Callers_BI;
+
+%%% Temporarily disable tracing (until the listen loop is reentered. No
+%%% breakpoints are removed.
+%%% (SEP/Nov  7 1984)
+
+_Quit_Tracing = proc (BI: _break_info);
+    BI.Enter_Trace := false;
+    BI.Leave_Trace := false;
+    BI.Yield_Break := false;
+    for BI in _Fake_Frames(BI.Callee_Frame) do
+	BI.Enter_Trace := false;
+	BI.Leave_Trace := false;
+	BI.Yield_Break := false;
+	_Adjust_Break_Info(BI);
+	end;
+    end _Quit_Tracing;
+
+%%% Turn off tracing for frame BI. Tracing will be inhibited for all calls made
+%%% by the routine (P) corresponding to BI, including all calls made from those
+%%% calls, etc. Hence, the next breakpoint to be hit will be when P returns,
+%%% signals or yields. If the Trace_Yields flag is false then breaks won't
+%%% occur on yields from P either.
+%%% (SEP/Nov  7 1984)
+
+_Terminate_Frame_Tracing = proc (BI: _break_info, Trace_Yields: bool, Entering: bool, Resuming: bool);
+    _Set_Single_stepping(BI, Entering, Resuming, false); %Turn off single stepping.
+    if (Entering)
+       then BI.Enter_Trace := false;
+            BI.Yield_Break := Trace_Yields
+            if (Resuming)
+                then    for Iter_BI: _break_info
+                            in _Suspended_Iter_Breaks (BI.Callee_Frame,
+			                                BI.Pseudo_Resume_Addr,
+							BI.Callee_Info) do
+                            % Set trace flags to false for all suspended
+			    % iterators.
+                            Iter_BI.Enter_Trace := false
+                            Iter_BI.Leave_Trace := false
+                            _Adjust_Break_Info (Iter_BI)
+                            end
+                         end
+       else BI.Leave_Trace := false; BI.Enter_Trace := false
+	    Caller_BI: _break_info := _Get_Callers_BI(BI);
+	    Caller_BI.Should_Break := true;
+            Caller_BI.Yield_Break := Trace_Yields
+            Caller_BI.Enter_Trace := false
+            for Iter_BI: _break_info 
+	        in _Suspended_Iter_Breaks (Caller_BI.Callee_Frame,
+		                            BI.Call_Addr,
+					    Caller_BI.Callee_Info) do
+                % Set trace flags to false for all suspended iterators.
+                Iter_BI.Enter_Trace := false
+	        Iter_BI.Leave_Trace := false
+                _Adjust_Break_Info (Iter_BI)
+                end
+       end;
+    end _Terminate_Frame_Tracing;
+
+
+%%% Undo the effect of a previous call to _Terminate_Frame_Tracing(BI)
+%%% (a 'Y' breakpoint command) if the routine in question is an iterator.
+%%% (SEP/Nov  7 1984)
+
+_Allow_Tracing = proc (BI: _break_info) signals (not_iter);
+    if (~ _break_info$Is_Iter(BI))
+       then signal Not_Iter;
+       end;
+    BI.Enter_Trace := true;
+    BI.Yield_Break := true;
+    for Iter_BI: _break_info
+	  in _Suspended_Iter_Breaks(BI.Callee_Frame, BI.Pseudo_Resume_Addr,
+				    BI.Callee_Info) do
+	Iter_BI.Enter_Trace := true;
+	Iter_BI.Leave_Trace := true;
+	_Adjust_Break_Info(Iter_BI);
+	Iter_RTI: _rtn_trace_info := _Get_Trace_Info(Iter_BI.Callee);
+	if (Iter_RTI.Traced_To cor _Caller_Traces(Iter_BI))
+	   then Iter_BI.Yield_Break := true;
+	   end;
+	end;
+    end _Allow_Tracing
+
+%%% Yield the BIs for all suspended iterators whose corresponding loop bodies
+%%% encompass Call_Addr (in routine Call_RInf). BIs are created if necessary.
+%%% (SEP/Nov  7 1984)
+
+_Suspended_Iter_Breaks = iter (Call_Frm: _frame, Call_Addr: _obj,
+			       Call_RInf: _rtn_info)
+			   yields (_break_info);
+    Iter_BI: _break_info;
+    Iter_Info: _rtn_info;
+    for Indx: int, IFrm: _frame, Rsm_Addr: _obj in _frame$Iters(Call_Frm,
+								Call_Addr,
+								Call_RInf) do
+        % Indx = offset in Call_Frm of iter's ep. IFrm = iter's frame.
+	% Rsm_Addr = iter's resume address.
+
+	Frm: _frame := IFrm;
+	Lkp_Addr: _obj := Rsm_Addr;     % just need an address within the
+					% iterator's code area.
+	while (Frm.Prev ~= Call_Frm) do		%% Make sure we are up below caller.
+	    Lkp_Addr := Frm.Loop;       % address in previous iterator
+	    Frm := Frm.Prev;            % prev. iter's frame
+	    end;
+	if (_obj$Is_Vec(Frm[0]))
+           % Existing BI
+	   then Iter_BI := _cvt[_obj, _break_info](Frm[0]);
+
+           % Create new BI. Adjust the new iter frame so that flags and other
+	   % information is set properly.
+	   else Iter_Info := _frm_table$Lookup(_Get_Frm_Table(), Lkp_Addr);
+		Iter_BI := _break_info$Create(Frm, Iter_Info, false, false);
+		_break_info$Adjust_Iter_Frame(Iter_BI, Call_Frm, Indx, Frm,
+					      Rsm_Addr, IFrm);
+	   end;
+	yield (Iter_BI);
+	end;
+    end _Suspended_Iter_Breaks;
+
+%%% Similar to _Suspended_Iter_Breaks except that this iterator only yields
+%%% newly created BI for suspended iterators.
+%%% (SEP/Nov  7 1984)
+
+_New_Suspended_Iter_Breaks = iter (Call_Frm: _frame, Call_Addr: _obj,
+				   Call_RInf: _rtn_info)
+			       yields (_break_info);
+    Iter_BI: _break_info;
+    Iter_Info: _rtn_info;
+    for Indx: int, IFrm: _frame, Rsm_Addr: _obj in _frame$Iters(Call_Frm,
+								Call_Addr,
+								Call_RInf) do
+	Frm: _frame := IFrm;
+	Lkp_Addr: _obj := Rsm_Addr;
+	while (Frm.Prev ~= Call_Frm) do		%% Make sure we are up below caller.
+	    Lkp_Addr := Frm.Loop;
+	    Frm := Frm.Prev;
+	    end;
+	if (~ _obj$Is_Vec(Frm[0]))
+	   then Iter_Info := _frm_table$Lookup(_Get_Frm_Table(), Lkp_Addr);
+		Iter_BI := _break_info$Create(Frm, Iter_Info, false, false);
+		_break_info$Adjust_Iter_Frame(Iter_BI, Call_Frm, Indx, Frm,
+					      Rsm_Addr, IFrm);
+		yield (Iter_BI);
+	   end;
+	end;
+    end _New_Suspended_Iter_Breaks;
+
+
+_Update_Existing_Frames = proc (P: _obj);
+    BI: _break_info;
+    RInf: _rtn_info;
+    Callee: _obj;
+    Tab: _frm_table := _Get_Frm_Table();
+    Frm: _frame := _frame$Current().Prev;
+    Is_Iter: bool := _rtn_info$Is_Iter(_frm_table$Lookup(Tab, P))
+    while (true) do
+	Call_Addr: _obj := Frm.Addr;
+	Frm := Frm.Prev;
+	RInf := _frm_table$Lookup(Tab, Call_Addr);
+	   except when Not_Found:
+		       continue;
+		  end
+	if (Is_Iter)		%% If it is an iter go check for suspended ones.
+	   then for Indx: int, IFrm: _frame, Rsm_Addr: _obj
+		      in _frame$Iters(Frm, Call_Addr, RInf) do
+		    _Update_Iter_Frames(P, Frm, Indx, IFrm, Rsm_Addr);
+		    end;
+	   end
+	Callee := _Get_Callee(Frm, RInf);
+	if (Callee = P)
+	   then if (_obj$Is_Vec(Frm[0]))
+		   then BI := _cvt[_obj, _break_info](Frm[0]);
+		   else BI := _break_info$Create(Frm, RInf, false, false);
+		   end;
+		_Adjust_Break_Info(BI);
+	   end;
+	end;
+       except when None:
+	      end;
+    end _Update_Existing_Frames;
+
+_Update_Iter_Frames = proc (P: _obj, CFrm: _frame, Indx: int,
+			    IFrm: _frame, Rsm_Addr: _obj)
+    Tab: _frm_table := _Get_Frm_Table();
+    LFrm: _frame := IFrm
+    Lkp_Addr: _obj := Rsm_Addr
+    while (LFrm ~= CFrm) do
+	IRInf: _rtn_info := _frm_table$Lookup(Tab, Lkp_Addr);
+	   except when Not_Found:
+		       continue;
+		  end
+	Callee: _obj := _Get_Callee(LFrm, IRInf);
+	if (Callee = P)
+	   then BI: _break_info
+		if (_obj$Is_Vec(LFrm[0]))
+		   then BI := _cvt[_obj, _break_info](LFrm[0]);
+		   else BI := _break_info$Create(LFrm, IRInf, false, false);
+			_break_info$Adjust_Iter_Frame(BI, CFrm, Indx, LFrm,
+						      Rsm_Addr, IFrm);
+		   end;
+		_Adjust_Break_Info(BI);
+	   end;
+	for SIndx: int, SIFrm: _frame, SRsm_Addr: _obj
+	      in _frame$Iters(LFrm, Lkp_Addr, IRInf) do
+	    _Update_Iter_Frames(P, LFrm, SIndx, SIFrm, SRsm_Addr);
+	    end;
+	Lkp_Addr := LFrm.Loop
+	LFrm := LFrm.Prev
+	end;
+    end _Update_Iter_Frames;

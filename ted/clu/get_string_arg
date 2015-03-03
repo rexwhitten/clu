@@ -1,0 +1,18 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+get_string_arg = proc (old_env: env, prompt, default: string) returns (string)
+		   signals (errmsg(string))
+    e: env := get_string_arg_env(old_env)
+       resignal errmsg
+    env$choose_window(old_env)
+    env$store_str(e, "default", default)
+    e.title := "---- " || prompt || ": (default: '" || default || "')"
+    why: string := ted(e)
+    winset$remove(e)
+    if why = quit_msg then signal errmsg(quit_msg) end
+    b: buf := e.buffer
+    buf$set_cursor(b, 1, 1)
+    s: string := buf$b2s(b, buf$size(b), max_int)
+    if string$empty(s) then s := env$fetch_str(e, "default", "") end
+    env$store_str(e, "last_arg", s)
+    return (s)
+    end get_string_arg

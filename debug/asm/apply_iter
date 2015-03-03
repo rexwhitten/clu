@@ -1,0 +1,103 @@
+;; Copyright Massachusetts Institute of Technology 1984, 1989
+
+apply_iter = iter (itr: _obj, args: objlist, rcnt: int) yields (objlist)
+					signals (error(string, objlist))
+	objlist = sequence [_obj]
+	var	fenv, ienv		;; For loop variables.
+	var 	_error_			;; Extra special variable name.
+	var	svd_trcflg		;; To save trcflg.
+
+	movea	args, r1		;; Sequence of args to be pushed.
+	move	(r1)+, n1		;; (number of args * 4) + 2.
+	asr	2, n1
+	ifge	subq	1, n1		;; Get #args - 1
+	then	ifne			;; At lease 2?
+		then	qloop	move	(r1)+, -(sp)	;; Push next arg.
+				subq	1, n1
+				bgt	this	;; At least 2 left?
+				end
+			end
+		movea	(r1), rr	;; Final arg in rr.
+		movea	n0, r1
+		end
+
+	begin				;; Scope to catch FAILURE exception if
+ 					;; called iter. should signal it.
+	move	trcflg, svd_trcflg	;; Save curretn trcflg.
+	move	true, trcflg		;; Turn tracing on.
+	bsr	call			;; Push loop body addr. and go.
+
+	;; This is the loop body to which the iterator will yield.
+	move	pp, ienv		;; Save iterator's ep.
+	move	trcflg, n1		;; Swap current and old trcflgs.
+	move	svd_trcflg, trcflg
+	move	n1, svd_trcflg
+	ifeq	move	rcnt, n2	;; Any yields?
+		cmp	n0, n2
+	then	movea	[], rr		;; No.
+	else	move	rr, -(sp)	;; Save last yield.
+		asl	1, n2
+		addq	2, n2		;; Yield count as byte offset + 4
+		movea	heaphi, rr
+		iflt	sub	n2, freecnt	;; Alloc mem. for the sequence.
+		then	jsr	memout
+			end
+		add	n2, heaphi
+		lea	(rr, n2), r1	;; Ptr to last slot in sequence + 4.
+		subq	2, n2		;; Get (size * 4) + 2.
+		move	n2, (rr)	;; Put in header.
+		asr	2, n2		;; Get # results
+		qloop	move	(sp)+, -(r1)	;; Pop results into vector (in reverse order).
+			subq	1, n2
+			bgt	this
+			end
+		movea	n0, r1		;; (Don't leave invalid ref.)
+		end
+	move	sp, fenv		;; Save current sp.
+	yield	(rr)
+	move	trcflg, n1		;; Swap current and old trcflgs.
+	move	svd_trcflg, trcflg
+	move	n1, svd_trcflg
+	movea	ienv, ep		;; Restore iterator env.
+	rts
+
+	;; Call of the iterator and code to be executed following its return.
+call:	movea	itr, r1
+	jsr	(r1)			;; Do the call
+	move	svd_trcflg, trcflg	;; Restore trcflg.
+	return
+
+	end except when			;; End of error scope.
+		failure (_error_):
+			move	_error_, -(sp)	;; Make "failure" look like "others".
+			_error_ := "failure"
+			moveq	3, n7
+		others (_error_):	;; Prevent stack cut back.
+		end
+	move	svd_trcflg, trcflg	;; Restore trcflg.
+	ifeq	cmpi	1, n7		;; n7 has (number of values * 2) + 1
+ 					;; (it is set by _siggy)
+	then	signal	error(_error_, [])	;; No signal values.
+		end
+
+	;; There are signal values. Put them into a sequence.
+	move	n7, n2
+	asl	1, n2
+	move	n2, n3
+	addq	2, n2			;; Save (number of values * 4) + 2
+	movea	heaphi, rr
+	iflt	sub	n2, freecnt	;; Alloc mem. for the sequence.
+	then	jsr	memout
+		end
+	add	n2, heaphi
+	move	n3, (rr)		;; Header.
+	lea	(rr, n2), r1		;; Ptr to last slot in seq. + 4
+	asr	1, n7			;; n7 := number of values.
+	qloop	move	(sp)+, -(r1)	;; Pop values into sequence.
+		subq	1, n7
+		bgt	this
+		end
+	movea	n0, r1
+	signal error(_error_, rr)
+
+	end apply_iter

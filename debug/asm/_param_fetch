@@ -1,0 +1,23 @@
+;; Copyright Massachusetts Institute of Technology 1984, 1989
+
+%rtnhd = 047271				;; JSR with absolute.L operand
+%param_list = 20			;; Offset in debug blk of param use list.
+
+;; Fetch use #indx out of the parameterized use list for the routine whose
+;; debug block is pointed to by rtn.  Indx starts from 1.
+;; (Maybe this should check to make sure that the routine is parameterized.)
+_param_fetch = qproc (rtn: _obj, indx: int) returns (_obj) signals (not_entry_vector)
+	movea	rtn, r1
+	ifeq	cmpa	heaplo, r1	;; Has to be below the heap...
+		bge	next
+		cmpa	0377, r1	;; but >8bits worth of data.
+		ble	next
+		cmpiw	%rtnhd, (r1)	;; Routine's debug block?
+	then	movea	%param_list(r1), r1	;; Get param. use list.
+		lea	-6(rr, rr), rr	;; rr starts out with index as a CLU int.
+ 					;; Get (index-1)*4 into rr.
+		movea	(r1, rr), rr	;; Fetch parameter...
+		return (rr)		;; and return it.
+		end
+	signal not_entry_vector
+	end _param_fetch

@@ -1,0 +1,360 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+run_ctrlv = proc (e: env, c: char) signals (errmsg(string), stop(env, string))
+    help_text = "^A,A: back to start of file\n" ||
+		"^B,B: back # words\n" ||
+		" C:   save # words\n" ||
+		"^D,D: delete # words forwards\n" ||
+		"^E,E: forward to end of file\n" ||
+		"^F,F: forward # words\n" ||
+		" G:   insert last string/filename arg\n" ||
+		" H:   indent marked text # extra spaces\n" ||
+		"^H:   adjust blanks to place cursor on column #\n" ||
+		"^I,I: insert saved text |#| times (#<0: before cursor)\n" ||
+		"^J,J: scroll window down # lines\n" ||
+		" K:   delete marked text\n" ||
+		"^K:   delete # files\n" ||
+		" L:   go to line # of current file\n" ||
+		"^M,M: set mark\n" ||
+		" N:   next file\n" ||
+		"^N:   next screen of text\n" ||
+		"^O,O: open space for # new files\n" ||
+		" P:   previous file\n" ||
+		"^P:   previous screen of text\n" ||
+		"^R,R: insert deleted text |#| times (#<0: before cursor)\n" ||
+		" S:   save marked text\n" ||
+		"^S:   save # lines\n" ||
+		" T:   display (#~=1: insert) current date & time\n" ||
+		"^T:   display CPU time used by TED\n" ||
+		"^U,U: change indentation to previous line's + #\n" ||
+		"^V,V: display coordinates of cursor\n" ||
+		" W:   save & delete marked text\n" ||
+		"^W:   save & delete # lines\n" ||
+		"^X,X: exchange mark and cursor\n" ||
+		"^Z,Z: delete all lines, reset file name\n" ||
+		"^],]: move to start of # next word\n" ||
+		"^[,[: move to end of # previous word\n" ||
+		"del:  delete # words backwards\n" ||
+		"sp:   skip blanks forward\n" ||
+		"^@:   delete blanks forward\n" ||
+		" #:   insert # as ASCII character\n" ||
+		" @:   go to line # of buffer\n" ||
+		" !:   find & display # next long line (#=0: clear top line)\n" ||
+		" =:   scroll when # percent of window will remain\n" ||
+		" ^:   display cursor # percent up the window\n" ||
+		" %:   display window on end of buffer # percent blank\n" ||
+		" >:   delete to start of # next word\n" ||
+		" <:   delete to end of # previous word\n"
+
+    atsign = c2i('@')
+    ctrlss = c2s(ctrls)
+    ctrlws = c2s(ctrlw)
+
+    prompt = "Text/Cursor Mover"
+
+    tabs = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t"
+    spaces = "        "
+
+    own secs: int := 0
+    own msecs: int := 0
+    own usecs: int := 0
+
+    arg: int, opt: char := get_option(e, prompt, "", help_text, false)
+       resignal errmsg
+
+    b: buf := e.buffer
+    line, pos: int := buf$get_cursor(b)
+    xopt: char := opt
+    if opt < ' ' then xopt := i2c(c2i(opt)+atsign) end
+    if xopt = 'I' cor xopt = 'R' then % insert saved text
+       saved_buf: buf
+       if xopt = 'R'
+	  then saved_buf := e.killed
+	  else saved_buf := e.saved
+	  end
+       for i: int in int$from_to_by(int$abs(arg), 1, -1) do
+	   if ~string$empty(saved_buf.name) then
+	      ready_frame_insert(e)
+	      end
+	   if bool$not(env$insert_buf1(e, saved_buf)) then
+	      signal errmsg("Can't insert text here!")
+	      end
+	   end
+       if arg > 0 then buf$set_cursor(b, line, pos) end
+     elseif opt = 'L' then % go to line # of current file
+       low, high: int := buf$get_frame(b)
+       if arg < 1 then arg := 1 end
+       low := low + arg - 1
+       if low > high
+	  then buf$set_cursor(b, high, max_int)
+	  else buf$set_cursor(b, low, 1)
+	  end
+     elseif opt = '@' then % go to line # of buffer
+       buf$set_cursor(b, arg, 0)
+     elseif xopt = 'A'  cor  xopt = 'E' then % move within file
+       low, high: int := buf$get_frame(b)
+       if xopt = 'A' cand low <= high
+	  then buf$set_cursor(b, low, 1)
+	  else buf$set_cursor(b, high, max_int)
+	  end
+     elseif opt = ctrlk then % delete frames
+       ask: bool := false
+       if arg > 0
+	  then for i: int in int$from_to_by(arg, 1, -1) do
+		   if b.changed
+		      then ask := true
+			   break
+		      end
+		   buf$new_frame(b, 1)
+		   end
+	elseif arg < 0
+	  then for i: int in int$from_to_by(-arg, 1, -1) do
+		   if b.changed
+		      then ask := true
+			   break
+		      end
+		   buf$new_frame(b, -1)
+		   end
+	else return
+	end
+       buf$set_cursor(b, line, pos)
+       if ~ask cor mconfirm(e, "Kill file(s), some unsaved", true)
+	  then low, max: int, nb: buf := buf$del_frame(b, arg)
+	       env$note_delete(e, low, 1, max, max_int)
+	       e.killed := nb
+	       buf$new_frame(b, 0)
+	  end resignal errmsg
+     elseif xopt = 'M' then % set mark
+       buf$set_mark(b, line, pos)
+     elseif opt = 'N' cor opt = 'P' then % skip files
+       if opt = 'P' then arg := - arg end
+       buf$new_frame(b, arg)
+     elseif xopt = 'N' cor xopt = 'P' then % skip screens of text
+       if xopt = 'P' then arg := - arg end
+       env$move_window(e, arg)
+     elseif xopt = 'O' then % insert new frames
+       if arg <= 0  cor  env$is_argenv(e) then return end
+       nb: buf := buf$create()
+       for i: int in int$from_to_by(arg, 1, -1) do
+	   name: string := get_string_arg(e, "Frame name", "new")
+	      resignal errmsg
+	   fspec$parse(name)
+	      except when bad_format: signal errmsg("Illegal frame name!") end
+	   if string$empty(name) then name := "new" end
+	   nb.name := name
+	   ready_frame_insert(e)
+	   if env$insert_buf1(e, nb) then continue end
+	   signal errmsg("Can't open space here!")
+	   end
+       line, pos := buf$get_cursor(b)
+       if line = buf$size(b) then arg := arg - 1 end
+       buf$new_frame(b, - arg)
+     elseif xopt = 'T' then
+       if opt = 'T'
+	  then % real time
+	       if arg = 1
+		  then top_display(e, date$unparse(now()))
+		  else env$insert1(e, date$unparse(now()))
+		  end
+	  else % CPU time
+	       secs0: int := secs
+	       msecs0: int := msecs
+	       usecs0: int := usecs
+	       secs, msecs, usecs := _get_runtime()
+	       secs0, msecs0, usecs0 := _longsub(secs, msecs, usecs,
+						 secs0, msecs0, usecs0)
+	       top_display(e, "CPU time = " ||
+			      _time_format(secs, msecs, usecs) ||
+			      ", delta = " ||
+			      _time_format(secs0, msecs0, usecs0))
+	  end
+     elseif xopt = 'U' then
+       move_under(e, arg)
+     elseif xopt = 'V' then
+       msg: string := b.name
+       ln: string := ""
+       if ~string$empty(msg)
+	  then msg := "File: " || int$unparse(buf$frame_num(b)) ||
+		      " " || msg || ", "
+	       min, max: int := buf$get_frame(b)
+	       if line < min
+		  then ln := "--/"
+		  else ln := int$unparse(line - min + 1) || "/"
+		  end
+	  end
+       top_display(e, msg ||
+		      "Line: " || ln || int$unparse(line) ||
+		      ", Col: " || int$unparse(_calc_hpos(b[line], pos) + 1) ||
+		      ", Char: " || int$unparse(pos))
+     elseif xopt = 'X' then % exchange mark and cursor
+       mline, mpos: int := buf$get_mark(b)
+       buf$set_cursor(b, mline, mpos)
+       buf$set_mark(b, line, pos)
+     elseif xopt = 'Z' then % kill entire buffer
+	if env$is_argenv(e)
+	   then buf$flush(b)
+		env$change_all(e)
+	 elseif ~buf$any_changed(b)  cor
+		mconfirm(e, "Delete existing file(s), some unsaved", true)
+	   then buf$flush(b)
+		set_file_name(e, fname$parse(""))
+		top_display(e, "")
+		env$change_all(e)
+	 end resignal errmsg
+     elseif opt = 'G' then % insert last string/filename arg
+       env$insert1(e, env$fetch_str(e, "last_arg", ""))
+     elseif opt = 'H' then % indent marked text
+       mline, mpos: int := buf$get_mark(b)
+       if line < mline cor (line = mline cand pos < mpos) then
+	  line, mline := mline, line
+	  pos, mpos := mpos, pos
+	  end
+       if pos = 1 then line := line - 1 end
+       cl: int := e.change_limit
+       e.change_limit := 0
+       for mline in int$from_to(mline, line) do
+	   s: string := b[mline]
+	   i: int := 1
+	   while string$indexc(s[i], " \t") > 0 do i := i + 1 end
+	      except when bounds: if ~string$empty(s) then
+				     env$delete(e, mline, 1, mline, i)
+				     end
+				  continue
+		     end
+	   mpos := _calc_hpos(s, i) + arg
+	   if env$delete(e, mline, 1, mline, i)  cand  mpos > 0
+	      then env$insert1(e, string$substr(tabs, 1, mpos / 8))
+		   env$insert1(e, string$substr(spaces, 1, mpos // 8))
+	      end
+	   end
+       buf$set_cursor(b, line + 1, 1)
+       e.change_limit := cl
+     elseif xopt = 'H' then % adjust cursor
+       s: string := b[line]
+       arg := int$max(arg - 1, 0)
+       col: int := _calc_hpos(s, pos)
+       npos: int := pos
+       while string$indexc(s[npos - 1], " \t") > 0 do
+	   npos := npos - 1
+	   end except when bounds: end
+       if (col < arg  cand  (npos = pos  cor  env$delete1(e, line, npos)))
+	    cor
+	  (col > arg  cand  npos < pos  cand  env$delete1(e, line, npos))
+	  then col := _calc_hpos(s, npos)
+	       if col < arg
+		  then npos := arg / 8 - col / 8
+		       if npos = 0
+			  then arg := arg - col
+			  else env$insert1(e, string$substr(tabs, 1, npos))
+			       arg := arg // 8
+			  end
+		       env$insert1(e, string$substr(spaces, 1, arg))
+		  end
+	  end
+     elseif xopt = 'J' then % scroll window
+       pos := env$choose_window(e) + arg
+       if line < pos
+	  then if arg = -1  cor  arg = 1 then _bell() end
+	       pos := line
+	elseif line >= pos + e.size
+	  then if arg = -1  cor  arg = 1 then _bell() end
+	       pos := line - e.size + 1
+	end
+       e.window_top := pos
+     elseif opt = '#' then % insert arg as character
+       env$insert1(e, c2s(i2c(arg)))
+	  except when illegal_char: signal errmsg("Bad character!") end
+     elseif opt = '!' then % look for long lines
+       limit, incr: int
+       if arg = 0
+	  then top_display(e, "")
+	       return
+	elseif arg > 0
+	  then limit := buf$size(b)
+	       incr := 1
+	else limit := 1
+	     incr := -1
+	     arg := -arg
+	end
+       width: int := int$max(env$fetch_num(e, "max_width", e.width), 0)
+       lline: int
+       for lline in int$from_to_by (line, limit, incr) do
+	   l: string := b[lline]
+	   if _calc_hpos(l, string$size(l)+1) > width then
+	      arg := arg - 1
+	      if arg = 0 then break end
+	      end
+	   end
+       if arg > 0 then signal errmsg("Not found!") end
+       if lline ~= line
+	  then buf$set_cursor(b, lline, 1) end
+       l: string := b[lline]
+       limit := 1
+       while _calc_hpos(l, limit) <= width do
+	   limit := limit + 1
+	   end
+       top_display(e, string$rest(l, limit - 1))
+     elseif opt = '=' then % set percent overlap for scrolling
+       e.overlap := arg
+     elseif opt = '^' then % display cursor # percent up page
+       e.window_pos := arg
+     elseif opt = '%' then % set percent of last page blank
+       e.last_page_blank := arg
+     else if string$indexc(xopt, "B<[\177") > 0 then
+	     arg := -arg
+	   elseif string$indexc(xopt, "CDFKSW>] @") = 0 then
+	     signal errmsg("Bad ^V option: '" || c2s(opt) || "'")
+	   end
+	  mline, mpos: int
+	  if string$indexc(opt, "KSW") > 0
+	     then % area is marked by cursor & mark
+		  mline, mpos := buf$get_mark(b)
+	   elseif string$indexc(xopt, "BCDF\177") > 0
+	     then % arg words
+		  mline, mpos := scan_word(b, line, pos, arg,
+					   false, e.word_chars)
+	   elseif string$indexc(xopt, "<>[]") > 0
+	     then % arg words
+		  mline, mpos := scan_word(b, line, pos, arg,
+					   true, e.word_chars)
+	   elseif opt = ' '  cor  opt = ctrlat
+	     then % blanks
+		  mline := line
+		  mpos := pos
+		  while true do
+		      s: string := b[mline]
+		      while string$indexc(s[mpos], " \t") > 0 do
+			  mpos := mpos + 1
+			  end except when bounds:
+					  if mline < buf$size(b)
+					     then mline := mline + 1
+						  mpos := 1
+						  continue
+					     end
+				     end
+		      break
+		      end
+	   else % arg lines
+		mline, mpos := buf$add_cursor(b, arg, 0)
+	   end
+	  if string$indexc(xopt, "BF[] ") > 0
+	     then % just movement
+		  buf$set_cursor(b, mline, mpos)
+	     else low, high: int := buf$get_frame(b)
+		  if line < low  cor  mline < low  cor  mline > high then
+		     signal errmsg("Text cannot include file boundaries")
+		     end
+		  saved: buf := buf$sub_buf(b, mline, mpos)
+		  if string$indexc(xopt, "CSW") > 0 then % save the text
+		     e.saved := saved
+		     end
+		  if string$indexc(xopt, "DKW<>\177@") > 0
+		     then % withdraw the text
+			  e.killed := saved
+			  if ~env$delete1(e, line, pos) then
+			     signal errmsg("Can't delete!")
+			     end
+		     else buf$set_cursor(b, line, pos)
+		     end
+	     end
+     end
+    end run_ctrlv

@@ -1,0 +1,16 @@
+%% Copyright Massachusetts Institute of Technology 1980, 1989
+
+Output_Seq_Address = proc (SA: addrs, Env: lnk_env) returns (address);
+    addrs = sequence[address]
+%    own Max_Vec_Size: int := mach_constants$Max_Vec_Size();
+%    if (addrs$Size(SA) > Max_Vec_Size)
+%       then Should_Never_Happen[addrs](
+%		"Sequence  of addresses too big to be output", SA);
+%       end;
+    Sq_Addr: address := out_link_chan$Start_Object(Env.Output);
+    Output_Vec_Head(addrs$Size(SA), Env);
+    for Addr: address in addrs$Elements(SA) do
+	Output_Reference(Addr, Env);
+	end;
+    return (Sq_Addr);
+    end Output_Seq_Address;

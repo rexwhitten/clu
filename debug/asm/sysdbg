@@ -1,0 +1,15 @@
+; Copyright Massachusetts Institute of Technology 1981, 1989
+
+_enter_system = qproc () returns (bool)
+	movea	trcflg,rr
+	move	dbgflg,trcflg
+	return(rr)
+	end _enter_system
+
+_exit_system = qproc (flg: bool)
+	move	rr,trcflg
+	end _exit_system
+
+_debug_system = qproc (flg: bool)
+	move	rr,dbgflg
+	end _debug_system

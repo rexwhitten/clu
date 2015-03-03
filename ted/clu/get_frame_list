@@ -1,0 +1,20 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+get_frame_list = proc (e: env) returns (afnt)
+    b: buf := e.buffer
+    oline, opos: int := buf$get_cursor(b)
+    buf$set_cursor(b, 1, 1)
+    line: int := 0
+    afn: afnt := afnt$new()
+    while true do
+	    low, max: int := buf$get_frame(b)
+	    if low <= line then break end
+	    line := low
+	    ns: string := b.name
+	    if string$empty(ns) then ns := e.fname end
+	    afnt$addh(afn, fname$parse(ns))
+		except when bad_format: end
+	    buf$new_frame(b, 1)
+	    end
+    buf$set_cursor(b, oline, opos)
+    return(afn)
+    end get_frame_list

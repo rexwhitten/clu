@@ -1,0 +1,7 @@
+; Copyright Massachusetts Institute of Technology 1980, 1989
+
+type_of = qproc (a: any) returns (type)
+	moveaw	2(rr),rr
+	lea	1(rr,rr),rr
+	return(rr)
+	end type_of

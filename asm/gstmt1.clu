@@ -1,0 +1,549 @@
+%	GSTMT1 CLU
+% Copyright Massachusetts Institute of Technology 1980, 1989
+%	MC68000 Assembler: statement generator
+
+# extend
+
+g_stmt = proc (e: g_env, s: stmt)
+	e.line := s.line
+	tagcase s.abs
+	   tag assn (sa: assnstmt):
+		g_expr(e, sa.expr, sa.var.kind)
+	   tag massn (sa: massnstmt):
+		g_massn(e, sa)
+	   tag stack (sa: exprlist):
+		g_stack(e, sa)
+	   tag unstack (sa: idnlist):
+		g_unstack(e, sa)
+	   tag invoke (sa: invoke):
+		g_invoke1(e, sa)
+		g_invoke2(e, sa)
+	   tag loop (sa: loopstmt):
+		g_loop(e, sa)
+	   tag for_ (sa: forstmt):
+		g_for(e, sa)
+	   tag if_ (sa: ifstmt):
+		g_if(e, sa)
+	   tag return_ (sa: exprlist):
+		g_return(e, sa)
+	   tag yield_ (sa: exprlist):
+		g_yield(e, sa)
+	   tag signal_ (sa: condition):
+		g_signal(e, sa)
+	   tag break_:
+		g_break(e)
+	   tag continue_:
+		g_continue(e)
+	   tag body (sa: stmtlist):
+		g_body(e, sa)
+	   tag label (sa: labelstmt):
+		g_label(e, sa)
+	   tag except_ (sa: exceptstmt):
+		g_except(e, sa)
+	   tag resignal_ (sa: resignalstmt):
+		g_resignal(e, sa)
+	   tag inst (sa: instform):
+		if ~sa.opcode.opgen(e,
+				    sa.opcode.opcode,
+				    e_instval(e, sa.src),
+				    e_instval(e, sa.dst))
+		   then g_env$err(e, "illegal operands to '" ||
+				     sa.opcode.str || "'")
+		   end
+	   others:
+	   end
+	end g_stmt
+
+g_massn = proc (e: g_env, s: massnstmt)
+	g_invoke1(e, s.call)
+	g_invoke2(e, s.call)
+	vars: idnlist := s.vars
+	iz: int := idnlist$size(vars)
+	src: int := _addrd_RR
+	for i: int in int$from_to_by(iz, 1, -1) do
+		if src = _addrd_RR
+		   then tagcase vars[i].kind
+			   tag areg (reg: int):
+			       if reg = _RR
+				  then src := _pincr_SP
+				       continue
+				  end
+			   others:
+			   end
+		   end
+		g_move_src(e, vars[i].kind, src, 0)
+		src := _pincr_SP
+		end
+	end g_massn
+
+g_stack = proc (e: g_env, vals: exprlist)
+	for val: expr in exprlist$elements(vals) do
+		g_expr(e, val, idnkind$make_tos(nil))
+		end
+	end g_stack
+
+g_unstack = proc (e: g_env, vars: idnlist)
+	for i: int in int$from_to_by(idnlist$size(vars), 1, -1) do
+		g_move_src(e, vars[i].kind, _pincr_SP, 0)
+		end
+	end g_unstack
+
+g_invoke1 = proc (e: g_env, inv: invoke)
+	args: exprlist := inv.args
+	z: int := exprlist$size(args)
+	starok: bool := true
+	for i: int in int$from_to(1, z) do
+		x: expr := args[i]
+		tagcase x.abs
+		   tag star:
+			if ~starok
+			   then g_env$err(e, "illegal use of * expression") end
+		   others:
+			if i = z
+			   then g_expr(e, x, idnkind$make_areg(_RR))
+			   else g_expr(e, x, idnkind$make_tos(nil))
+			   end
+			starok := false
+		   end
+		end
+	end g_invoke1
+
+g_invoke2 = proc (e: g_env, inv: invoke)
+	me: g_menv := e.menv
+	nargs: int := exprlist$size(inv.args)
+	app: expr := e_expr(e, inv.apply)
+	doit: bool := true
+	tagcase app.abs
+	   tag apply, op:
+		te: g_tenv := e.tenv
+		val: mref, pflag: int := g_tenv$store_rconst(te, app, nargs)
+		if pflag ~= _plain
+		   then disp: int := g_tenv$add_puse(te, _use_const, val)
+			if disp = 0
+			   then ainst(me, MOVEA, _R4, _indir_PP)
+			   else ainst(me, MOVEA, _R4, _idisp_PP)
+				immed(me, 4 * disp)
+			   end
+		   else disp: int := g_tenv$add_use(te, _use_const, val)
+			xinst(me, JSR, _long)
+			udesc(me, disp)
+			doit := false
+		   end
+	   tag idn (id: idn):
+		tagcase id.kind
+		   tag epvar (disp: int):
+			ainst(me, MOVEA, _R4, _idisp_EP)
+			immed(me, disp)
+		   tag spvar (disp: int):
+			ainst(me, MOVEA, _R4, _idisp_SP)
+			immed(me, disp)
+		   tag rown (num: mref):
+			disp: int := g_tenv$add_use(e.tenv, _use_rown, num)
+			ainst(me, MOVEA, _R4, _long)
+			udesc(me, disp)
+		   tag cown (num: mref):
+			disp: int := g_tenv$add_use(e.tenv, _use_cown, num)
+			ainst(me, MOVEA, _R4, _long)
+			udesc(me, disp)
+		   tag prown (num: mref):
+			disp: int := g_tenv$add_puse(e.tenv, _use_rown, num)
+			if disp = 0
+			   then ainst(me, MOVEA, _R4, _indir_PP)
+			   else ainst(me, MOVEA, _R4, _idisp_PP)
+				immed(me, 4 * disp)
+			   end
+		   tag pcown (num: mref):
+			disp: int := g_tenv$add_puse(e.tenv, _use_cown, num)
+			if disp = 0
+			   then ainst(me, MOVEA, _R4, _indir_PP)
+			   else ainst(me, MOVEA, _R4, _idisp_PP)
+				immed(me, 4 * disp)
+			   end
+		   tag text (i: int):
+			xinst(me, JSR, _short)
+			immed(me, i)
+			doit := false
+		   tag data (i: int):
+			disp: int := g_tenv$add_use(e.tenv, _use_global,
+						    mref$make_val(i))
+			xinst(me, JSR, _long)
+			udesc(me, disp)
+			doit := false
+		   tag dreg (i: int):
+			ainst(me, MOVEA, _R4, _datad + i)
+		   tag areg (i: int):
+			xinst(me, JSR, _indir + i)
+			doit := false
+		   tag rparm, cparm:
+			g_env$err(e, "use of parameter as variable")
+		   tag flabel (locs: ai):
+			ai$addh(locs, binst(me, BSR))
+			doit := false
+		   tag label (loc: int):
+			g_menv$store_offset(me, binst(me, BSR), loc)
+			doit := false
+		   tag wvec:
+			g_env$err(e, "use of wvec as variable")
+		   tag tos:
+			g_env$err(e, "use of last argument as variable")
+		   tag pc:
+			g_env$err(e, "use of PC as variable")
+		   tag usp:
+			g_env$err(e, "use of USP as variable")
+		   tag ccr:
+			g_env$err(e, "use of CCR as variable")
+		   tag sr:
+			g_env$err(e, "use of SR as variable")
+		   tag expr, perm:
+			g_env$err(e, "use of expression as variable")
+		   tag unknown:
+			g_env$err(e, "use of external name as variable")
+		   end
+	   tag bad:
+	   others:
+		g_env$err(e, "illegal routine object in invocation")
+	   end
+	if doit
+	   then xinst(me, JSR, _indir_R4) end
+	if ~(e.rparm_count = 0  cand  e.cparm_count = 0)
+	   then ainst(me, MOVEA, _PP, _idisp_EP)
+		immed(me, -4)
+	   end
+	end g_invoke2
+
+g_loop = proc (e: g_env, s: loopstmt)
+	g_env$begin_loop(e)
+	g_body(e, s.body)
+	if ~s.quick
+	   then g_env$add_this(e, binst(e.menv, BRA)) end
+	g_env$end_loop(e)
+	end g_loop
+
+g_for = proc (e: g_env, s: forstmt)
+	me: g_menv := e.menv
+	g_invoke1(e, s.call)
+	oline: int := e.line
+	xloc: int := binst(me, BSR)
+	quick: bool := s.quick
+	g_menv$begin_vars(me)
+	iter_env, for_env: int := g_env$begin_for(e, quick)
+	vars: idnlist := s.vars
+	z: int := idnlist$size(vars)
+	if ~quick
+	   then if z < 2
+		   then xinst(me, MOVEMM, _idisp_EP)
+			immed(me, 0120000)
+			immed(me, iter_env)
+		   else minst(me, MOVE, idisp_EP_, _addrd_PP)
+			immed(me, iter_env)
+		   end
+	   end
+	if ~(e.rparm_count = 0  cand  e.cparm_count = 0)
+	   then if quick
+		   then g_env$err(e, "QFOR in parameterized routine") end
+		ainst(me, MOVEA, _PP, _idisp_EP)
+		immed(me, -4)
+	   end
+	src: int := _addrd_RR
+	for i: int in int$from_to_by(z, 1, -1) do
+		if src = _addrd_RR
+		   then tagcase vars[i].kind
+			   tag areg (reg: int):
+			       if reg = _RR
+				  then src := _pincr_SP
+				       continue
+				  end
+			   others:
+			   end
+		   end
+		g_move_src(e, vars[i].kind, src, 0)
+		src := _pincr_SP
+		end
+	if ~quick  cand  z >= 2
+	   then minst(me, MOVE, idisp_EP_, _addrd_SP)
+		immed(me, for_env)
+	   end
+	g_body(e, s.body)
+	g_continue(e)
+	g_menv$store_offset(me, xloc, g_menv$next_loc(me))
+	e.line := oline
+	g_menv$end_vars(me)
+	g_invoke2(e, s.call)
+	g_env$end_for(e)
+	end g_for
+
+g_test = proc (e: g_env, kind: int, body: stmtlist) returns (ai)
+	g_env$begin_test(e)
+	g_body(e, body)
+	if kind ~= _if
+	   then loc: int
+		if kind = _if_true
+		   then ainst(e.menv, MOVE, _datad_N7, _addrd_RR)
+			loc := binst(e.menv, BEQ)
+		elseif kind = _if_false
+		   then ainst(e.menv, MOVE, _datad_N7, _addrd_RR)
+			loc := binst(e.menv, BNE)
+		else loc := binst(e.menv, kind) end
+		g_env$add_next(e, loc)
+	   end
+	return(g_env$end_test(e))
+	end g_test
+
+g_if = proc (e: g_env, s: ifstmt)
+	me: g_menv := e.menv
+	arm_ends: ai := ai$new()
+	arms: ifarmlist := s.arms
+	high: int := ifarmlist$size(arms)
+	for i: int in ifarmlist$indexes(arms) do
+		arm: ifarm := arms[i]
+		nlocs: ai := g_test(e, arm.kind, arm.test)
+		g_body(e, arm.body)
+		if i < high  cor  mbody$is_body(s.else_)
+		   then ai$addh(arm_ends, binst(me, BRA)) end
+		nxtstmt: int := g_menv$next_loc(me)
+		for loc: int in ai$elements(nlocs) do
+			g_menv$store_offset(me, loc, nxtstmt)
+			end
+		end
+	tagcase s.else_
+	   tag body (else_: stmtlist):
+		g_body(e, else_)
+	   others:
+	   end
+	nxtstmt: int := g_menv$next_loc(me)
+	for loc: int in ai$elements(arm_ends) do
+		g_menv$store_offset(me, loc, nxtstmt)
+		end
+	end g_if
+
+g_return = proc (e: g_env, exprs: exprlist)
+	me: g_menv := e.menv
+	z: int := exprlist$size(exprs)
+	if g_env$in_iter(e)
+	   then if z > 0
+		   then g_env$err(e, "cannot return values from iterator") end
+	elseif z ~= e.res_count
+	   then g_env$err(e, "wrong number of return values") end
+	starok: bool := true
+	for i: int in int$from_to(1, z) do
+		x: expr := exprs[i]
+		tagcase x.abs
+		   tag star:
+			if ~starok
+			   then g_env$err(e, "illegal use of * expression") end
+		   others:
+			if i = z
+			   then g_expr(e, x, idnkind$make_areg(_RR))
+			   else g_expr(e, x, idnkind$make_tos(nil))
+			   end
+			starok := false
+		   end
+		end
+	spargs: int := e.arg_count
+	if g_env$in_iter(e)
+	   then if spargs = 0
+		   then spargs := 1 end
+	elseif spargs > 0
+	   then spargs := spargs - 1 end
+	if g_env$in_qproc(e)
+	   then if z < 2
+		   then if spargs = 0
+			   then immed(me, RTS)
+			   else immed(me, RTD)
+				immed(me, 4 * spargs)
+			   end
+			% 68000
+			%if spargs = 0
+			%   then immed(me, RTS)
+			%elseif spargs = 1
+			%   then minst(me, MOVE, indir_SP_, _pincr_SP)
+			%	immed(me, RTS)
+			%else ainst(me, MOVEA, _R4, _pincr_SP)
+			%     if spargs > 2
+			%	then ainst(me, LEA, _SP, _idisp_SP)
+			%	     immed(me, 4 * spargs)
+			%	else ainst(me, ADDQ, 0, _addrd_SP)
+			%	end
+			%     xinst(me, JMP, _indir_R4)
+			%end
+		elseif z = 2
+		   then if spargs = 0
+			   then ainst(me, MOVEA, _R1, _pincr_SP)
+				ainst(me, MOVEA, _R4, _indir_SP)
+				minst(me, MOVE, indir_SP_, _addrd_R1)
+				xinst(me, JMP, _indir_R4)
+			   else minst(me, MOVE, idisp_SP_, _pincr_SP)
+				immed(me, 4 * spargs)
+				if spargs = 1
+				   then immed(me, RTS)
+				   else immed(me, RTD)
+					immed(me, 4 * (spargs - 1))
+				   end
+			   end
+			% 68000
+			%if spargs = 0
+			%   then ainst(me, MOVEA, _R1, _pincr_SP)
+			%	ainst(me, MOVEA, _R4, _indir_SP)
+			%	minst(me, MOVE, indir_SP_, _addrd_R1)
+			%	xinst(me, JMP, _indir_R4)
+			%elseif spargs = 1
+			%   then minst(me, MOVE, idisp_SP_, _pincr_SP)
+			%	immed(me, 4)
+			%	immed(me, RTS)
+			%elseif spargs = 2
+			%   then minst(me, MOVE, idisp_SP_, _pincr_SP)
+			%	immed(me, 8)
+			%	minst(me, MOVE, indir_SP_, _pincr_SP)
+			%	immed(me, RTS)
+			%else minst(me, MOVE, idisp_SP_, _pincr_SP)
+			%     immed(me, 4 * spargs)
+			%     ainst(me, MOVEA, _R4, _pincr_SP)
+			%     if spargs > 3
+			%	then ainst(me, LEA, _SP, _idisp_SP)
+			%	     immed(me, 4 * (spargs - 1))
+			%	else ainst(me, ADDQ, 0, _addrd_SP)
+			%	end
+			%     xinst(me, JMP, _indir_R4)
+			%end
+		elseif z <= 5
+		   then xinst(me, MOVEM, _pincr_SP)
+			if z = 3
+			   then immed(me, 0023000)
+			elseif z = 4
+			   then immed(me, 0027000)
+			else immed(me, 0037000) end
+			if spargs > 2
+			   then ainst(me, LEA, _SP, _idisp_SP)
+				immed(me, 4 * spargs)
+			elseif spargs = 2
+			   then ainst(me, ADDQ, 0, _addrd_SP)
+			elseif spargs = 1
+			   then ainst(me, ADDQ, 4, _addrd_SP) end
+			xinst(me, MOVEMM, _pdecr_SP)
+			if z = 3
+			   then immed(me, 0000140)
+			elseif z = 4
+			   then immed(me, 0000160)
+			else immed(me, 0000170) end
+			xinst(me, JMP, _indir_PP)
+		else ainst(me, LEA, _R4, _idisp_SP)
+		     immed(me, 4 * z)
+		     if spargs = 0
+			then ainst(me, MOVEA, _PP, _addrd_R4)
+			else ainst(me, LEA, _PP, _idisp_R4)
+			     immed(me, 4 * spargs)
+			end
+		     ainst(me, MOVEA, _R3, _pdecr_R4)
+		     ainst(me, MOVEQ, _N1, z - 1)
+		     minst(me, MOVE, pdecr_PP_, _pdecr_R4)
+		     ainst(me, SUBQB, 1, _datad_N1)
+		     xinst(me, BNE, 0372)
+		     ainst(me, MOVEA, _SP, _addrd_PP)
+		     xinst(me, JMP, _indir_R3)
+		end
+	elseif z < 2
+	   then xinst(me, UNLK, _EP)
+		if spargs = 0
+		   then immed(me, RTS)
+		   else immed(me, RTD)
+			immed(me, 4 * spargs)
+		   end
+		% 68000
+		%if spargs = 0
+		%   then xinst(me, UNLK, _EP)
+		%	immed(me, RTS)
+		%elseif spargs = 1
+		%   then xinst(me, UNLK, _EP)
+		%	minst(me, MOVE, indir_SP_, _pincr_SP)
+		%	immed(me, RTS)
+		%else xinst(me, UNLK, _EP)
+		%     ainst(me, MOVEA, _PP, _pincr_SP)
+		%     if spargs = 2
+		%	then ainst(me, ADDQ, 0, _addrd_SP)
+		%	else ainst(me, LEA, _SP, _idisp_SP)
+		%	     immed(me, 4 * spargs)
+		%	end
+		%     xinst(me, JMP, _indir_PP)
+		%end
+	elseif z = 2
+	   then if spargs = 0
+		   then ainst(me, MOVEA, _R4, _indir_SP)
+			xinst(me, UNLK, _EP)
+			ainst(me, MOVEA, _PP, _indir_SP)
+			minst(me, MOVE, indir_SP_, _addrd_R4)
+			xinst(me, JMP, _indir_PP)
+		   else minst(me, MOVE, idisp_EP_, _indir_SP)
+			immed(me, 4 * (spargs + 1))
+			xinst(me, UNLK, _EP)
+			if spargs = 1
+			   then immed(me, RTS)
+			   else immed(me, RTD)
+				immed(me, 4 * (spargs - 1))
+			   end
+		   end
+		% 68000
+		%if spargs = 0
+		%   then ainst(me, MOVEA, _R4, _indir_SP)
+		%	xinst(me, UNLK, _EP)
+		%	ainst(me, MOVEA, _PP, _indir_SP)
+		%	minst(me, MOVE, indir_SP_, _addrd_R4)
+		%	xinst(me, JMP, _indir_PP)
+		%elseif spargs = 1
+		%   then minst(me, MOVE, idisp_EP_, _indir_SP)
+		%	immed(me, 8)
+		%	xinst(me, UNLK, _EP)
+		%	immed(me, RTS)
+		%else ainst(me, MOVEA, _R4, _indir_SP)
+		%     xinst(me, UNLK, _EP)
+		%     ainst(me, MOVEA, _PP, _pincr_SP)
+		%     i: int := 4 * (spargs - 1)
+		%     if i <= 8
+		%	then ainst(me, ADDQ, i // 8, _addrd_SP)
+		%	else ainst(me, LEA, _SP, _idisp_SP)
+		%	     immed(me, i)
+		%	end
+		%     minst(me, MOVE, indir_SP_, _addrd_R4)
+		%     xinst(me, JMP, _indir_PP)
+		%end
+	elseif z <= 5
+	   then xinst(me, MOVEM, _pincr_SP)
+		if z = 3
+		   then immed(me, 0003000)
+		elseif z = 4
+		   then immed(me, 0007000)
+		else immed(me, 0017000) end
+		xinst(me, UNLK, _EP)
+		ainst(me, MOVEA, _PP, _pincr_SP)
+		if spargs > 0
+		   then i: int := 4 * spargs
+			if i <= 8
+			   then ainst(me, ADDQ, i // 8, _addrd_SP)
+			   else ainst(me, LEA, _SP, _idisp_SP)
+				immed(me, i)
+			   end
+		   end
+		xinst(me, MOVEMM, _pdecr_SP)
+		if z = 3
+		   then immed(me, 0000140)
+		elseif z = 4
+		   then immed(me, 0000160)
+		else immed(me, 0000170) end
+		xinst(me, JMP, _indir_PP)
+	else xinst(me, MOVEM, _indir_EP)
+	     immed(me, 0014000)
+	     ainst(me, LEA, _PP, _idisp_SP)
+	     immed(me, 4 * (z - 1))
+	     if spargs = 0
+		then ainst(me, ADDQ, 0, _addrd_EP)
+		else ainst(me, LEA, _EP, _idisp_EP)
+		     immed(me, 4 * (spargs + 2))
+		end
+	     ainst(me, MOVEQ, _N1, z - 1)
+	     minst(me, MOVE, pdecr_EP_, _pdecr_PP)
+	     ainst(me, SUBQB, 1, _datad_N1)
+	     xinst(me, BNE, 0372)
+	     ainst(me, MOVEA, _SP, _addrd_EP)
+	     ainst(me, MOVEA, _EP, _addrd_R3)
+	     xinst(me, JMP, _indir_R4)
+	end
+	end g_return

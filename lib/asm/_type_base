@@ -1,0 +1,5 @@
+; Copyright Massachusetts Institute of Technology 1981, 1989
+
+_type_base = qproc () returns (int)
+	return(020000)
+	end _type_base

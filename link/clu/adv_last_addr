@@ -1,0 +1,12 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+Advance_Last_Address = proc (Env: lnk_env, Addr: address);
+    vInst_Room = 4096;
+    if (Addr > Env.Mach_Dependent.Last_Address)
+       then Locs: locates := Env.Locates;
+	    Addr := address$Advance(address$Fix_Address(Addr, Locs),
+				    vInst_Room);
+	    Env.Mach_Dependent.Last_Address := Addr;
+	    Env.Output.P0_Size := Addr.Addr_Offset;
+       end;
+    end Advance_Last_Address;

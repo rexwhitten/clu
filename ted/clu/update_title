@@ -1,0 +1,22 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+update_title = proc (e: env, title: string)
+    dashes = " -------------------------------------------------" ||
+	     "--------------------------------------------------" ||
+	     "--------------------------------------------------"
+    if title[string$size(title)] = ']' then
+       old_title: string := e.title
+       pos: int := _last_indexc(']', old_title)
+       if pos > 0 then
+	  old_title := string$rest(old_title, pos + 1)
+	  pos := string$indexs(" -", old_title)
+	  if pos > 0 then
+	     old_title := string$substr(old_title, 1, pos - 1)
+	     end
+	  title := title || old_title
+	  end
+       end except when bounds: end
+    if e.top_line > 1 then
+       title := title || string$substr(dashes, 1, e.width - string$size(title))
+       end except when negative_size: end
+    e.title := title
+    end update_title

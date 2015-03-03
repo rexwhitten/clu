@@ -1,0 +1,355 @@
+locals false
+externals false
+optimize
+dir /usr/clu/cmp
+merge ~CLU/lib/lowlev,~CLU/lib/useful,~CLU/lib/misc
+Merging /usr/clu/lib/lowlev.lib
+Merging /usr/clu/lib/useful.lib
+Merging /usr/clu/lib/misc.lib
+merge cmp
+Merging /usr/clu/cmp/cmp.lib
+ce syntax,passes,mc68000,codgen,bin,opcode
+
+Adding to CE from /usr/clu/cmp/syntax.equ
+
+
+time = 5.320
+
+
+Adding to CE from /usr/clu/cmp/passes.equ
+
+
+time = 3.800
+
+
+Adding to CE from /usr/clu/cmp/mc68000.equ
+
+
+time = 2.460
+
+
+Adding to CE from /usr/clu/cmp/codgen.equ
+
+
+time = 1.240
+
+
+Adding to CE from /usr/clu/cmp/bin.equ
+
+
+time = 17.800
+
+
+Adding to CE from /usr/clu/cmp/opcode.equ
+
+
+time = 3.100
+
+
+
+
+Optimizing /usr/clu/cmp/build.clu
+
+
+time = 13.200
+
+
+Optimizing /usr/clu/cmp/cconst.clu
+
+
+time = 14.520
+
+
+Optimizing /usr/clu/cmp/cdchan.clu
+
+
+time = 8.900
+
+
+Optimizing /usr/clu/cmp/cdefn1.clu
+
+output failure: no such file or directory
+
+time = 40.060
+
+
+Optimizing /usr/clu/cmp/cdefn2.clu
+
+
+time = 49.660
+
+
+Optimizing /usr/clu/cmp/ce.clu
+
+
+time = 1:02.420
+
+
+Optimizing /usr/clu/cmp/cenv.clu
+
+
+time = 21.460
+
+
+Optimizing /usr/clu/cmp/cexpr1.clu
+
+
+time = 13.780
+
+
+Optimizing /usr/clu/cmp/cexpr2.clu
+
+
+time = 13.560
+
+
+Optimizing /usr/clu/cmp/cmpvar.clu
+
+
+time = 20.940
+
+
+Optimizing /usr/clu/cmp/coper.clu
+
+
+time = 10.820
+
+
+Optimizing /usr/clu/cmp/cspecs.clu
+
+
+time = 4.500
+
+
+Optimizing /usr/clu/cmp/cstmt1.clu
+
+
+time = 9.380
+
+
+Optimizing /usr/clu/cmp/cstmt2.clu
+
+
+time = 14.520
+
+
+Optimizing /usr/clu/cmp/dtchan.clu
+
+
+time = 7.800
+
+
+Optimizing /usr/clu/cmp/du.clu
+
+
+time = 4.740
+
+
+Optimizing /usr/clu/cmp/eval1.clu
+
+
+time = 35.340
+
+
+Optimizing /usr/clu/cmp/eval2.clu
+
+
+time = 11.360
+
+
+Optimizing /usr/clu/cmp/gconst.clu
+
+
+time = 12.260
+
+
+Optimizing /usr/clu/cmp/gdefn.clu
+
+
+time = 35.380
+
+
+Optimizing /usr/clu/cmp/genv.clu
+
+
+time = 44.120
+
+
+Optimizing /usr/clu/cmp/gexpr.clu
+
+
+time = 24.680
+
+
+Optimizing /usr/clu/cmp/gmenv.clu
+
+
+time = 12.300
+
+
+Optimizing /usr/clu/cmp/gopt1a.clu
+
+
+time = 48.440
+
+
+Optimizing /usr/clu/cmp/gopt1b.clu
+
+
+time = 31.520
+
+
+Optimizing /usr/clu/cmp/gopt2a.clu
+
+
+time = 42.560
+
+
+Optimizing /usr/clu/cmp/gopt2b.clu
+
+
+time = 20.720
+
+
+Optimizing /usr/clu/cmp/gopt3a.clu
+
+
+time = 10.080
+
+
+Optimizing /usr/clu/cmp/gopt3b.clu
+
+
+time = 26.920
+
+
+Optimizing /usr/clu/cmp/gstmt.clu
+
+
+time = 51.440
+
+
+Optimizing /usr/clu/cmp/gtenv.clu
+
+
+time = 13.520
+
+
+Optimizing /usr/clu/cmp/idn.clu
+
+
+time = 2.220
+
+
+Optimizing /usr/clu/cmp/init.clu
+
+
+time = 3.400
+
+
+Optimizing /usr/clu/cmp/mcmp.clu
+
+
+time = 3.380
+
+
+Optimizing /usr/clu/cmp/pconst.clu
+
+
+time = 7.620
+
+
+Optimizing /usr/clu/cmp/pdefn1.clu
+
+
+time = 32.660
+
+
+Optimizing /usr/clu/cmp/pdefn2.clu
+
+
+time = 5.740
+
+
+Optimizing /usr/clu/cmp/penv.clu
+
+
+time = 23.680
+
+
+Optimizing /usr/clu/cmp/pexpr.clu
+
+
+time = 9.880
+
+
+Optimizing /usr/clu/cmp/pjcl.clu
+
+
+time = 4.460
+
+
+Optimizing /usr/clu/cmp/plist.clu
+
+
+time = 3.800
+
+
+Optimizing /usr/clu/cmp/pstmt1.clu
+
+
+time = 10.180
+
+
+Optimizing /usr/clu/cmp/pstmt2.clu
+
+
+time = 34.040
+
+
+Optimizing /usr/clu/cmp/pttkn.clu
+
+
+time = 6.260
+
+
+Optimizing /usr/clu/cmp/syntax.clu
+
+
+time = 14.720
+
+
+Optimizing /usr/clu/cmp/tkntab.clu
+
+
+time = 6.440
+
+
+Optimizing /usr/clu/cmp/top1.clu
+
+
+time = 43.120
+
+
+Optimizing /usr/clu/cmp/top2.clu
+
+
+time = 22.680
+
+
+Optimizing /usr/clu/cmp/xlib.clu
+
+
+time = 4.460
+
+
+
+Undefined          Referencing Modules
+______________________________________________________________________
+
+_bin_id            data_chan
+_restore_state     restore_compiler
+_save_state        dump_compiler
+file_exists        check_file_name
+gc_read            xlib
+quit_              execute_command

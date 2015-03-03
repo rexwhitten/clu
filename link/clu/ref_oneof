@@ -1,0 +1,37 @@
+%% Copyright Massachusetts Institute of Technology 1985, 1989
+
+%% For 68000
+
+Fits_Ref_Oneof_Tag = proc (T: int) returns (bool);
+    return ((T >= 0) cand (T <= vMax_Ref_Oneof_Tag));
+    end Fits_Ref_Oneof_Tag;
+
+Int_Fits_Ref_Oneof = proc (I: int) returns (bool);
+    vInt_Limit = 2 ** (vBits_per_Int - vRef_Oneof_Tag_Length);
+    return ((I >= 0) cand (I < vInt_Limit));
+    end Int_Fits_Ref_Oneof;
+
+Real_Fits_Ref_Oneof = proc (R: real) returns (bool);
+    return (false);
+    end Real_Fits_Ref_Oneof;
+
+Word_Fits_Ref_Oneof = proc (W: word) returns (bool);
+    return (W.Byte3 = 0);
+    end Word_Fits_Ref_Oneof;
+
+Output_Ref_Oneof = proc (T: int, Value: constant, Env: lnk_env)
+		     signals (not_possible);
+    constant$Output_Block(Value, true, Env);
+    Val_Long: int := constant$Const_to_Long(Value, Env);
+       except when Invalid:
+		   signal Not_Possible;
+	      end;
+    out_link_chan$Write_Tagged_Long(Env.Output,
+				    T,
+				    Val_Long);
+       resignal Not_Possible
+    end Output_Ref_Oneof;
+
+Size_of_Ref_Oneof = proc () returns (int);
+    return (vRef_Size)
+    end Size_of_Ref_Oneof;

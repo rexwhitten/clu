@@ -1,0 +1,16 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+Output_Owns_Header = proc (Env: lnk_env);
+    Out: out_link_chan := Env.Output;
+    Loc: locate := Start_Owns(Env);
+    Size: int := (Loc.Size - vVec_Head_Size);	%% Don't include header.
+    if (Env.Options.Do_Type_Owns)
+       then LS: stream := Env.Options.List_Stream;
+	    stream$PutS(LS, "\nOwns: " );
+	    stream$PutS(LS, out_link_chan$Cur_Addr_to_String(Out));
+	    stream$PutC(LS, ' ');
+	    stream$PutS(LS, int$Unparse((Size / vOwn_Unit)));
+	    stream$PutL(LS, " owns");
+       end;
+    Output_Vec_Head(Size, Env);
+    end Output_Owns_Header;

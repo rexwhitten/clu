@@ -1,0 +1,7 @@
+dir ~CLU
+optimize
+externals false
+merge ~CLU/lib/lowlev,~CLU/lib/useful,~CLU/lib/misc
+merge asm/asm
+ce cmp/opcode,asm/syntax,asm/passes,cmp/bin,cmp/mc68000
+dir ~CLU/asm

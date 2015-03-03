@@ -1,0 +1,42 @@
+%% Copyright Massachusetts Institute of Technology 1984, 1989
+
+%% Routines to handle byte swapping to and from _wordvecs.
+
+BSwap_LStore = proc (Page: _wordvec, Idx: int, LWrd: int);
+    %% A _wordvec$LStore(Page, Idx, LWrd) with bytes swapped.
+    _wordvec$BStore(Page, Idx+0, I_Get(LWrd, 31, 8))
+    _wordvec$BStore(Page, Idx+1, I_Get(LWrd, 23, 8))
+    _wordvec$BStore(Page, Idx+2, I_Get(LWrd, 15, 8))
+    _wordvec$BStore(Page, Idx+3, I_Get(LWrd,  7, 8))
+    end BSwap_LStore;
+
+BSwap_WStore = proc (Page: _wordvec, Idx: int, WWrd: int);
+    %% A _wordvec$WStore(Page, Idx, WWrd) with bytes swapped.
+    _wordvec$BStore(Page, Idx+0, I_Get(WWrd, 15, 8))
+    _wordvec$BStore(Page, Idx+1, I_Get(WWrd,  7, 8))
+    end BSwap_WStore;
+
+
+BSwap_LFetch = proc (Page: _wordvec, Idx: int) returns (int) signals (overflow);
+    return (
+	I_Set(
+	    I_Set(
+		I_Set(
+		    _wordvec$BFetch(Page, Idx+3),	%% Get low byte
+		    15, 8,
+		    _wordvec$BFetch(Page, Idx+2)),	%% Stuff in next
+		23, 8,
+		_wordvec$BFetch(Page, Idx+1)),		%% and next
+	    31, 8,
+	    _wordvec$BFetch(Page, Idx+0))		%% and high byte.
+	    )
+       resignal Overflow
+    end BSwap_LFetch;
+
+BSwap_WFetch = proc (Page: _wordvec, Idx: int) returns (int);
+    return (
+	I_Set(
+	    _wordvec$BFetch(Page, Idx+1),       %% Get low byte
+	    15, 8,
+	    _wordvec$BFetch(Page, Idx+0)))      %% Stuff in next
+    end BSwap_WFetch;

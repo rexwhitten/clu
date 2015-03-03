@@ -1,0 +1,13 @@
+;; Copyright Massachusetts Institute of Technology 1985, 1989
+
+_exit = proc (status: int)
+	_cleanup_()			;; Clean up.
+	_chan$_save_tty()		;; Clear up tty.
+	move	(sp)+, n1		;; De-integerize status
+	asr	1, n1
+	move	n1, -(sp)		;; Push status.
+	clr	-(sp)			;; Hack PC.
+	moveq	%exit, n0		;; Done.
+	move	n0, -(sp)
+	trap	0
+	end _exit

@@ -1,0 +1,96 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+% The following routine is called whenever we attempt to insert
+% a character.  If we the break limit is greater than 0, then we are
+% in auto-fill mode, and we will automatically insert break characters
+% at appropriate positions as we type merrily along past the number of
+% positions.  If "fill_prefix" is defined as a string, then it
+% will be inserted at the start of each line when we
+% auto-break.  If we cannot break at a space or a tab, then we
+% simply don't break at all, and insert the character anyway.
+% If we are not at the end of a line, then who cares?
+
+insert_char = proc (e: env, c: char)
+		signals (errmsg(string), stop(env, string))
+    arg: int := e.this_arg
+    i: int := int$abs(arg)
+    if i ~= 0
+       then s: string
+	    if i > 1
+	       then b: _bytevec := _bytevec$create(i)
+		    b[1] := c
+		    _bytevec$move_lr(b, 1, b, 2, i - 1)
+		    s := _cvt[_bytevec, string](b)
+	       else s := c2s(c)
+	       end
+	    if ~env$insert1(e, s)
+	       then return end
+       end
+    b: buf := e.buffer
+    if arg < 0 then
+       line, pos: int := buf$new_cursor(b, 0, arg)
+       if c ~= '\n' cand e.overwrite
+	  then if pos <= i then i := pos - 1 end
+	       if i > 0 then env$delete1(e, line, pos - i) end
+	  end
+       return
+     elseif c ~= '\n' cand e.overwrite
+       then line, pos: int := buf$get_cursor(b)
+	    arg := string$size(b[line]) + 1 - pos
+	    if arg < i then i := arg end
+	    if i > 0 then env$delete1(e, line, pos + i) end
+	    return
+     end
+    blim: int := e.break_lim
+    if blim <= 0 cor c = ' ' cor c = '\t' then return end
+    line, pos: int := buf$get_cursor(b)
+    s: string := b[line]
+    while pos > string$size(s)  cand  _calc_hpos(s, pos) > blim do
+	plim: int := 1
+	while s[plim] = ' '  cor  s[plim] = '\t' do
+	    plim := plim + 1
+	    end except when bounds: end
+	prefix: string := env$fetch_str(e, "fill_prefix", "")
+	xpos: int := 1
+	if plim > 1
+	   then while prefix[xpos] = ' '  cor  prefix[xpos] = '\t' do
+		    xpos := xpos + 1
+		    end except when bounds: end
+	   end
+	lag: int := plim
+	opos: int := xpos
+	while s[plim] = prefix[xpos] do
+	    plim := plim + 1
+	    xpos := xpos + 1
+	    end except when bounds: end
+	if xpos <= string$size(prefix)
+	   then plim := lag
+		opos := 1
+	   end
+	lag := 0
+	while pos > plim do
+	    pos := pos - 1
+	    cc: char := s[pos]
+	    if cc = ' ' cor cc = '\t'
+	       then lag := pos
+		    if _calc_hpos(s, pos) <= blim then break end
+	       end
+	    end
+	if lag = 0
+	   then break end
+	first, rest: string := break_line
+				   (s, lag,
+				    int$max(env$fetch_num(e, "justify", 0), 0),
+				    blim, plim, _calc_hpos(s, plim), line)
+	b[line] := first
+	e.this_arg := 1
+	run_ctrlm(e, '\r')
+	line := line + 1
+	s := b[line]
+	if ~string$empty(s)
+	   then prefix := s || string$rest(prefix, opos) end
+	s := prefix || rest
+	b[line] := s
+	pos := string$size(s) + 1
+	buf$set_cursor(b, line, pos)
+	end
+    end insert_char

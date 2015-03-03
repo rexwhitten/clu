@@ -1,0 +1,8 @@
+; Copyright Massachusetts Institute of Technology 1985, 1989
+
+_free_space = qproc () returns (int)
+	movea	heapmx, rr
+	suba	heaphi, rr
+	lea	1(rr,rr),rr
+	return(rr)
+	end _free_space

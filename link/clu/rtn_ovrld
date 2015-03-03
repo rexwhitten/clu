@@ -1,0 +1,75 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+Routine_Overloaded = proc (Old_Rtn, New_Rtn: r_template,
+			   Clust: pos_ct, Env: lnk_env);
+    Old_Ped: bool := r_template$Is_Parameterized(Old_Rtn);
+    New_Ped: bool := r_template$Is_Parameterized(New_Rtn);
+    if (Old_Rtn.Code_Address > Env.Mach_Dependent.Top_of_Immutable_Space)
+       then old_addresses$Add_and_Match(Env.Old_Addresses, Old_Rtn.Code_Address,
+					Old_Rtn.Code_Size, New_Rtn.Code_Size);
+       else old_addresses$Match(Env.Old_Addresses, New_Rtn.Code_Size);
+       end;
+       except when Match (Addr: address):
+		   New_Rtn.Code_Address := Addr;
+	      end;
+    if (r_template$Similar(Old_Rtn, New_Rtn) cand
+	(Old_Ped cor ~ New_Ped)
+	)
+       then if (pos_ct$Is_None(Clust))
+	       then LS: stream := Env.Options.List_Stream;
+		    stream$PutS(LS, "Overloading ");
+		    stream$PutL(LS, constant$Get_String(New_Rtn.Name_Constant));
+	       end;
+	       except when Not_Possible(*): end;
+	    if (Old_Ped cand ~ New_Ped)
+	       then r_template$Force_to_be_Parameterized(New_Rtn);
+	       end;
+	    %%New_Rtn.Name_Constant := Old_Rtn.Name_Constant;	%% Use old name string.
+	    Old_RIs: rtn_insts := Old_Rtn.Instantiations;
+	    if (rtn_insts$Empty(Old_RIs))
+	       then %% Old one may already be on rtn_chains.
+		    for RC: rtn_chain in rtn_chains$Elements(
+					     Env.Mach_Dependent.Rtn_Chains) do
+			if (r_template$Similar(New_Rtn, RC.New_Rtn))
+			   then RC.New_Rtn := New_Rtn;
+				break;
+			   end;
+			end;
+		    %elseif ((rtn_insts$Size(Old_RIs) > 1) cor
+		    %	     (~ rtn_insts$Bottom(Old_RIs).Is_Dummy))
+		    % then
+		    %% NO!  Always chains the rtn_insts.
+	       else rtn_chains$AddH(Env.Mach_Dependent.Rtn_Chains,
+				    rtn_chain${ Old_RIs: Old_RIs,
+						New_Rtn: New_Rtn });
+	       end;
+       else LS: stream := Env.Options.List_Stream;
+	    stream$PutS(LS, "Changed ");
+	       except when Not_Possible(*): end;
+	    stream$PutL(LS, constant$Get_String(New_Rtn.Name_Constant));
+	       except when Not_Possible(*): end;
+	    if (~ rtn_insts$Empty(Old_Rtn.Instantiations))
+	       then TD: type_desc;
+		    tagcase Clust
+		       tag None:
+			   TD := type_desc$Make_None();
+		       tag C_Temp (CT: c_template):
+			   TD := type_desc$Make_Cluster_Type(
+				     c_desc$Create(CT.Name, params$New()));
+		       end;
+		    RD: rtn_desc := rtn_desc$Create(TD,
+						    Old_Rtn.Name,
+						    params$New(),
+						    Old_Rtn.Arg_Count,
+						    Old_Rtn.Result_Count);
+		    Stub_RD: rtn_desc := rtn_desc$Change_to_Stub_Rtn(RD, Env);
+		    Env.Ignore_Unknown := true;
+		    Stb_RI: rtn_inst := rtn_desc$Closure(Stub_RD, Env);
+		    Env.Ignore_Unknown := false;
+		    stb_rtn_chains$AddH(Env.Mach_Dependent.Stb_Rtn_Chains,
+					stb_rtn_chain${ Old_RIs: Old_Rtn.Instantiations,
+							Stb_RI:  Stb_RI });
+	       end;
+       end;
+    r_template$Clean_Out(Old_Rtn);      %% Clean out old one's contents.
+    end Routine_Overloaded;

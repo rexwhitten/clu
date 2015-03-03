@@ -1,0 +1,1057 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+% The env cluster supports editor environments.  Each editor
+% environment maintains its own portion of the screen, and is
+% responsible for updating the screen to reflect changes in the
+% buffer.  As changes are made to the buffer, note_insert
+% or note_delete should be called.  The buffer changes and
+% the notification can be done together via the insert,
+% insert_buf, and delete operations.
+
+env = cluster is create, get_buffer, set_buffer, get_title, set_title,
+		 get_fname, set_fname, get_name, set_name, get_prev, set_prev,
+		 get_this_arg, set_this_arg, get_next_arg, set_next_arg,
+		 command, get_last_char, forget_char, mimic_char, note_insert,
+		 note_delete, insert, insert1, insert_buf, insert_buf1, delete,
+		 delete1, special_line, clear_special, choose_window,
+		 new_window, move_window, choose_cursor, get_overlap,
+		 set_overlap, get_window_pos, set_window_pos,
+		 get_last_page_blank, set_last_page_blank, display, xdisplay,
+		 clear, change_all, maybe_change, any_changed, get_window_top,
+		 set_window_top, get_top_line, set_top_line, get_last_line,
+		 get_size, set_size, get_width, set_width, get_chtab,
+		 set_chtab, get_change_limit, set_change_limit, bump_change,
+		 get_change_count, set_change_count, get_break_lim,
+		 set_break_lim, get_overwrite, set_overwrite, get_word_chars,
+		 set_word_chars, get_killed, set_killed, get_saved, set_saved,
+		 fetch_num, mfetch_num, store_num, fetch_str, mfetch_str,
+		 store_str, is_argenv, equal
+
+    redo_ = -4		% all lines are probably bad
+    lines_ = -3		% lines have been inserted/deleted
+    refill_ = -2	% lines have been appended/deappended
+    chars_ = -1		% chars have been inserted/deleted
+    none_ = 0		% no lines have changed
+    window = array[int]
+    menv = oneof[env: env, empty: null]
+    numtab = table[string, int]
+    strtab = table[string, string]
+    rep = record[buf: buf,
+		 chtab: vec,
+		 fname, title, name, prev: string,
+		 title_change: bool,
+		 window: window,
+		 full: bool,
+		 window_change, special: int,
+		 new_win, win_top, win_max, win_bot: int,
+		 top, bot, size, width: int,
+		 argenv: bool]
+
+    own this_arg: int
+    own next_arg: int
+    own break_lim: int
+    own overwrite: bool
+    own change_count: int
+    own change_limit: int
+    own overlap: int
+    own window_pos: int
+    own last_page_blank: int
+    own last_char: char
+    own this_char: char
+    own word_chars: string
+    own killed: buf
+    own saved: buf
+    own nums: numtab
+    own strs: strtab
+    own done: bool := false
+
+    create = proc (argenv: bool) returns (cvt)
+	if ~done then
+	   this_arg := 0
+	   next_arg := 0
+	   break_lim := 0
+	   overwrite := false
+	   change_count := 0
+	   last_char := ctrlat
+	   this_char := ctrlat
+	   change_limit := 300
+	   overlap := 100
+	   window_pos := 75
+	   last_page_blank := 70
+	   word_chars := "_"
+	   killed := buf$create()
+	   saved := buf$create()
+	   nums := numtab$create(57, hash, string$equal)
+	   strs := strtab$create(57, hash, string$equal)
+	   done := true
+	   end
+	height, width: int := _get_screen_size()
+	return (rep${buf: buf$create(),
+		     fname, title, name, prev: "",
+		     title_change: true,
+		     chtab: vec$create(0),
+		     window: window$[-1],
+		     full: false,
+		     window_change: redo_,
+		     special: 0,
+		     new_win, win_top, win_bot: 1,
+		     win_max: 0,
+		     top: 1, bot: 2, size: 1, width: width-1,
+		     argenv: argenv})
+	end create
+
+    get_buffer = proc (e: cvt) returns (buf)
+	return (e.buf)
+	end get_buffer
+
+    set_buffer = proc (e: cvt, b: buf)
+	e.buf := b
+	end set_buffer
+
+    get_title = proc (e: cvt) returns (string)
+	return (e.title)
+	end get_title
+
+    set_title = proc (e: cvt, s: string)
+	if e.title = s then return end
+	e.title := s
+	e.title_change := true
+	end set_title
+
+    get_fname = proc (e: cvt) returns (string)
+	return(e.fname)
+	end get_fname
+
+    set_fname = proc (e: cvt, s: string)
+	e.fname := s
+	end set_fname
+
+    get_name = proc (e: cvt) returns (string)
+	return(e.name)
+	end get_name
+
+    set_name = proc (e: cvt, s: string)
+	e.name := s
+	end set_name
+
+    get_prev = proc (e: cvt) returns (string)
+	return(e.prev)
+	end get_prev
+
+    set_prev = proc (e: cvt, s: string)
+	e.prev := s
+	end set_prev
+
+    get_this_arg = proc (e: cvt) returns (int)
+	return(this_arg)
+	end get_this_arg
+
+    set_this_arg = proc (e: cvt, i: int)
+	this_arg := i
+	end set_this_arg
+
+    get_next_arg = proc (e: cvt) returns (int)
+	return(next_arg)
+	end get_next_arg
+
+    set_next_arg = proc (e: cvt, i: int)
+	next_arg := i
+	end set_next_arg
+
+    command = proc (e: cvt, c: char) signals (errmsg(string), stop(env, string))
+	iesc = c2i(esc)
+	imeta = c2i('\200')
+	this_arg := next_arg
+	next_arg := 1
+	last_char := this_char
+	this_char := c
+	e.chtab[c2i(c)](up(e), c)
+	   except when bounds:
+		       if c <= del
+			  then insert_char(up(e), c)
+			  else _push_pending_char(char$i2c(c2i(c) - imeta))
+			       e.chtab[iesc](up(e), c)
+			  end
+		  end
+	   resignal errmsg, stop
+	end command
+
+    get_last_char = proc (e: cvt) returns (char)
+	return(last_char)
+	end get_last_char
+
+    forget_char = proc (e: cvt)
+	this_char := last_char
+	end forget_char
+
+    mimic_char = proc (e: cvt)
+	this_char := ctrlat
+	end mimic_char
+
+    note_insert = proc (eee: cvt, line1, pos1, line2, pos2: int)
+	bump_change(up(eee), 1)
+	if line1 > line2 then
+	   line1, line2 := line2, line1
+	   pos1, pos2 := pos2, pos1
+	   end
+	delta: int := line2 - line1
+	for ee: env in winset$displaying (eee.buf) do
+	    e: rep := down (ee)
+	    change: int := e.window_change
+	    if delta = 0
+	       then if line1 >= e.win_top cand line1 <= e.win_bot then
+		       if change = none_
+			  then e.window_change := line1
+			elseif change > none_
+			  then e.window_change := chars_
+			end
+		       end
+		    continue
+	     elseif change = redo_
+	       then if line1 < e.new_win cor
+		       (line1 = e.new_win cand pos1 = 1 cand e ~= eee)
+		       then e.new_win := e.new_win + delta
+		       end
+		    continue
+	     end
+	    win_max: int := e.win_max
+	    if change = none_ cand line1 = e.win_bot cand pos1 > 1
+	       then e.window_change := line1
+	     elseif change > chars_ cand
+		    ((line1 = win_max cand pos1 > 1) cor
+		     (line1 > win_max cand line1 <= e.win_bot))
+	       then e.window_change := chars_
+	     elseif (line1 = e.win_top cand
+		     (pos1 > 1 cor (pos1 = 1 cand e = eee))) cor
+		    (line1 > e.win_top cand
+		     (line1 < win_max cor (line1 = win_max cand pos1 = 1)))
+	       then e.window_change := lines_
+	     end
+	    if line1 < win_max cor (line1 = win_max cand pos1 = 1) then
+	       e.win_max := win_max + delta
+	       if line1 < e.win_top cor
+		  (line1 = e.win_top cand pos1 = 1 cand e ~= eee)
+		  then e.win_top := e.win_top + delta
+		       e.win_bot := e.win_bot + delta
+		  end
+	       win: window := e.window
+	       for i: int in window$indexes(win) do
+		   sln: int := win[i]
+		   if sln > line1 cor (sln = line1 cand pos1 = 1)
+		      then win[i] := sln + delta
+		      end
+		   end
+	       end
+	    if line1 < e.new_win cor
+	       (line1 = e.new_win cand pos1 = 1 cand e ~= eee)
+	       then e.new_win := e.new_win + delta
+	       end
+	    end
+	end note_insert
+
+    note_delete = proc (eee: cvt, line1, pos1, line2, pos2: int)
+	bump_change(up(eee), 1)
+	if line1 > line2 then
+	   line1, line2 := line2, line1
+	   pos1, pos2 := pos2, pos1
+	   end
+	delta: int := line2 - line1
+	for ee: env in winset$displaying (eee.buf) do
+	    e: rep := down (ee)
+	    change: int := e.window_change
+	    if delta = 0
+	       then if line1 >= e.win_top cand line1 <= e.win_bot then
+		       if change = none_
+			  then e.window_change := line1
+			elseif change > none_
+			  then e.window_change := chars_
+			end
+		       end
+		    continue
+	     elseif change = redo_
+	       then if line2 <= e.new_win
+		       then e.new_win := e.new_win - delta
+		       end
+		    continue
+	     end
+	    win_max: int := e.win_max
+	    if change = none_ cand line1 = e.win_bot cand pos1 > 1
+	       then e.window_change := line1
+	     elseif change > chars_ cand
+		    ((line1 = win_max cand pos1 > 1) cor
+		     (line1 > win_max cand line1 <= e.win_bot))
+	       then e.window_change := chars_
+	     elseif line2 >= e.win_top cand
+		    (line2 <= win_max cor
+		     line1 < win_max cor
+		     (line1 = win_max cand pos1 = 1))
+	       then e.window_change := lines_
+	     end
+	    if line1 < win_max cor (line1 = win_max cand pos1 = 1) then
+	       if line2 <= e.win_top
+		  then e.win_top := e.win_top - delta
+		       e.win_bot := e.win_bot - delta
+		  end
+	       win_max := 0
+	       win: window := e.window
+	       for i: int in window$indexes(win) do
+		   sln: int := win[i]
+		   if sln < line1 cor (sln = line1 cand pos1 > 1)
+		      then if sln > 0 then win_max := sln end
+		    elseif sln < line2 cor
+			   (sln = line2 cand (pos2 > 1 cor pos1 > 1))
+		      then win[i] := 0
+		    else win_max := sln - delta
+			 win[i] := win_max
+		    end
+		   end
+	       e.win_max := win_max
+	       end
+	    if line2 <= e.new_win
+	       then e.new_win := e.new_win - delta
+	       end
+	    end
+	end note_delete
+
+    delete = proc (e: cvt, line1, pos1, line2, pos2: int) returns (bool)
+	b: buf := e.buf
+	buf$set_cursor(b, line1, pos1)
+	line2, pos2 := buf$delete(b, line2, pos2)
+	if line2 > 0
+	   then note_delete(up(e), line1, pos1, line2, pos2)
+		return(true)
+	   else return(false)
+	   end
+	end delete
+
+    delete1 = proc (e: cvt, nline, npos: int) returns (bool)
+	b: buf := e.buf
+	line, pos: int := buf$get_cursor(b)
+	nline, npos := buf$delete(b, nline, npos)
+	if nline > 0
+	   then note_delete(up(e), line, pos, nline, npos)
+		return(true)
+	   else return(false)
+	   end
+	end delete1
+
+    insert = proc (e: env, line1, pos1: int, s: string) returns (bool)
+	b: buf := down(e).buf
+	buf$set_cursor(b, line1, pos1)
+	if buf$insert(b, s) then
+	   line2, pos2: int := buf$get_cursor(b)
+	   note_insert(e, line1, pos1, line2, pos2)
+	   return(true)
+	   end
+	return(false)
+	end insert
+
+    insert1 = proc (e: env, s: string) returns (bool)
+	b: buf := down(e).buf
+	line, pos: int := buf$get_cursor(b)
+	if buf$insert(b, s) then
+	   nline, npos: int := buf$get_cursor(b)
+	   note_insert(e, line, pos, nline, npos)
+	   return(true)
+	   end
+	return(false)
+	end insert1
+
+    insert_buf = proc (e: env, line1, pos1: int, nb: buf) returns (bool)
+	b: buf := down(e).buf
+	buf$set_cursor(b, line1, pos1)
+	if buf$insert_buf(b, nb) then
+	   line2, pos2: int := buf$get_cursor(b)
+	   note_insert(e, line1, pos1, line2, pos2)
+	   return(true)
+	   end
+	return(false)
+	end insert_buf
+
+    insert_buf1 = proc (e: env, nb: buf) returns (bool)
+	b: buf := down(e).buf
+	line, pos: int := buf$get_cursor(b)
+	if buf$insert_buf(b, nb) then
+	   nline, npos: int := buf$get_cursor(b)
+	   note_insert(e, line, pos, nline, npos)
+	   return(true)
+	   end
+	return(false)
+	end insert_buf1
+
+    special_line = proc (e: cvt, line: int) returns (int)
+	if e.new_win = e.win_top  cand  e.window_change >= refill_  cand
+	   line >= e.win_top  cand  line < e.win_top + e.size
+	   then e.special := line
+		return(e.top + line - e.win_top + 1)
+	   end
+	return(0)
+	end special_line
+
+    clear_special = proc (e: cvt)
+	e.special := 0
+	end clear_special
+
+    choose_window = proc (e: cvt) returns (int)
+	line, pos: int := buf$get_cursor(e.buf)
+	if line < e.new_win cor line >= e.new_win + e.size then
+	   new_window(up(e))
+	   end
+	return(e.new_win)
+	end choose_window
+
+    new_window = proc (e: cvt)
+	line, pos: int := buf$get_cursor(e.buf)
+	size: int := e.size
+	pos := e.win_top - line
+	if pos > 0
+	   then if pos <= size * (100 - overlap) / 100
+		   then e.new_win := line
+			return
+		   end
+	   else pos := 1 - pos - size
+		if pos > 0 cand pos <= size * (100 - overlap) / 100
+		   then e.new_win := line - size + 1
+			return
+		   end
+	   end
+	bsize: int := buf$size(e.buf)
+	if line = bsize
+	   then pos := line - (size - 1) * (100 - last_page_blank) / 100
+	   else pos := line - (size - 1) * (100 - window_pos) / 100
+		white: int := pos + size - bsize - 1
+		if white > 0 then
+		   permitted: int := (size - 1) * last_page_blank / 100
+		   if white > permitted then
+		      % adjust for last page
+		      pos := pos - (white - permitted)
+		      end
+		   end
+	   end
+	if pos < 1 then pos := 1 end
+	e.new_win := pos
+	end new_window
+
+    move_window = proc (e: cvt, cnt: int)
+	top: int := choose_window(up(e)) + e.size * cnt
+	line: int := top + (e.size - 1) * (100 - window_pos) / 100
+	if line <= buf$size(e.buf)  cand  top >= 1
+	   then e.new_win := top end
+	buf$set_cursor(e.buf, line, 1)
+	end move_window
+
+    choose_cursor = proc (e: cvt) returns (cvt)
+	line, pos: int := buf$get_cursor(e.buf)
+	if line < e.new_win cor line >= e.new_win + e.size then
+	   buf$set_cursor(e.buf,
+			  e.new_win + (e.size - 1) * (100 - window_pos) / 100,
+			  1)
+	   end
+	return(e)
+	end choose_cursor
+
+    get_overlap = proc (e: cvt) returns (int)
+	return(overlap)
+	end get_overlap
+
+    set_overlap = proc (e: cvt, i: int)
+	if i < 0 cor i > 100
+	   then overlap := 100
+	   else overlap := i
+	   end
+	end set_overlap
+
+    get_window_pos = proc (e: cvt) returns (int)
+	return(window_pos)
+	end get_window_pos
+
+    set_window_pos = proc (e: cvt, i: int)
+	if i < 0
+	   then window_pos := 75
+	 elseif i > 100
+	   then window_pos := 100
+	 else window_pos := i
+	 end
+	end set_window_pos
+
+    get_last_page_blank = proc (e: cvt) returns (int)
+	return(last_page_blank)
+	end get_last_page_blank
+
+    set_last_page_blank = proc (e: cvt, i: int)
+	if i < 0
+	   then last_page_blank := 70
+	 elseif i > 100
+	   then last_page_blank := 100
+	 else last_page_blank := i
+	 end
+	end set_last_page_blank
+
+    % display (e) ensures that
+    %	   1: a proper window is chosen
+    %	   2: the display lines are properly updated
+    %	   3: all appropriate env's are displayed
+    %	   4: the display cursor is properly placed
+
+    display = proc (e: cvt) returns (bool)
+	line, pos: int := buf$get_cursor(e.buf)
+	if line < e.new_win cor line >= e.new_win + e.size then
+	   if _pending_chars() then return(true) end
+	   new_window(up(e))
+	   end
+	if display1(e, 0) then return(true) end
+	for ee: env in winset$displayed() do
+	    if down(ee) ~= e  cand  display1(down(ee), 0)
+	       then return(true) end
+	    end
+	_set_cursor_pos (e.top + line - e.win_top + 1,
+			 _calc_hpos(e.buf[line], pos),
+			 true)
+	return(false)
+	end display
+
+    xdisplay = proc (e: cvt, min, max: int) returns (bool)
+	if e.top < min  cor  e.top > max
+	   then line, pos: int := buf$get_cursor(e.buf)
+		if line < e.new_win cor line >= e.new_win + e.size then
+		   if _pending_chars() then return(true) end
+		   new_window(up(e))
+		   end
+		if display1(e, min) then return(true) end
+	   end
+	for ee: env in winset$displayed() do
+	    if down(ee) ~= e  cand
+	       (down(ee).top < min  cor  down(ee).top > max)  cand
+	       display1(down(ee), min)
+	       then return(true) end
+	    end
+	return(false)
+	end xdisplay
+
+    % display1 (e, min) ensures that
+    %	   1: the title line is updated
+    %	   2: the screen lines are updated
+
+    % Returns true iff type-ahead occurred.
+
+    display1 = proc (e: rep, min: int) returns (bool)
+	if _pending_chars() then return (true) end
+	changed: int := e.window_change
+	special: int := e.special
+	top: int := e.top
+	if changed >= none_ cand e.new_win = e.win_top then
+	   if e.title_change then
+	      _display_line(e.title, top)
+	      e.title_change := false
+	      end
+	   if changed > none_ then
+	      if changed ~= special then
+		 _display_line(e.buf[changed], top + changed - e.win_top + 1)
+		 end
+	      e.window_change := none_
+	      end
+	   return(false)
+	   end
+	if changed = redo_
+	   then fill_window(e)
+	 elseif changed = lines_
+	   then if _can_id_lines()
+		   then ins_del_lines(e)
+		 elseif e.full cand _can_scroll()
+		   then full_scroll(e)
+		 else fill_window(e)
+		 end
+	 elseif e.new_win ~= e.win_top
+	   then if e.full cand _can_scroll()
+		   then full_scroll(e)
+		 elseif _can_id_lines()
+		   then ins_del_lines(e)
+		 else fill_window(e)
+		 end
+	 elseif changed < none_
+	   then fill_window(e)
+	 end
+	e.win_top := e.new_win
+	e.win_bot := e.new_win + e.size - 1
+	if min > top  cand  min <= e.bot
+	   then e.window_change := redo_
+	   else e.window_change := chars_
+	   end
+	speed: int := _output_speed()
+	if e.title_change then
+	   e.title_change := false
+	   if _display_line(e.title, top) cand _io_wait(speed)
+	      then return(true) end
+	   end
+	b: buf := e.buf
+	pendcnt: int := 1
+	pendlim: int := 1
+	pendmax: int := (speed + 1500) / 1600
+	if pendmax >= 10
+	   then pendcnt := 5
+		pendlim := 5
+	   end
+	for sl: int in window$elements(e.window) do
+	    if pendcnt = 0
+	       then if _io_wait(speed)
+		       then return(true) end
+		    pendlim := pendlim + pendlim
+		    if pendlim > pendmax
+		       then pendlim := pendmax end
+		    pendcnt := pendlim
+	       end
+	    top := top + 1
+	    if top = min then return(false) end
+	    if (sl <= 0 cand _display_line("", top)) cor
+	       (sl > 0 cand (sl = special cor _display_line(b[sl], top)))
+	       then pendcnt := pendcnt - 1 end
+	    end
+	e.window_change := none_
+	return(false)
+	end display1
+
+    fill_window = proc (e: rep)
+	win: window := e.window
+	aln: int := e.new_win
+	b: buf := e.buf
+	z: int := buf$size(b)
+	while z > 0 cand string$empty(b[z]) do z := z - 1 end
+	for i: int in window$indexes(win) do
+	    if aln > z
+	       then win[i] := -1
+	       else win[i] := aln
+		    aln := aln + 1
+	       end
+	    end
+	if aln > z
+	   then e.win_max := z
+	   else e.win_max := aln
+	   end
+	end fill_window
+
+    ins_del_lines = proc (e: rep)
+	top: int := e.top
+	size: int := e.size
+	bottom: int := e.bot
+	eln: int := e.new_win
+	win: window := e.window
+	cur: int := 1
+	temp: int := 1
+	last: int := window$size(win)
+	while cur <= last do
+	    aln: int := win[temp]
+	    if aln <= 0 then
+	       eln := eln + 1
+	       temp := temp + 1
+	     elseif aln < eln then
+	       delta: int := aln - eln
+	       if _should_id_lines (top + cur, bottom, delta, last - cur + 1 + delta)
+		  then _scroll (top + cur, bottom, delta)
+		       i: int := cur
+		       j: int := cur - delta
+		       while j <= last do
+			   win[i] := win[j]
+			   i := i + 1
+			   j := j + 1
+			   end
+		       while i <= last do
+			   win[i] := 0
+			   i := i + 1
+			   end
+		       eln := eln - temp + cur
+		       temp := cur
+		  else while temp <= last do
+			   win[temp] := eln
+			   temp := temp + 1
+			   eln := eln + 1
+			   end
+		  end
+	     else % aln >= eln
+		  eln := aln + 1
+		  temp := temp + 1
+		  cur := temp
+	     end
+	    if temp > last then break end
+	    end
+	cur := 1
+	eln := e.new_win
+	b: buf := e.buf
+	temp := buf$size(b)
+	while temp > 0 cand string$empty(b[temp]) do temp := temp - 1 end
+	while cur <= last do
+	    aln: int := win[cur]
+	    if aln <= eln % i.e., aln <= 0 or aln = eln
+	       then if eln > temp
+		       then win[cur] := -1
+		       else win[cur] := eln
+		       end
+		    eln := eln + 1
+		    cur := cur + 1
+	       else % aln > eln
+		    delta: int := aln - eln
+		    if _should_id_lines (top + cur, bottom, delta, last - cur + 1 - delta)
+		       then _scroll (top + cur, bottom, delta)
+			    i: int := last
+			    j: int := last - delta
+			    while j >= cur do
+				win[i] := win[j]
+				i := i - 1
+				j := j - 1
+				end
+			    eln2: int := eln + i - cur
+			    while i >= cur do
+				win[i] := eln2
+				i := i - 1
+				eln2 := eln2 - 1
+				end
+		       else while cur <= last do
+				if eln > temp
+				   then win[cur] := -1
+				   else win[cur] := eln
+				   end
+				cur := cur + 1
+				eln := eln + 1
+				end
+		       end
+	       end
+	    end
+	if eln > temp
+	   then e.win_max := temp
+	   else e.win_max := eln
+	   end
+	end ins_del_lines
+
+    full_scroll = proc (e: rep)
+	win: window := e.window
+	aln: int := e.new_win
+	zln: int := aln + e.size
+	max0: int := 2
+	max: int := 0
+	delta: int := 0
+	cnt: int := 0
+	ndelta: int := 0
+	b: buf := e.buf
+	z: int := buf$size(b)
+	while z > 0 cand string$empty(b[z]) do z := z - 1 end
+	nln: int := aln
+	win_max: int := 0
+	for i: int in window$indexes(win) do
+	    ln: int := win[i]
+	    if nln > z
+	       then win[i] := -1
+		    if ln < 0 then max0 := max0 + 1 end
+	       else win[i] := nln
+	       end
+	    if ln >= aln cand ln < zln
+	       then i := nln - ln
+		    if i = 0
+		       then max0 := max0 + 1
+		     elseif i = ndelta
+		       then cnt := cnt + 1
+		     elseif i = delta
+		       then max := max + 1
+		     else if cnt > max
+			     then max := cnt
+				  delta := ndelta
+			     end
+			  cnt := 1
+			  ndelta := i
+		     end
+	     elseif ln < 0
+	       then if delta ~= 0 cand nln - delta > z then
+		       max := max + 1
+		       end
+		    if ndelta ~= 0 cand nln - ndelta > z then
+		       cnt := cnt + 1
+		       end
+	     end
+	    nln := nln + 1
+	    end
+	if cnt > max then
+	   max := cnt
+	   delta := ndelta
+	   end
+	if _should_scroll(delta, max, max0) then
+	   s: string := _fetch_line(0)
+	   if delta < 0 then
+	      _display_line("", 0)
+	      _display_line("", 1)
+	      end
+	   _full_scroll(delta)
+	   _display_line(s, 0)
+	   e.title_change := true
+	   end except when clear:
+			   s: string := _fetch_line(0)
+			   _clear()
+			   _display_line(s, 0)
+			   e.title_change := true
+		      when id_lines:
+			   _scroll(e.top + 1, e.bot, -delta)
+		      end
+	if nln > z
+	   then e.win_max := z
+	   else e.win_max := nln
+	   end
+	end full_scroll
+
+    clear = proc (e: cvt)
+	_clear()
+	new_window(up(e))
+	e.window_change := redo_
+	e.title_change := true
+	for ee: env in winset$displayed() do
+	    e := down(ee)
+	    e.window_change := redo_
+	    e.title_change := true
+	    end
+	end clear
+
+    change_all = proc (e: cvt)
+	e.window_change := redo_
+	e.title_change := true
+	for ee: env in winset$displaying (e.buf) do
+	    e := down(ee)
+	    e.window_change := redo_
+	    e.title_change := true
+	    end
+	end change_all
+
+    maybe_change = proc (e: cvt)
+	e.window_change := redo_
+	for ee: env in winset$displaying (e.buf) do
+	    down(ee).window_change := redo_
+	    end
+	end maybe_change
+
+    any_changed = proc (e: cvt) returns (bool)
+	for ee: env in winset$displayed () do
+	    e := down(ee)
+	    if e.window_change ~= none_ cor
+	       e.new_win ~= e.win_top cor
+	       e.title_change
+	       then return(true) end
+	    end
+	return(false)
+	end any_changed
+
+    get_window_top = proc (e: cvt) returns (int)
+	return (e.win_top)
+	end get_window_top
+
+    set_window_top = proc (e: cvt, line: int)
+	if line < 1 then e.new_win := 1
+	 elseif line > buf$size(e.buf) then e.new_win := buf$size(e.buf)
+	 else e.new_win := line
+	 end
+	end set_window_top
+
+    get_top_line = proc (e: cvt) returns (int)
+	return (e.top)
+	end get_top_line
+
+    set_top_line = proc (e: cvt, top: int)
+	delta: int := top - e.top
+	if delta = 0 then return end
+	e.top := top
+	e.bot := top + e.size
+	e.title_change := true
+	if e.window_change = redo_ then return end
+	e.window_change := lines_
+	win: window := e.window
+	win_max: int := 0
+	if delta < 0
+	   then new: int := window$size (win)
+		old: int := new + delta
+		limit: int := 1
+		while old >= limit do
+		    if win_max <= 0
+		       then win_max := win[old]
+			    win[new] := win_max
+		       else win[new] := win[old]
+		       end
+		    new := new - 1
+		    old := old - 1
+		    end
+		while new >= limit do
+		    win[new] := 0
+		    new := new - 1
+		    end
+	   else new: int := 1
+		old: int := new + delta
+		limit: int := window$size (win)
+		while old <= limit do
+		    ln: int := win[old]
+		    if ln > 0 then win_max := ln end
+		    win[new] := ln
+		    new := new + 1
+		    old := old + 1
+		    end
+		old := 1
+		while new <= limit do
+		    win[new] := 0
+		    old := old + 1
+		    new := new + 1
+		    end
+	   end
+	e.win_max := win_max
+	end set_top_line
+
+    get_last_line = proc (e: cvt) returns (int)
+	return (e.bot)
+	end get_last_line
+
+    get_size = proc (e: cvt) returns (int)
+	return (e.size)
+	end get_size
+
+    set_size = proc (e: cvt, size: int)
+	height, width: int := _get_screen_size()
+	height := height - 2
+	if size < 1 then size := 1 end
+	if size > height then size := height end
+	old_size: int := e.size
+	if size = old_size then return end
+	win: window := e.window
+	if e.window_change >= chars_ then e.window_change := refill_ end
+	e.win_bot := e.win_top + size - 1
+	e.size := size
+	e.bot := e.top + size
+	e.full := size = height
+	b: buf := e.buf
+	z: int := buf$size(b)
+	while z > 0 cand string$empty(b[z]) do z := z - 1 end
+	for ln: int in int$from_to(e.win_top + old_size, e.win_bot) do
+	    if ln > z then ln := -1 end
+	    window$addh(win, ln)
+	    end
+	window$trim(win, 1, size)
+	end set_size
+
+    get_width = proc (e: cvt) returns (int)
+	return (e.width)
+	end get_width
+
+    set_width = proc (e: cvt, wid: int)
+	height, width: int := _get_screen_size()
+	if wid < 1 then e.width := 1
+	 elseif wid >= width then e.width := width - 1
+	 else e.width := wid
+	 end
+	end set_width
+
+    get_chtab = proc (e: cvt) returns (vec)
+	return (e.chtab)
+	end get_chtab
+
+    set_chtab = proc (e: cvt, chtab: vec)
+	e.chtab := chtab
+	end set_chtab
+
+    get_change_limit = proc (e: cvt) returns (int)
+	return (change_limit)
+	end get_change_limit
+
+    set_change_limit = proc (e: cvt, cnt: int)
+	change_limit := cnt
+	bump_change(up(e), 0)
+	end set_change_limit
+
+    bump_change = proc (e: cvt, cnt: int)
+	if ~e.argenv then
+	   change_count := change_count + cnt
+	      except when overflow: change_count := change_limit end
+	   if change_limit > 0 cand change_limit <= change_count then
+	      change_count := 0
+	      if buf$any_changed(e.buf) then
+		 save_buffers(up(e), true)
+		 end
+	      end
+	   end
+	end bump_change
+
+    get_change_count = proc (e: cvt) returns (int)
+	return(change_count)
+	end get_change_count
+
+    set_change_count = proc (e: cvt, cnt: int)
+	change_count := cnt
+	end set_change_count
+
+    get_break_lim = proc (e: cvt) returns (int)
+	if e.argenv
+	   then return(0)
+	   else return(break_lim)
+	   end
+	end get_break_lim
+
+    set_break_lim = proc (e: cvt, lim: int)
+	break_lim := lim
+	end set_break_lim
+
+    get_overwrite = proc (e: cvt) returns (bool)
+	return(overwrite)
+	end get_overwrite
+
+    set_overwrite = proc (e: cvt, b: bool)
+	overwrite := b
+	end set_overwrite
+
+    get_word_chars = proc (e: cvt) returns (string)
+	return(word_chars)
+	end get_word_chars
+
+    set_word_chars = proc (e: cvt, wchars: string)
+	word_chars := wchars
+	end set_word_chars
+
+    get_killed = proc (e: cvt) returns (buf)
+	return(killed)
+	end get_killed
+
+    set_killed = proc (e: cvt, b: buf)
+	killed := b
+	end set_killed
+
+    get_saved = proc (e: cvt) returns (buf)
+	return(saved)
+	end get_saved
+
+    set_saved = proc (e: cvt, b: buf)
+	saved := b
+	end set_saved
+
+    fetch_num = proc (e: cvt, name: string, val: int) returns (int)
+	return(numtab$mbind(nums, name, val))
+	end fetch_num
+
+    mfetch_num = proc (e: cvt, name: string) returns (int) signals (not_found)
+	return(numtab$lookup(nums, name))
+	   resignal not_found
+	end mfetch_num
+
+    store_num = proc (e: cvt, name: string, val: int)
+	numtab$alter(nums, name, val)
+	end store_num
+
+    fetch_str = proc (e: cvt, name, val: string) returns (string)
+	return(strtab$mbind(strs, name, val))
+	end fetch_str
+
+    mfetch_str = proc (e: cvt, name: string) returns (string)
+		   signals (not_found)
+	return(strtab$lookup(strs, name))
+	   resignal not_found
+	end mfetch_str
+
+    store_str = proc (e: cvt, name, val: string)
+	strtab$alter(strs, name, val)
+	end store_str
+
+    is_argenv = proc (e: cvt) returns (bool)
+	return(e.argenv)
+	end is_argenv
+
+    equal = proc (x, y: cvt) returns (bool)
+	return (x = y)
+	end equal
+
+    end env

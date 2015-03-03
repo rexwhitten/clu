@@ -1,0 +1,58 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+r_list = cluster is create, similar, get_size, elements,
+		    canon_hasher, unparse, print, output, _gcd;
+
+    rep = rtn_insts;
+
+    Create = proc (Rs: rtn_insts) returns (cvt);
+	return (Rs);
+	end Create;
+
+    Similar = proc (RL1, RL2: cvt) returns (bool);
+	return (rtn_insts$Similar(RL1, RL2));
+	end Similar;
+
+    Get_Size = proc (RL: cvt) returns (int);
+	return (rep$Size(RL));
+	end Get_Size;
+
+    Elements = iter (RL: cvt) yields (rtn_inst);
+	for RI: rtn_inst in rep$Elements(RL) do
+	    yield (RI);
+	    end;
+	end Elements;
+
+    Canon_Hasher = proc (RL: cvt, Size: int, Env: lnk_env) returns (int);
+	Len: int := rep$Size(RL);
+	RI: rtn_inst := rep$Bottom(RL);
+	   except when Bounds:
+		       return (0);
+		  end;
+	return (int$Mod((rtn_inst$Canon_Hasher(RI, Size, Env) + Len), Size));
+	end Canon_Hasher;
+
+    Unparse = proc (RL: cvt) returns (string);
+	return ("Rtn_list[" ||
+		Unparse_List[rtn_inst](RL, vMax_List_Output_Length) ||
+		"]");
+	end Unparse;
+
+    Print = proc (RL: cvt, S: pstream);
+	rep$Print(RL, S);
+	end Print;
+
+    Output = proc (RL: cvt, Env: lnk_env) returns (address);
+	own Array_Addr: array[address] := array[address]$Predict(1, 20);
+	array[address]$Trim(Array_Addr, 1, 0);
+	for RI: rtn_inst in rtn_insts$Elements(RL) do
+	    array[address]$AddH(Array_Addr, RI.Entry_Address);
+	    end;
+	return (Output_Seq_Address(sequence[address]$A2S(Array_Addr), Env));
+	end Output;
+
+    _gcd = proc (RL: cvt, Tab: gcd_tab) returns (int);
+	return (rep$_gcd(RL, Tab));
+	end _gcd;
+
+    end r_list;

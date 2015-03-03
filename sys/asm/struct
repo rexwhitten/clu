@@ -1,0 +1,243 @@
+; Copyright Massachusetts Institute of Technology 1980, 1989
+
+struct = selector is get, replace, s2r, r2s, equal, similar, copy, print, 
+		encode, decode, _gcd
+
+get = qselproc (str: cvt) returns (seltype)
+	movew	selindex,n1
+	movea	(rr,n1/w),rr
+	return(rr)
+	end get
+
+replace = selproc (str: cvt, elt: t) returns (cvt)
+	struct[*]$r2s(str)
+	movea	elt,r1
+	movew	selindex,n1
+	move	r1,(rr,n1/w)
+	return(rr)
+	end replace
+
+s2r = qproc (str: cvt) returns (record[*])
+	movea	rr,r1
+	move	(r1),n1				; get header
+	move	n1,n2				; get byte count
+	addq	2,n2
+	movea	heaphi,rr			; alloc
+	iflt	sub	n2,freecnt
+	then	jsr	memout
+	end
+	add	n2,heaphi
+	asr	2,n1
+	movea	rr,r2
+	qloop
+		move	(r1)+,(r2)+		; copy
+		dbra	n1,this
+	end
+	movea	n0,r1
+	movea	n0,r2
+	return(rr)
+	end s2r
+
+r2s = qproc (rec: record[*]) returns (cvt)
+	movea	rr,r1
+	move	(r1),n1				; get header
+	move	n1,n2				; get byte count
+	addq	2,n2
+	movea	heaphi,rr			; alloc
+	iflt	sub	n2,freecnt
+	then	jsr	memout
+	end
+	add	n2,heaphi
+	asr	2,n1
+	movea	rr,r2
+	qloop
+		move	(r1)+,(r2)+		; copy
+		dbra	n1,this
+	end
+	movea	n0,r1
+	movea	n0,r2
+	return(rr)
+	end r2s
+
+equal = proc (str1, str2: cvt) returns (bool)
+	    where each has equal: proctype (seltype, seltype) returns (bool)
+	rlist = selops[equal]
+	var	idx
+	move	n0,idx
+	qloop
+		addq	4,idx			; bump index
+		movem	idx,n1/r1
+		cmp	(r1),n1			; done?
+		bgt	next
+		movea	str1,rr
+		move	-1(rr,n1),-(sp)		; get component
+		movea	-1(r1,n1),rr		; get component
+		movea	rlist,r1
+		movea	-1(r1,n1),r1		; get equal op
+		r1(*, rr)			; compare
+		move	rr,n7
+		bne	this
+		return(rr)
+	end
+	return(true)
+	end equal
+
+similar = proc (str1, str2: cvt) returns (bool)
+	    where each has similar: proctype (seltype, seltype) returns (bool)
+	rlist = selops[similar]
+	var	idx
+	move	n0,idx
+	qloop
+		addq	4,idx			; bump index
+		movem	idx,n1/r1
+		cmp	(r1),n1			; done?
+		bgt	next
+		movea	str1,rr
+		move	-1(rr,n1),-(sp)		; get component
+		movea	-1(r1,n1),rr		; get component
+		movea	rlist,r1
+		movea	-1(r1,n1),r1		; get similar op
+		r1(*, rr)			; compare
+		move	rr,n7
+		bne	this
+		return(rr)
+	end
+	return(true)
+	end similar
+
+copy = proc (str: cvt) returns (cvt)
+	    where each has copy: proctype (seltype) returns (seltype)
+	rlist = selops[copy]
+	var	idx
+	move	n0,idx
+	str := struct[*]$r2s(rr)
+	movea	rr,r1
+	moveq	5,n1
+	loop
+		cmp	(r1),n1			; done?
+		bgt	next
+		move	n1,idx			; save index
+		movea	-1(r1,n1),rr		; get component
+		movea	rlist,r1
+		movea	-1(r1,n1),r1		; get copy op
+		r1(rr)				; copy
+		move	idx,n1
+		movea	str,r1
+		move	rr,-1(r1,n1)		; set component
+		addq	4,n1			; bump to next
+	end
+	return(r1)
+	end copy
+
+print = proc (str: cvt, pst: pstream)
+	    where each has print: proctype (seltype, pstream)
+	rlist = selops[print]
+	var	idx
+	ift	pstream$start(pst, "{")
+	then	move	n0,idx
+		loop
+			addq	4,idx			; bump index
+			movem	idx,n1/rr
+			movea	selnames,r1
+			cmp	(r1),n1			; done?
+			bgt	next
+			ifgt	cmpiw	5,n1		; first?
+			then	pstream$pause(rr, ",")	; no, print comma
+				move	rr,n7
+				beq	next		; stop if ...
+				movem	idx,n1/rr
+				movea	selnames,r1
+			end
+			move	rr,-(sp)
+			movea	-1(r1,n1),rr		; get name
+			pstream$text(*, rr)		; print it
+			pstream$text(pst, ": ")
+			movem	idx,n1/rr
+			movea	str,r1
+			move	-1(r1,n1),-(sp)		; get component
+			movea	rlist,r1
+			movea	-1(r1,n1),r1		; get print op
+			r1(*, rr)			; print
+		end
+	end
+	pstream$stop(pst, "}")
+	end print
+
+;; Structs are encoded as the encodes of their components.
+
+encode = proc (str: cvt, ist: istream) signals (not_possible(string))
+		where each has encode: proctype (seltype, istream)
+					signals (not_possible(string))
+	rlist = selops[encode]
+	var	idx			;; Byte index into rlist and rec (+ 1)
+	var	max			;; Max byte index into rlist, rec (+1)
+
+	moveq	5, n1			;; Initial index.
+	move	n1, idx			;; Save it.
+	movea	rlist, rr
+	movea	(rr), rr		;; Get # components * 4 + 2
+	subq	1, rr
+	move	rr, max			;; Max = # comp. * 4 + 1
+	loop
+		movea	str, rr
+		move	-1(rr, n1), -(sp)	;; Push next component.
+		movea	rlist, rr
+		movea	-1(rr, n1), r1		;; Get its encode op.
+		r1(*, ist)		 	;; Encode.
+		move	idx, n1
+		addq	4, n1		 	;; Bump index.
+		cmp	max, n1			;; Any left to do?
+		bgt	next
+		move	n1, idx		 	;; Yes, remember new index.
+		end resignal not_possible		
+	end encode
+
+decode = proc (ist: istream) returns (cvt)
+				signals (end_of_file, not_possible(string))
+		where each has decode: proctype (istream) returns (seltype)
+					signals (end_of_file, not_possible(string))
+	rlist = selops[decode]
+	var	str, idx, max
+
+	movea	rlist, r1
+	move	(r1), n2		;; Get header of rlist.
+	addq	2, n2			;; Get byte count for alloc.
+	movea	heaphi, rr
+	iflt	sub	n2, freecnt
+	then	jsr	memout
+		end
+	add	n2, heaphi
+	move	(r1), (rr)		;; Store header.
+	move	rr, str			;; Save struct.
+	move	(rr), max
+	subq	1, max
+	move	5, n1			;; Start index.
+	move	n1, idx			;; Save it.
+	loop	
+		movea	rlist, r1
+		movea	-1(r1, n1), r1	;; Get decode op.
+		r1(ist)			;; Decode component.
+		move	idx, n1
+		movea	str, r1
+		move	rr, -1(r1, n1)	;; Store component.
+		addq	4, n1		;; Bump index.
+		cmp	max, n1		;; Any more to do?
+		bgt	next
+		move	n1, idx		;; Yes, save new index.
+		end resignal end_of_file, not_possible
+	return (r1)
+	end decode
+
+
+_gcd = proc (str: cvt, tab: gcd_tab) returns (int)
+		where each has _gcd: proctype (seltype, gcd_tab) returns (int)
+	move	rr,-(sp)
+	movea	str,rr
+	move	(rr),n1
+	add	n1,n1
+	addq	5,n1
+	gcd_tab$%insert(*, n1, <3: selops[_gcd]>, rr)
+	return(rr)
+	end _gcd
+
+end struct

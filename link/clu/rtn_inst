@@ -1,0 +1,479 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+routine_instantiation = cluster is
+	create, get_uses, set_uses, similar, equal,
+	supercedes, overloaded, is_overloaded, print,
+	get_dbg_blocks, add_dbg_block, add_dbg_blocks,
+ 	set_entry_address, get_entry_address, get_new_entry_address,
+	set_owns_address, get_owns_address, get_base_inst,
+	get_type_desc, set_result_type, get_result_type,
+	set_r_template, get_r_template, is_stub_routine, stub_rtn_unparse,
+	set_is_dummy, get_is_dummy, set_was_output, get_was_output,
+	get_cluster_inst, set_uses_address, get_uses_address, get_params,
+	canon_hasher, unparse, output, prepare_to_dump, _gcd;
+
+    rep = record[ a_Cluster_Instantiation:   rtn_clust,
+		  b_Parameters:              params,
+		  c_Uses:		     use_list,
+		  d_Result_Type:	     type_desc,
+		  e_Owns_Address:	     address,
+		  f_Entry_Address:	     address,
+		  g_Base_Rtn_Inst:	     routine_instantiation,
+		  h_Uses_Address:	     address,
+		  i_Rtn_Template:	     r_template,
+		  j_State:		     ri_state ];
+
+    rtn_clust = variant[ None:  null,
+			 Clust: clust_inst ];
+
+    %% State indication, and dbg_blocks.
+    ri_state = variant[
+		   Normal:         dbg_blocks,
+		   Dummy:          dbg_blocks,
+		   Normal_Out:     dbg_blocks,
+		   Dummy_Out:      dbg_blocks
+		       ];
+
+    Similar = proc (RI1, RI2: cvt) returns (bool);
+	return (
+	    r_template$Similar(RI1.i_Rtn_Template, RI2.i_Rtn_Template) cand
+	    rtn_clust$Similar(RI1.a_Cluster_Instantiation,
+			      RI2.a_Cluster_Instantiation)     cand
+	    params$Similar(RI1.b_Parameters, RI2.b_Parameters)
+		);
+	end Similar;
+
+    Equal = proc (RI1, RI2: cvt) returns (bool);
+	return (RI1 = RI2);
+	end Equal;
+
+    Supercedes = proc (NewRI, OldRI: cvt, Env: lnk_env) returns (bool);
+	%% Note:  r_templates are assumed to be similar!
+	Ts_Same: bool := rtn_clust$Similar(NewRI.a_Cluster_Instantiation,
+					   OldRI.a_Cluster_Instantiation);
+	return (
+	    %% Types and params must match,
+	    ( Ts_Same cand
+	      params$Similar(NewRI.b_Parameters,
+			     OldRI.b_Parameters) ) cor
+	    %% or does not use params and type_descs are the same except
+	    %% for parameterization,
+	    ( (~ r_template$Is_Parameterized(NewRI.i_Rtn_Template)) cand
+	      ( Ts_Same cor
+		type_desc$Non_Param_Similar(
+		    rtn_clust$Value_Clust(
+			NewRI.a_Cluster_Instantiation).Type_Desc,
+		    rtn_clust$Value_Clust(
+			OldRI.a_Cluster_Instantiation).Type_Desc,
+		    Env ))
+	     )
+		);
+	   except when Wrong_Tag:
+		       return (false);
+		  end;
+	end Supercedes;
+
+    Overloaded = proc (ROld: routine_instantiation, RNew: cvt);
+	if (RNew = down(RNew.g_Base_Rtn_Inst))
+	   then RNew.g_Base_Rtn_Inst := ROld;
+	   end
+	end Overloaded;
+
+    Is_Overloaded = proc (R: cvt) returns (bool);
+	return (R ~= down(R.g_Base_Rtn_Inst));
+	end Is_Overloaded;
+
+    Unparse = proc (R: cvt) returns (string);
+	S: string;
+	S := constant$Get_String(R.i_Rtn_Template.Name_Constant);
+	   except when Not_Possible:
+		       S := ("Routine at " ||
+			     address$OUnparse(		%% Use original address.
+				 down(R.g_Base_Rtn_Inst).f_Entry_Address));
+		  end;
+	if (~ params$Empty(R.b_Parameters))
+	   then S := S || ( " Params: " || "[" ||
+			    Unparse_List[param](R.b_Parameters,
+						vMax_List_Output_Length) ||
+			    "]" );
+	   end;
+	return (S);
+	end Unparse;
+
+    Print = proc (R: cvt, S: pstream);
+	rep$Print(R, S);
+	end Print;
+
+
+    Create = proc (R_D: rtn_desc, R_T: r_template, Env: lnk_env)
+	       returns (cvt) signals (error(string));
+        own Null_Addr: address    := address$Make_Null();
+	own No_Params: params     := params$New();
+	own No_Blocks: dbg_blocks := dbg_blocks$New();
+	R_C: rtn_clust;
+	if ( type_desc$Is_None(R_D.Type_Desc) )
+	   then R_C := rtn_clust$Make_None(nil);
+	   else C_I: clust_inst := clust_inst$Create(R_D.Type_Desc, Env);
+		   resignal Error;
+		R_C := rtn_clust$Make_Clust(C_I);
+		if ( c_template$Is_Selector_Type(
+			 type_desc$Get_C_Template(R_D.Type_Desc, Env)) cand
+		     params$Empty(R_D.Parameters) cand
+		     (R_D.Name ~= R_T.Name) )
+		   then Sel_Name,
+			Rtn_Name: string := Parse_Selector_Rtn_Name(R_D.Name);
+			Sel_Indx: int,
+			Sel_Type: type_desc := type_desc$Get_Selector_Type(R_D.Type_Desc,
+									   Sel_Name);
+			R_D.Parameters := params$AddH(R_D.Parameters,
+						      constant$Make_Int(Sel_Indx));
+		   end;
+		   except when Not_Selector:
+			       signal Error("Not a selector: " ||
+					    rtn_desc$Unparse(R_D)
+					    );
+			  end;
+
+	   end;
+	RI: rep := rep${ a_Cluster_Instantiation:  R_C,
+			 b_Parameters:             params$Copy(R_D.Parameters),
+			 c_Uses:                   use_list$New(),
+			 d_Result_Type:            R_T.Result_Type,
+			 e_Owns_Address:           Null_Addr,
+			 f_Entry_Address:          Null_Addr,
+			 g_Base_Rtn_Inst:          _cvt[null, routine_instantiation](nil),
+			 h_Uses_Address:           Null_Addr,
+			 i_Rtn_Template:           R_T,
+			 j_State:                  ri_state$Make_Normal(
+						       No_Blocks) };
+	RI.g_Base_Rtn_Inst := up(RI);		%% Point at self.
+	return (RI);
+	end Create;
+
+
+    Get_Uses = proc (R_I: cvt) returns (use_list);
+	return ( R_I.c_Uses );
+	end Get_Uses;
+
+    Set_Uses = proc (R_I: cvt, UL: use_list);
+	R_I.c_Uses := UL;
+	end Set_Uses;
+
+    Set_Entry_Address = proc (R_I: cvt, A: address);
+	R_I.f_Entry_Address := A;
+	end Set_Entry_Address;
+
+    Get_Entry_Address = proc (R_I: cvt) returns (address);
+	return (down(R_I.g_Base_Rtn_Inst).f_Entry_Address);
+	end Get_Entry_Address;
+
+    Get_New_Entry_Address = proc (R_I: cvt) returns (address);
+	return (R_I.f_Entry_Address);
+	end Get_New_Entry_Address;
+
+    Get_Dbg_Blocks = proc (R: cvt) returns (dbg_blocks);
+	tagcase R.j_State
+	   tag Normal,
+	       Dummy,
+	       Normal_Out,
+	       Dummy_Out (DBs: dbg_blocks):
+	       return (DBs);
+	   end;
+	end Get_Dbg_Blocks;
+
+    Add_Dbg_Block = proc (R: cvt, DB: dbg_block);
+	tagcase R.j_State
+	   tag Normal (DBs: dbg_blocks):
+	       ri_state$Change_Normal(R.j_State, dbg_blocks$AddH(DBs, DB));
+	   tag Dummy (DBs: dbg_blocks):
+	       ri_state$Change_Dummy(R.j_State, dbg_blocks$AddH(DBs, DB));
+	   tag Normal_Out (DBs: dbg_blocks):
+	       ri_state$Change_Normal_Out(R.j_State, dbg_blocks$AddH(DBs, DB));
+	   tag Dummy_Out (DBs: dbg_blocks):
+	       ri_state$Change_Dummy_Out(R.j_State, dbg_blocks$AddH(DBs, DB));
+	   end;
+	end Add_Dbg_Block;
+
+    Add_Dbg_Blocks = proc (R: cvt, Old_DBs: dbg_blocks);
+	tagcase R.j_State
+	   tag Normal (DBs: dbg_blocks):
+	       ri_state$Change_Normal(R.j_State, DBs || Old_DBs);
+	   tag Dummy (DBs: dbg_blocks):
+	       ri_state$Change_Dummy(R.j_State, DBs || Old_DBs);
+	   tag Normal_Out (DBs: dbg_blocks):
+	       ri_state$Change_Normal_Out(R.j_State, DBs || Old_DBs);
+	   tag Dummy_Out (DBs: dbg_blocks):
+	       ri_state$Change_Dummy_Out(R.j_State, DBs || Old_DBs);
+	   end;
+	end Add_Dbg_Blocks;
+
+
+    Set_Owns_Address = proc (R_I: cvt, A: address);
+	R_I.e_Owns_Address := A;
+	end Set_Owns_Address;
+
+    Get_Owns_Address = proc (R_I: cvt) returns (address);
+	return (R_I.e_Owns_Address);
+	end Get_Owns_Address;
+
+    Get_Base_Inst = proc (R_I: cvt) returns (routine_instantiation);
+	return (R_I.g_Base_Rtn_Inst);
+	end Get_Base_Inst;
+
+    Get_Result_Type = proc (R_I: cvt) returns (type_desc);
+	return (R_I.d_Result_Type);
+	end Get_Result_Type;
+
+    Set_Result_Type = proc (R_I: cvt, Res_T: type_desc);
+	R_I.d_Result_Type := Res_T;
+	end Set_Result_Type;
+
+    Set_R_Template = proc (R_I: cvt, R: r_template);
+	R_I.i_Rtn_Template := R;
+	end Set_R_Template;
+
+    Get_R_Template = proc (R_I: cvt) returns (r_template);
+	return (R_I.i_Rtn_Template);
+	end Get_R_Template;
+
+    Is_Stub_Routine = proc (R_I: cvt) returns (bool);
+	return (R_I.i_Rtn_Template.Name = Stub_Rtn_Name_String);
+	end Is_Stub_Routine;
+
+    Stub_Rtn_Unparse = proc (R_I: cvt) returns (string)
+			 signals (not_possible(string));
+	return (constant$Get_String(R_I.b_Parameters[2]));
+	   except when Not_Possible:
+		       signal Not_Possible("Stub routine already output.");
+		  end;
+	end Stub_Rtn_Unparse;
+
+    Get_Type_Desc = proc (R_I: cvt) returns (type_desc);
+	tagcase R_I.a_Cluster_Instantiation
+	   tag None:
+	       return (type_desc$Make_None());
+	   tag Clust (CI: clust_inst):
+	       return (CI.Type_Desc);
+	   end;
+	end Get_Type_Desc;
+
+    Get_Cluster_Inst = proc (R_I: cvt) returns (clust_inst)
+			 signals (not_possible);
+	tagcase R_I.a_Cluster_Instantiation
+	   tag None:
+	       signal Not_Possible;
+	   tag Clust (CI: clust_inst):
+	       return (CI);
+	   end;
+	end Get_Cluster_Inst;
+
+    Set_Uses_Address = proc (R_I: cvt, A: address);
+	R_I.h_Uses_Address := A;
+	end Set_Uses_Address;
+
+    Get_Uses_Address = proc (R_I: cvt) returns (address);
+	return (R_I.h_Uses_Address);
+	end Get_Uses_Address;
+
+    Set_Is_Dummy = proc (R_I: cvt, F: bool);
+	tagcase R_I.j_State
+	   tag Normal (DBs: dbg_blocks):
+	       if (F)
+		  then ri_state$Change_Dummy(R_I.j_State, DBs);
+		  end;
+	   tag Dummy (DBs: dbg_blocks):
+	       if (~F)
+		  then ri_state$Change_Normal(R_I.j_State, DBs);
+		  end;
+	   tag Normal_Out (DBs: dbg_blocks):
+	       if (F)
+		  then ri_state$Change_Dummy_Out(R_I.j_State, DBs);
+		  end;
+	   tag Dummy_Out (DBs: dbg_blocks):
+	       if (~F)
+		  then ri_state$Change_Normal_Out(R_I.j_State, DBs);
+		  end;
+	   end;
+	end Set_Is_Dummy;
+
+    Get_Is_Dummy = proc (R_I: cvt) returns (bool);
+	tagcase R_I.j_State
+	   tag Normal,
+	       Normal_Out:
+	       return (false);
+	   tag Dummy,
+	       Dummy_Out:
+	       return (true);
+	   end;
+	end Get_Is_Dummy;
+
+    Set_Was_Output = proc (R_I: cvt, F: bool);
+	tagcase R_I.j_State
+	   tag Normal (DBs: dbg_blocks):
+	       if (F)
+		  then ri_state$Change_Normal_Out(R_I.j_State, DBs);
+		  end;
+	   tag Dummy (DBs: dbg_blocks):
+	       if (F)
+		  then ri_state$Change_Dummy_Out(R_I.j_State, DBs);
+		  end;
+	   tag Normal_Out (DBs: dbg_blocks):
+	       if (~F)
+		  then ri_state$Change_Normal(R_I.j_State, DBs);
+		  end;
+	   tag Dummy_Out (DBs: dbg_blocks):
+	       if (~F)
+		  then ri_state$Change_Dummy(R_I.j_State, DBs);
+		  end;
+	   end;
+	end Set_Was_Output;
+
+    Get_Was_Output = proc (R_I: cvt) returns (bool);
+	tagcase R_I.j_State
+	   tag Normal,
+	       Dummy:
+	       return (false);
+	   tag Normal_Out,
+	       Dummy_Out:
+	       return (true);
+	   end;
+	end Get_Was_Output;
+
+    Get_Params = proc (R_I: cvt) returns (params);
+	return (R_I.b_Parameters);
+	end Get_Params;
+
+    Canon_Hasher = proc (R_I: cvt, Size: int, Env: lnk_env) returns (int);
+	return (int$Mod((constant$Canon_Hasher(R_I.i_Rtn_Template.Name_Constant,
+					       Size, Env) +
+			 Hash_Consts(R_I.b_Parameters, Size, Env) +
+			 73),		%% Extra delta to make different from
+			Size));		%% hash of name of routine.
+	end Canon_Hasher;
+
+    Output = proc (R: cvt, Code_Address: address, Type_It: bool,
+		   Rtn_Name: string, Env: lnk_env);
+	own No_Owns_Address: address := address$Make_Null();
+	if (ri_state$Is_Normal(R.j_State))
+	   then Type_Name: string;
+		if (Type_It)
+		   then Type_Name := type_desc$Unparse(
+					 up(R).Cluster_Inst.Type_Desc
+						       ) || "$";
+			   except when Not_Possible:
+				       Type_Name := "";
+				  end;
+			Parm_Names: string;
+			if (params$Empty(R.b_Parameters))
+			   then Parm_Names := "";
+			   else Parm_Names := ("[" ||
+					       Unparse_List
+						   [param](R.b_Parameters,
+							   vMax_List_Output_Length) ||
+					       "]");
+			   end;
+			stream$PutL(Env.Options.List_Stream,
+				    out_link_chan$Cur_Addr_to_String(
+					Env.Output) ||
+				    ": Ent_Vec for " ||
+				    Type_Name || Rtn_Name ||
+				    Parm_Names);
+			   except when Not_Possible(*): end;
+		   end;
+		Ent_Addr: address := down(R.g_Base_Rtn_Inst).f_Entry_Address;
+		if (Ent_Addr ~= Code_Address)
+ 		   then if (Env.Options.Debugging)
+			   then out_link_chan$Position(
+				    Env.Output,
+				    address$Advance(R.h_Uses_Address,
+						    - vRef_Size ));
+			   end;
+			Output_Entry_Head(Code_Address, Ent_Addr, Env);
+			use_list$Output(R.c_Uses, Env);
+		   end;
+	   end;
+	up(R).Was_Output := true;
+	end Output;
+
+    Prepare_to_Dump = proc (RI: cvt, Locs: locates);
+	own No_Uses: use_list := use_list$New();
+	RI.e_Owns_Address := address$Fix_Address(RI.e_Owns_Address, Locs);
+	   except when Not_Possible:
+		  end;
+	RI.f_Entry_Address := address$Fix_Address(	%% Keep the base entry addr.
+				  down(RI.g_Base_Rtn_Inst).f_Entry_Address,
+				  Locs);
+	   except when Not_Possible:
+		  end;
+	RI.g_Base_Rtn_Inst := up(RI);		%% Make self the base routine_instantiation.
+	RI.h_Uses_Address := address$Fix_Address(RI.h_Uses_Address, Locs);
+	   except when Not_Possible:
+		  end;
+	RI.c_Uses := No_Uses;
+	Dbg_Blks: dbg_blocks;
+	tagcase RI.j_State
+	   tag Normal (DBs: dbg_blocks):
+	       Dbg_Blks := DBs;
+	       if (dbg_blocks$Size(DBs) > 1)
+		  then ri_state$Change_Normal(RI.j_State,
+			   Compact_Dbg_Blocks(DBs));
+		  end;
+	   tag Dummy (DBs: dbg_blocks):
+	       Dbg_Blks := DBs;
+	       if (dbg_blocks$Size(DBs) > 1)
+		  then ri_state$Change_Dummy(RI.j_State,
+			   Compact_Dbg_Blocks(DBs));
+		  end;
+	   tag Normal_Out (DBs: dbg_blocks):
+	       Dbg_Blks := DBs;
+	       if (dbg_blocks$Size(DBs) > 1)
+		  then ri_state$Change_Normal_Out(RI.j_State,
+			   Compact_Dbg_Blocks(DBs));
+		  end;
+	   tag Dummy_Out (DBs: dbg_blocks):
+	       Dbg_Blks := DBs;
+	       if (dbg_blocks$Size(DBs) > 1)
+		  then ri_state$Change_Dummy_Out(RI.j_State,
+			   Compact_Dbg_Blocks(DBs));
+		  end;
+	   end;
+	for DB: dbg_block in dbg_blocks$Elements(Dbg_Blks) do
+	    dbg_block$Prepare_to_Dump(DB);
+	    end;
+	end Prepare_to_Dump;
+
+
+    Compact_Dbg_Blocks = proc (DBs: dbg_blocks) returns (dbg_blocks);
+	Size: int := dbg_blocks$Size(DBs);
+	for I: int in int$From_To(1, (Size-1)) do
+	    DB: dbg_block := DBs[I];
+	    for J: int in int$From_To((I+1), Size) do
+		if (DB = DBs[J])
+		   then %% OK.  Really compact.  This is assumed not to happen often.
+			%% First take all the good ones so far.
+			NDBs: dbg_blocks := dbg_blocks$SubSeq(DBs, 1, (I-1));
+			%% Now go on adding non-equal dbg_blocks.
+			for I in int$From_To((I+1), Size) do
+			    DB := DBs[I];
+			    for J in int$From_To((I+1), Size) do
+				if (DB = DBs[J])
+				   then exit Found_Match;
+				   end;
+				end;
+			       except when Found_Match:
+					   continue;
+				      end;
+			    NDBs := dbg_blocks$AddH(NDBs, DB);
+			    end;
+			return (NDBs);
+		   end;
+		end;
+	    end;
+	return (DBs);
+	end Compact_Dbg_Blocks;
+
+    _gcd = proc (RI: cvt, Tab: gcd_tab) returns (int);
+	return (rep$_gcd(RI, Tab));
+	end _gcd;
+
+    end routine_instantiation;

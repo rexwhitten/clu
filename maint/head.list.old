@@ -1,0 +1,3118 @@
+asm/opcode.defs --- no copyright
+; Copyright	Massachusetts Institute of Technology     1989
+; Copyright	Massachusetts Institute of Technology     1989
+asm/addr.defs --- OK
+%	ADDR	DEFS
+% Copyright Massachusetts Institute of Technology 1982, 1989
+asm/assem.clu --- OK
+%	ASSEM	CLU
+% Copyright Massachusetts Institute of Technology 1980, 1989
+asm/gconst.clu --- OK
+%	GCONST CLU
+% Copyright Massachusetts Institute of Technology 1980, 1989
+asm/gdefn.clu --- OK
+%	GDEFN CLU
+% Copyright Massachusetts Institute of Technology 1980, 1989
+asm/genv.clu --- OK
+%	GENV CLU
+% Copyright Massachusetts Institute of Technology 1980, 1989
+asm/gexpr.clu --- OK
+%	GEXPR CLU
+% Copyright Massachusetts Institute of Technology 1980, 1989
+asm/ginst.clu --- OK
+%	GINST CLU
+% Copyright Massachusetts Institute of Technology 1980, 1989
+asm/gstmt1.clu --- OK
+%	GSTMT1 CLU
+% Copyright Massachusetts Institute of Technology 1980, 1989
+asm/gstmt2.clu --- OK
+%	GSTMT2 CLU
+% Copyright Massachusetts Institute of Technology 1980, 1989
+asm/gtenv.clu --- OK
+%	GTENV CLU
+% Copyright Massachusetts Institute of Technology 1980, 1989
+asm/masm.clu --- OK
+%	MASM	CLU
+% Copyright Massachusetts Institute of Technology 1984, 1989
+asm/pcode.clu --- OK
+%	PCODE CLU
+% Copyright Massachusetts Institute of Technology 1980, 1989
+asm/pconst.clu --- OK
+%	PCONST	CLU
+% Copyright Massachusetts Institute of Technology 1980, 1989
+asm/pdefn1.clu --- OK
+%	PDEFN1	CLU
+% Copyright Massachusetts Institute of Technology 1980, 1989
+asm/pdefn2.clu --- OK
+%	PDEFN2	CLU
+% Copyright Massachusetts Institute of Technology 1980, 1989
+asm/penv.clu --- OK
+%	PENV	CLU
+% Copyright Massachusetts Institute of Technology 1980, 1989
+asm/perm.defs --- OK
+%	PERM	DEFS
+% Copyright Massachusetts Institute of Technology 1980, 1989
+asm/pexpr.clu --- OK
+%	PEXPR	CLU
+% Copyright Massachusetts Institute of Technology 1980, 1989
+asm/plist.clu --- OK
+%	PLIST	CLU
+% Copyright Massachusetts Institute of Technology 1980, 1989
+asm/pstmt1.clu --- OK
+%	PSTMT1	CLU
+% Copyright Massachusetts Institute of Technology 1980, 1989
+asm/pstmt2.clu --- OK
+%	PSTMT2	CLU
+% Copyright Massachusetts Institute of Technology 1980, 1989
+asm/pttkn.clu --- OK
+%	PTTKN	CLU
+% Copyright Massachusetts Institute of Technology 1980, 1989
+asm/syntax.clu --- OK
+%	SYNTAX CLU
+% Copyright Massachusetts Institute of Technology 1980, 1989
+asm/tkntab.clu --- OK
+%	TKNTAB CLU
+% Copyright Massachusetts Institute of Technology 1980, 1989
+asm/passes.equ --- OK
+%	PASSES EQUATE
+% Copyright Massachusetts Institute of Technology 1980, 1989
+asm/syntax.equ --- OK
+%	SYNTAX EQUATE
+% Copyright Massachusetts Institute of Technology 1980, 1989
+cmp/build.clu --- no copyright
+%  Copyright	Massachusetts Institute of Technology     1989
+%  Copyright	Massachusetts Institute of Technology     1989
+cmp/cconst.clu --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+%	CCONST CLU
+cmp/cdchan.clu --- OK
+%	CDCHAN CLU
+% Copyright Massachusetts Institute of Technology 1980, 1989
+cmp/cdefn1.clu --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+%	CDEFN1 CLU
+cmp/cdefn2.clu --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+%	CDEFN2 CLU
+cmp/ce.clu --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+%	CE CLU
+cmp/cenv.clu --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+%	CENV	CLU
+cmp/cexpr1.clu --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+%	CEXPR1 CLU
+cmp/cexpr2.clu --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+%	CEXPR2 CLU
+cmp/cmpvar.clu --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+cmpvar = cluster is locals, set_locals,
+cmp/coper.clu --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+%	COPER CLU
+cmp/cspecs.clu --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+%	CSPECS CLU
+cmp/cstmt1.clu --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+%	CSTMT1 CLU
+cmp/cstmt2.clu --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+%	CSTMT2 CLU
+cmp/dtchan.clu --- OK
+%	DTCHAN	CLU
+% Copyright Massachusetts Institute of Technology 1982, 1989
+cmp/du.clu --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+%	DU CLU
+cmp/eval1.clu --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+%	EVAL1 CLU
+cmp/eval2.clu --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+%	EVAL2 CLU
+cmp/gconst.clu --- OK
+%	GCONST CLU
+% Copyright Massachusetts Institute of Technology 1980, 1989
+cmp/gdefn.clu --- OK
+%	GDEFN CLU
+% Copyright Massachusetts Institute of Technology 1980,, 1989
+cmp/genv.clu --- OK
+%	GENV	CLU
+% Copyright Massachusetts Institute of Technology 1982, 1989
+cmp/gexpr.clu --- OK
+%	GEXPR CLU
+% Copyright Massachusetts Institute of Technology 1980,, 1989
+cmp/gmenv.clu --- OK
+%	GMENV CLU
+% Copyright Massachusetts Institute of Technology 1980, 1989
+cmp/idn.clu --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+%	IDN	CLU
+cmp/gstmt.clu --- OK
+%	GSTMT CLU
+% Copyright Massachusetts Institute of Technology 1980,, 1989
+cmp/gtenv.clu --- OK
+%	GTENV	CLU
+% Copyright Massachusetts Institute of Technology 1982, 1989
+cmp/init.clu --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+%	INIT CLU
+cmp/mcmp.clu --- OK
+%	MCMP	CLU
+% Copyright Massachusetts Institute of Technology 1980, 1989
+cmp/pconst.clu --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+%	PCONST	CLU
+cmp/pdefn1.clu --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+%	PDEFN1	CLU
+cmp/pdefn2.clu --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+%	PDEFN2	CLU
+cmp/penv.clu --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+%	PENV	CLU
+cmp/pexpr.clu --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+%	PEXPR	CLU
+cmp/pjcl.clu --- OK
+%	PJCL CLU
+% Copyright Massachusetts Institute of Technology 1982, 1989
+cmp/plist.clu --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+%	PLIST	CLU
+cmp/pstmt1.clu --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+%	PSTMT1	CLU
+cmp/pstmt2.clu --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+%	PSTMT2	CLU
+cmp/pttkn.clu --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+%	PTTKN	CLU
+cmp/syntax.clu --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+%	SYNTAX CLU
+cmp/tkntab.clu --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+%	TKNTAB CLU
+cmp/top1.clu --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+%	TOP1 CLU
+cmp/top2.clu --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+%	TOP2 CLU
+cmp/xlib.clu --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+%	XLIB CLU
+cmp/bin.equ --- OK
+%	BIN EQUATE
+% Copyright Massachusetts Institute of Technology 1981, 1989
+cmp/codgen.equ --- OK
+%	CODGEN EQUATE
+% Copyright Massachusetts Institute of Technology 1980, 1989
+cmp/gopt3b.clu --- OK
+%       GOPT3B  CLU
+% Copyright Massachusetts Institute of Technology 1985,, 1989
+cmp/mc68000.equ --- OK
+%	MC68000 EQUATE
+% Copyright Massachusetts Institute of Technology 1980, 1989
+cmp/opcode.equ --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+%	OPCODE EQUATE
+cmp/passes.equ --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+%	PASSES EQUATE
+cmp/syntax.equ --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+%	SYNTAX EQUATE
+cmp/gopt1a.clu --- OK
+%       GOPT1A  CLU
+% Copyright Massachusetts Institute of Technology 1985, 1989
+cmp/gopt1b.clu --- OK
+%       GOPT1B  CLU
+% Copyright Massachusetts Institute of Technology 1985, 1989
+cmp/gopt2a.clu --- OK
+%	GOPT2A	CLU
+% Copyright Massachusetts Institute of Technology 1980,, 1989
+cmp/gopt2b.clu --- OK
+
+%	GOPT2B	CLU
+cmp/gopt3a.clu --- OK
+%	GOPT3A	CLU
+% Copyright Massachusetts Institute of Technology 1980, 1989
+debug/asm/__reset --- OK
+;; Copyright Massachusetts Institute of Technology 1984, 1989
+
+debug/asm/__reset-save --- OK
+;; Copyright Barbara Liskov 1984
+
+debug/asm/__stub_routine --- OK
+;; Copyright Massachusetts Institute of Technology 1984, 1989
+
+debug/asm/__stub_routine-save --- OK
+;; Copyright Barbara Liskov 1984
+
+debug/asm/_all_seg_maps --- OK
+;; Copyright Massachusetts Institute of Technology 1984, 1989
+
+debug/asm/_all_seg_maps-save --- OK
+;; Copyright Barbara Liskov 	1984
+
+debug/asm/_all_sig_areas --- OK
+;; Copyright Massachusetts Institute of Technology 1984, 1989
+
+debug/asm/_all_sig_areas-save --- OK
+;; Copyright Barbara Liskov 1984
+
+debug/asm/_break_info --- OK
+;; Copyright Massachusetts Institute of Technology 1984, 1989
+
+debug/asm/_break_info-save --- OK
+;; Copyright Barbara Liskov 1984
+
+debug/asm/_clear_words --- OK
+;; Copyright Massachusetts Institute of Technology 1984, 1989
+
+debug/asm/_clear_words-save --- OK
+;; Copyright Barbara Liskov 	1984
+
+debug/asm/_dbg_trace --- OK
+;; Copyright Massachusetts Institute of Technology 1984, 1989
+
+debug/asm/_dbg_trace-save --- OK
+;; Copyright Barbara Liskov 1984
+
+debug/asm/_frame --- OK
+; Copyright Massachusetts Institute of Technology 1984, 1989
+
+debug/asm/_frame-save --- OK
+; Copyright Barbara Liskov 	1984
+
+debug/asm/_gc --- OK
+; Copyright Massachusetts Institute of Technology 1980,, 1989
+
+debug/asm/_gc-save --- OK
+; Copyright Barbara Liskov 1980, 1985, 1988
+
+debug/asm/_get_frm_table --- OK
+;; Copyright Massachusetts Institute of Technology 1984, 1989
+
+debug/asm/_get_frm_table-save --- OK
+;; Copyright Barbara Liskov 1984
+
+debug/asm/_get_pipe --- OK
+;; Copyright Massachusetts Institute of Technology 1985, 1989
+
+debug/asm/_get_pipe-save --- OK
+;; Copyright Barbara Liskov 1985
+
+debug/asm/_get_rtn_info --- OK
+; Copyright Massachusetts Institute of Technology 1984, 1989
+
+debug/asm/_get_rtn_info-save --- OK
+; Copyright Barbara Liskov 1984
+
+debug/asm/_get_rtn_table --- OK
+;; Copyright Massachusetts Institute of Technology 1984, 1989
+
+debug/asm/_get_rtn_table-save --- OK
+;; Copyright Barbara Liskov 1984
+
+debug/asm/_handler_zap --- OK
+;; Copyright Massachusetts Institute of Technology 1985, 1989
+
+debug/asm/_handler_zap-save --- OK
+;; Copyright Barbara Liskov 1985
+
+debug/asm/_ignore_quit --- OK
+; Copyright Massachusetts Institute of Technology 1984, 1989
+
+debug/asm/_ignore_quit-save --- OK
+; Copyright Barbara Liskov 1984
+
+debug/asm/_load_from_pipe --- OK
+;; Copyright Massachusetts Institute of Technology 1985, 1989
+
+debug/asm/_load_from_pipe-save --- OK
+;; Copyright Barbara Liskov  1985
+
+debug/asm/_owns --- OK
+;; Copyright Massachusetts Institute of Technology 1984, 1989
+
+debug/asm/_owns-save --- OK
+;; Copyright Barbara Liskov 1984
+
+debug/asm/_param_fetch --- OK
+;; Copyright Massachusetts Institute of Technology 1984, 1989
+
+debug/asm/_param_fetch-save --- OK
+;; Copyright Barbara Liskov 1984
+
+debug/asm/_routine_name --- OK
+;; Copyright Massachusetts Institute of Technology 1984, 1989
+
+debug/asm/_routine_name-save --- OK
+;; Copyright Barbara Liskov 1984
+
+debug/asm/_rtn_info_zap --- OK
+; Copyright Massachusetts Institute of Technology 1982, 1989
+;; Eliminate _rtn_info whose index is  i from the given _rtn_info table t by
+debug/asm/_seg_map --- OK
+;; Copyright Massachusetts Institute of Technology 1984, 1989
+
+debug/asm/_seg_map-save --- OK
+;; Copyright Barbara Liskov 1984
+
+debug/asm/_setup_pipes_ --- OK
+;; Copyright Massachusetts Institute of Technology 1984, 1989
+
+debug/asm/_setup_pipes_-save --- OK
+;; Copyright Barbara Liskov 1984
+
+debug/asm/_siggy --- OK
+; Copyright Massachusetts Institute of Technology 1984, 1989
+
+debug/asm/_siggy-save --- OK
+; Copyright Barbara Liskov 1984
+
+debug/asm/_signal_block --- OK
+;; Copyright Massachusetts Institute of Technology 1984, 1989
+
+debug/asm/_signal_block-save --- OK
+;; Copyright Barbara Liskov 1984
+
+debug/asm/_start --- OK
+; Copyright Massachusetts Institute of Technology 1980, 1989
+
+debug/asm/_start-save --- OK
+; Copyright Barbara Liskov 1980
+
+debug/asm/apply_iter --- OK
+;; Copyright Massachusetts Institute of Technology 1984, 1989
+
+debug/asm/apply_iter-save --- OK
+;; Copyright Barbara Liskov 1984
+
+debug/asm/apply_proc --- OK
+;; Copyright Massachusetts Institute of Technology 1984, 1989
+
+debug/asm/apply_proc-save --- OK
+;; Copyright Barbara Liskov 1984
+
+debug/asm/get_parts --- OK
+;copyright Barbara Massachusetts Institute of Technology , 1989
+
+debug/asm/get_parts-save --- OK
+;copyright Barbara Liskov 1980
+
+debug/asm/restart --- OK
+;; Copyright Massachusetts Institute of Technology 1984, 1989
+
+debug/asm/restart-save --- OK
+;; Copyright Barbara Liskov 1984
+
+debug/asm/sigtab --- OK
+;; Copyright Massachusetts Institute of Technology 1984, 1989
+
+debug/asm/sigtab-save --- OK
+;; Copyright Barbara Liskov 1984
+
+debug/asm/sysdbg --- OK
+; Copyright Massachusetts Institute of Technology 1981, 1989
+
+debug/asm/sysdbg-save --- OK
+; Copyright Barbara Liskov 1981
+
+debug/clu/_all_instants --- OK
+%% Copyright Massachusetts Institute of Technology 1980, 1989
+
+debug/clu/_all_instants-save --- OK
+%% Copyright Barbara Liskov 1980
+
+debug/clu/_break_rtns --- OK
+%% Copyright Massachusetts Institute of Technology 1980, 1989
+
+debug/clu/_break_rtns-save --- OK
+%% Copyright Barbara Liskov 1980
+
+debug/clu/_callers --- OK
+%% Copyright Massachusetts Institute of Technology 1980, 1989
+
+debug/clu/_callers-save --- OK
+%% Copyright Barbara Liskov 1980
+
+debug/clu/_clear_oaw --- OK
+%% Copyright Massachusetts Institute of Technology 1981, 1989
+
+debug/clu/_clear_oaw-save --- OK
+%% Copyright Barbara Liskov 1981
+
+debug/clu/_code --- OK
+%%% Copyright Massachusetts Institute of Technology 1984, 1989
+
+debug/clu/_code-save --- OK
+%%% Copyright Barbara Liskov 1984
+
+debug/clu/_debugger --- OK
+% Copyright Massachusetts Institute of Technology 1984, 1989
+_debugger = proc ()
+debug/clu/_debugger-save --- OK
+% Copyright Barbara Liskov 1984
+_debugger = proc ()
+debug/clu/_enter_debug --- OK
+% Copyright Massachusetts Institute of Technology 1980, 1989
+%%% Start up a listen loop on the primary input, printing out the reason for
+debug/clu/_enter_debug-save --- OK
+% Copyright Barbara Liskov 1980
+%%% Start up a listen loop on the primary input, printing out the reason for
+debug/clu/_fake_frames --- OK
+%% Copyright Massachusetts Institute of Technology 1981, 1989
+
+debug/clu/_fake_frames-save --- OK
+%% Copyright Barbara Liskov 1981
+
+debug/clu/_find_slot --- OK
+%% Copyright Massachusetts Institute of Technology 1981, 1989
+
+debug/clu/_find_slot-save --- OK
+%% Copyright Barbara Liskov 1981
+
+debug/clu/_frame_flags --- OK
+% Copyright Massachusetts Institute of Technology 1982, 1989
+
+debug/clu/_frame_flags-save --- OK
+% Copyright Barbara Liskov 1982
+
+debug/clu/_frm_table --- OK
+% Copyright Massachusetts Institute of Technology 1981, 1989
+
+debug/clu/_frm_table-save --- OK
+% Copyright Barbara Liskov 1981
+
+debug/clu/_get_next_instr --- OK
+% copyright Massachusetts Institute of Technology 1980, 1989
+
+debug/clu/_get_next_instr-save --- OK
+% copyright Barbara Liskov 1980
+
+debug/clu/_get_sig_table --- OK
+%% Copyright Massachusetts Institute of Technology 1981, 1989
+
+debug/clu/_get_sig_table-save --- OK
+%% Copyright Barbara Liskov 1981
+
+debug/clu/_instantiate --- OK
+% Copyright Massachusetts Institute of Technology 1982, 1989
+
+debug/clu/_instantiate-save --- OK
+% Copyright Barbara Liskov 1982
+
+debug/clu/_instr --- OK
+%%copyright Barbara Massachusetts Institute of Technology , 1989
+
+debug/clu/_instr-save --- OK
+%%copyright Barbara Liskov 1980
+
+debug/clu/_listen --- OK
+% Copyright Massachusetts Institute of Technology 1981, 1989
+
+debug/clu/_listen-save --- OK
+% Copyright Barbara Liskov 1981
+
+debug/clu/_missing --- OK
+%% Copyright Massachusetts Institute of Technology 1980, 1989
+
+debug/clu/_missing-save --- OK
+%% Copyright Barbara Liskov 1980
+
+debug/clu/_print_bad_sig --- OK
+%% Copyright Massachusetts Institute of Technology 1981, 1989
+
+debug/clu/_print_bad_sig-save --- OK
+%% Copyright Barbara Liskov 1981
+
+debug/clu/_print_range --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+debug/clu/_print_range-save --- OK
+%% Copyright Barbara Liskov 1982
+
+debug/clu/_print_slots --- OK
+%% Copyright Massachusetts Institute of Technology 1983, 1989
+
+debug/clu/_print_slots-save --- OK
+%% Copyright Barbara Liskov 1983
+
+debug/clu/_reset --- OK
+%% Copyright Massachusetts Institute of Technology 1981, 1989
+
+debug/clu/_reset-save --- OK
+%% Copyright Barbara Liskov 1981
+
+debug/clu/_rtn_info --- OK
+%% Copyright Massachusetts Institute of Technology 1981, 1989
+
+debug/clu/_rtn_info-save --- OK
+%% Copyright Barbara Liskov 1981
+
+debug/clu/_rtn_table --- OK
+%% Copyright Massachusetts Institute of Technology 1980, 1989
+
+debug/clu/_rtn_table-save --- OK
+%% Copyright Barbara Liskov 1980
+
+debug/clu/_rtn_trace_inf --- OK
+%% Copyright Massachusetts Institute of Technology 1980, 1989
+
+debug/clu/_rtn_trace_inf-save --- OK
+%% Copyright Barbara Liskov 1980
+
+debug/clu/_setup_pipes --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+debug/clu/_setup_pipes-save --- OK
+%% Copyright Barbara Liskov 1982
+
+debug/clu/_signal_area --- OK
+%% Copyright Massachusetts Institute of Technology 1981, 1989
+
+debug/clu/_signal_area-save --- OK
+%% Copyright Barbara Liskov 1981
+
+debug/clu/_signal_table --- OK
+%% Copyright Massachusetts Institute of Technology 1981, 1989
+
+debug/clu/_signal_table-save --- OK
+%% Copyright Barbara Liskov 1981
+
+debug/clu/_tdesc --- OK
+% Copyright Massachusetts Institute of Technology 1981, 1989
+
+debug/clu/_tdesc-save --- OK
+% Copyright Barbara Liskov 1981
+
+debug/clu/_trace_info --- OK
+%% Copyright Massachusetts Institute of Technology 1981, 1989
+
+debug/clu/_trace_info-save --- OK
+%% Copyright Barbara Liskov 1981
+
+debug/clu/_trace_match --- OK
+%% Copyright Massachusetts Institute of Technology 1981, 1989
+
+debug/clu/_trace_match-save --- OK
+%% Copyright Barbara Liskov 1981
+
+debug/clu/_trace_rng --- OK
+%% Copyright Massachusetts Institute of Technology 1980, 1989
+
+debug/clu/_trace_rng-save --- OK
+%% Copyright Barbara Liskov 1980
+
+debug/clu/_trace_rtns --- OK
+%% Copyright Massachusetts Institute of Technology 1983, 1989
+
+debug/clu/_trace_rtns-save --- OK
+%% Copyright Barbara Liskov 1983
+
+debug/clu/_trace_signal --- OK
+%% Copyright Massachusetts Institute of Technology 1981, 1989
+
+debug/clu/_trace_signal-save --- OK
+%% Copyright Barbara Liskov 1981
+
+debug/clu/_trace_table --- OK
+%% Copyright Massachusetts Institute of Technology 1981, 1989
+
+debug/clu/_trace_table-save --- OK
+%% Copyright Barbara Liskov 1981
+
+debug/clu/_trc_commands --- OK
+
+%% Copyright Massachusetts Institute of Technology 1983, 1989
+debug/clu/_trc_commands-save --- OK
+
+%% Copyright Barbara Liskov 1983
+debug/clu/_xfile --- OK
+%% Copyright Massachusetts Institute of Technology 1981, 1989
+
+debug/clu/_xfile-save --- OK
+%% Copyright Barbara Liskov 1981
+
+debug/clu/bug_note --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+debug/clu/bug_note-save --- OK
+%% Copyright Barbara Liskov 1982
+
+debug/clu/code --- OK
+% Copyright Massachusetts Institute of Technology 1981, 1989
+
+debug/clu/code-save --- OK
+% Copyright Barbara Liskov 1981
+
+debug/clu/frames --- OK
+% Copyright Massachusetts Institute of Technology 1981, 1989
+
+debug/clu/frames-save --- OK
+% Copyright Barbara Liskov 1981
+
+debug/clu/is_invocation --- OK
+%copyright Barbara Massachusetts Institute of Technology , 1989
+
+debug/clu/is_invocation-save --- OK
+%copyright Barbara Liskov 1980
+
+debug/clu/load --- OK
+% Copyright Massachusetts Institute of Technology 1982, 1989
+
+debug/clu/load-save --- OK
+% Copyright Barbara Liskov 1982
+
+debug/clu/owns --- OK
+% Copyright Massachusetts Institute of Technology 1981, 1989
+
+debug/clu/owns-save --- OK
+% Copyright Barbara Liskov 1981
+
+debug/clu/pmatch --- OK
+%% Copyright Massachusetts Institute of Technology 1981, 1989
+
+debug/clu/pmatch-save --- OK
+%% Copyright Barbara Liskov 1981
+
+debug/clu/system_root --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+debug/clu/system_root-save --- OK
+%% Copyright Barbara Liskov 1982
+
+debug/clu/umatch --- OK
+%% Copyright Massachusetts Institute of Technology 1980, 1989
+
+debug/clu/umatch-save --- OK
+%% Copyright Barbara Liskov 1980
+
+lib/asm/_all_dir_entries_ --- OK
+; Copyright Massachusetts Institute of Technology 1986, 1989
+
+lib/asm/_all_dir_entries_-save --- OK
+; Copyright    Barbara Liskov    1986
+
+lib/asm/_byteptr --- OK
+;; Copyright Massachusetts Institute of Technology 1985, 1989
+
+lib/asm/_byteptr-save --- OK
+;; Copyright	Barbara Liskov	1985
+
+lib/asm/_byteptr8 --- OK
+;; Copyright Massachusetts Institute of Technology 1985, 1989
+
+lib/asm/_byteptr8-save --- OK
+;; Copyright	Barbara Liskov	1985
+
+lib/asm/_change_mode --- OK
+;; Copyright Massachusetts Institute of Technology 1985, 1989
+
+lib/asm/_change_mode-save --- OK
+;; Copyright	Barbara Liskov	1985
+
+lib/asm/_change_owner --- OK
+; Copyright	Massachusetts Institute of Technology     1989
+_change_owner = proc(fn: file_name, userid, groupid: int) signals(not_possible(string))
+lib/asm/_change_signal --- OK
+;; Copyright Massachusetts Institute of Technology 1985, 1989
+
+lib/asm/_change_signal-save --- OK
+;; Copyright	Barbara Liskov	1985
+
+lib/asm/_dtable_size --- OK
+;; Copyright Massachusetts Institute of Technology 1985, 1989
+
+lib/asm/_dtable_size-save --- OK
+;; Copyright	Barbara Liskov	1985
+
+lib/asm/_exit --- OK
+;; Copyright Massachusetts Institute of Technology 1985, 1989
+
+lib/asm/_exit-save --- OK
+;; Copyright	Barbara Liskov	1985
+
+lib/asm/_file_access --- OK
+;; Copyright Massachusetts Institute of Technology 1985, 1989
+
+lib/asm/_file_access-save --- OK
+;; Copyright	Barbara Liskov	1985
+
+lib/asm/_file_exists --- OK
+; Copyright Massachusetts Institute of Technology 1985, 1989
+
+lib/asm/_file_exists-save --- OK
+; Copyright    Barbara Liskov    1985
+
+lib/asm/_file_facts --- OK
+;; Copyright Massachusetts Institute of Technology 1985, 1989
+
+lib/asm/_file_facts-save --- OK
+;; Copyright	Barbara Liskov	1985
+
+lib/asm/_file_owner --- OK
+;; Copyright Massachusetts Institute of Technology 1985, 1989
+
+lib/asm/_file_owner-save --- OK
+;; Copyright	Barbara Liskov	1985
+
+lib/asm/_free_space --- OK
+; Copyright Massachusetts Institute of Technology 1985, 1989
+
+lib/asm/_free_space-save --- OK
+; Copyright    Barbara Liskov    1985
+
+lib/asm/_gc_read --- OK
+; Copyright Massachusetts Institute of Technology 1985, 1989
+
+lib/asm/_gc_read-save --- OK
+; Copyright    Barbara Liskov    1985
+
+lib/asm/_get_gid --- OK
+;; Copyright Massachusetts Institute of Technology 1985, 1989
+
+lib/asm/_get_gid-save --- OK
+;; Copyright	Barbara Liskov	1985
+
+lib/asm/_get_pname --- OK
+; Copyright Massachusetts Institute of Technology 1985, 1989
+
+lib/asm/_get_pname-save --- OK
+; Copyright    Barbara Liskov    1985
+
+lib/asm/_get_priority --- OK
+;; Copyright Massachusetts Institute of Technology 1985, 1989
+
+lib/asm/_get_priority-save --- OK
+;; Copyright	Barbara Liskov	1985
+
+lib/asm/_get_runtime --- OK
+; Copyright Massachusetts Institute of Technology 1985, 1989
+
+lib/asm/_get_runtime-save --- OK
+; Copyright    Barbara Liskov    1985
+
+lib/asm/_get_uid --- OK
+;; Copyright Massachusetts Institute of Technology 1985, 1989
+
+lib/asm/_get_uid-save --- OK
+;; Copyright	Barbara Liskov	1985
+
+lib/asm/_get_version --- OK
+; Copyright Massachusetts Institute of Technology 1985, 1989
+
+lib/asm/_get_version-save --- OK
+; Copyright    Barbara Liskov    1985
+
+lib/asm/_get_xjname --- OK
+; Copyright Massachusetts Institute of Technology 1985, 1989
+
+lib/asm/_get_xjname-save --- OK
+; Copyright    Barbara Liskov    1985
+
+lib/asm/_groups --- OK
+;; Copyright Massachusetts Institute of Technology 1985, 1989
+
+lib/asm/_groups-save --- OK
+;; Copyright	Barbara Liskov	1985
+
+lib/asm/_heap_size --- OK
+;; Copyright Massachusetts Institute of Technology Liskov, 1989
+
+lib/asm/_heap_size-save --- OK
+;; Copyright	1985	Barbara Liskov
+
+lib/asm/_host_id --- OK
+;; Copyright Massachusetts Institute of Technology 1985, 1989
+
+lib/asm/_host_id-save --- OK
+;; Copyright	Barbara Liskov	1985
+
+lib/asm/_host_name --- OK
+; Copyright Massachusetts Institute of Technology 1985, 1989
+
+lib/asm/_host_name-save --- OK
+; Copyright    Barbara Liskov    1985
+
+lib/asm/_ioctl --- OK
+;; Copyright Massachusetts Institute of Technology 1985, 1989
+
+lib/asm/_ioctl-save --- OK
+;; Copyright	Barbara Liskov	1985
+
+lib/asm/_job --- OK
+;; Copyright Massachusetts Institute of Technology 1985, 1989
+
+lib/asm/_job-save --- OK
+;; Copyright	Barbara Liskov	1985
+
+lib/asm/_lstat --- OK
+;; Copyright Massachusetts Institute of Technology 1985, 1989
+
+lib/asm/_lstat-save --- OK
+;; Copyright	Barbara Liskov	1985
+
+lib/asm/_micro_time --- OK
+; Copyright Massachusetts Institute of Technology 1985, 1989
+
+lib/asm/_micro_time-save --- OK
+; Copyright    Barbara Liskov    1985
+
+lib/asm/_obj --- OK
+;; Copyright Massachusetts Institute of Technology 1980, 1989
+
+lib/asm/_obj-save --- OK
+;;  Copyright    Barbara Liskov    1980
+
+lib/asm/_page_size --- OK
+;; Copyright Massachusetts Institute of Technology 1985, 1989
+
+lib/asm/_page_size-save --- OK
+;; Copyright	Barbara Liskov	1985
+
+lib/asm/_pause --- OK
+;; Copyright Massachusetts Institute of Technology 1985, 1989
+
+lib/asm/_pause-save --- OK
+;; Copyright	Barbara Liskov	1985
+
+lib/asm/_read_link --- OK
+;; Copyright Massachusetts Institute of Technology 1985, 1989
+
+lib/asm/_read_link-save --- OK
+;; Copyright	Barbara Liskov	1985
+
+lib/asm/_real_time --- OK
+; Copyright Massachusetts Institute of Technology 1985, 1989
+
+lib/asm/_real_time-save --- OK
+; Copyright    Barbara Liskov    1985
+
+lib/asm/_rusage --- OK
+;; Copyright Massachusetts Institute of Technology 1985, 1989
+
+lib/asm/_rusage-save --- OK
+;; Copyright	Barbara Liskov	1985
+
+lib/asm/_select --- OK
+; Copyright Massachusetts Institute of Technology 1985, 1989
+
+lib/asm/_select-save --- OK
+; Copyright    Barbara Liskov    1985
+
+lib/asm/_set_alarm --- OK
+; Copyright Massachusetts Institute of Technology 1985, 1989
+
+lib/asm/_set_alarm-save --- OK
+; Copyright    Barbara Liskov    1985
+
+lib/asm/_set_limit --- OK
+;; Copyright Massachusetts Institute of Technology 1985, 1989
+
+lib/asm/_set_limit-save --- OK
+;; Copyright	Barbara Liskov	1985
+
+lib/asm/_set_priority --- OK
+;; Copyright Massachusetts Institute of Technology 1985, 1989
+
+lib/asm/_set_priority-save --- OK
+;; Copyright	Barbara Liskov	1985
+
+lib/asm/_signal --- OK
+;; Copyright Massachusetts Institute of Technology 1985, 1989
+
+lib/asm/_signal-save --- OK
+;; Copyright	Barbara Liskov	1985
+
+lib/asm/_sleep --- OK
+; Copyright Massachusetts Institute of Technology 1985, 1989
+
+lib/asm/_sleep-save --- OK
+; Copyright    Barbara Liskov    1985
+
+lib/asm/_stat --- OK
+;; Copyright Massachusetts Institute of Technology 1985, 1989
+
+lib/asm/_stat-save --- OK
+;; Copyright	Barbara Liskov	1985
+
+lib/asm/_stop --- OK
+; Copyright Massachusetts Institute of Technology 1985, 1989
+
+lib/asm/_stop-save --- OK
+; Copyright    Barbara Liskov    1985
+
+lib/asm/_type_base --- OK
+; Copyright Massachusetts Institute of Technology 1981, 1989
+
+lib/asm/_type_base-save --- OK
+; Copyright    Barbara Liskov    1981
+
+lib/asm/_umask --- OK
+; Copyright Massachusetts Institute of Technology 1985, 1989
+
+lib/asm/_umask-save --- OK
+; Copyright    Barbara Liskov    1985
+
+lib/asm/_wordvec --- OK
+; Copyright Massachusetts Institute of Technology 1985, 1989
+
+lib/asm/_wordvec-save --- OK
+; Copyright	Barbara Liskov	1985
+
+lib/asm/create_directory --- OK
+;; Copyright Massachusetts Institute of Technology 1985, 1989
+
+lib/asm/create_directory-save --- OK
+;; Copyright	Barbara Liskov	1985
+
+lib/asm/delete_directory --- OK
+;; Copyright Massachusetts Institute of Technology 1985, 1989
+
+lib/asm/delete_directory-save --- OK
+;; Copyright	Barbara Liskov	1985
+
+lib/asm/file_date --- OK
+;; Copyright Massachusetts Institute of Technology 1985, 1989
+
+lib/asm/file_date-save --- OK
+;; Copyright	Barbara Liskov	1985
+
+lib/asm/file_exists --- OK
+; Copyright Massachusetts Institute of Technology 1985, 1989
+
+lib/asm/file_exists-save --- OK
+; Copyright    Barbara Liskov    1985
+
+lib/asm/gc --- OK
+;; Copyright Massachusetts Institute of Technology 1985, 1989
+
+lib/asm/gc-save --- OK
+;; Copyright	Barbara Liskov	1985
+
+lib/asm/gc_read --- OK
+; Copyright Massachusetts Institute of Technology 1985, 1989
+
+lib/asm/gc_read-save --- OK
+; Copyright    Barbara Liskov    1985
+
+lib/asm/get_argv --- OK
+; Copyright Massachusetts Institute of Technology 1985, 1989
+
+lib/asm/get_argv-save --- OK
+; Copyright    Barbara Liskov    1985
+
+lib/asm/get_jcl --- OK
+; Copyright Massachusetts Institute of Technology 1980, 1989
+
+lib/asm/get_jcl-save --- OK
+; Copyright    Barbara Liskov    1980
+
+lib/asm/hash --- OK
+; Copyright Massachusetts Institute of Technology 1980, 1989
+
+lib/asm/hash-save --- OK
+; Copyright    Barbara Liskov    1980
+
+lib/asm/hash_int --- OK
+;; Copyright Massachusetts Institute of Technology Liskov, 1989
+
+lib/asm/hash_int-save --- OK
+;; Copyright	1984	Barbara Liskov
+
+lib/asm/hash_obj --- OK
+;; Copyright Massachusetts Institute of Technology Liskov, 1989
+
+lib/asm/hash_obj-save --- OK
+;; Copyright	1984	Barbara Liskov
+
+lib/asm/istream2chan --- OK
+; Copyright Massachusetts Institute of Technology 1983, 1989
+
+lib/asm/istream2chan-save --- OK
+; Copyright    Barbara Liskov    1983
+
+lib/asm/link_file --- OK
+;; Copyright Massachusetts Institute of Technology 1985, 1989
+
+lib/asm/link_file-save --- OK
+;; Copyright	Barbara Liskov	1985
+
+lib/asm/mint --- OK
+; Copyright Massachusetts Institute of Technology 1980, 1989
+
+lib/asm/mint-save --- OK
+; Copyright    Barbara Liskov    1980
+
+lib/asm/quit_ --- OK
+;; Copyright Massachusetts Institute of Technology Liskov, 1989
+
+lib/asm/quit_-save --- OK
+;; Copyright	1985	Barbara Liskov
+
+lib/asm/random --- OK
+; Copyright Massachusetts Institute of Technology 1980, 1989
+
+lib/asm/random-save --- OK
+; Copyright    Barbara Liskov    1980
+
+lib/asm/set_connected_dir --- OK
+;; Copyright Massachusetts Institute of Technology 1985, 1989
+
+lib/asm/set_connected_dir-save --- OK
+;; Copyright	Barbara Liskov	1985
+
+lib/asm/sleep --- OK
+; Copyright Massachusetts Institute of Technology 1985, 1989
+
+lib/asm/sleep-save --- OK
+; Copyright    Barbara Liskov    1985
+
+lib/asm/stream2chan --- OK
+; Copyright Massachusetts Institute of Technology 1985, 1989
+
+lib/asm/stream2chan-save --- OK
+; Copyright    Barbara Liskov    1985
+
+lib/asm/symlink_file --- OK
+;; Copyright Massachusetts Institute of Technology 1985, 1989
+
+lib/asm/symlink_file-save --- OK
+;; Copyright	Barbara Liskov	1985
+
+lib/clu/_all_file_names_ --- OK
+% Copyright Massachusetts Institute of Technology 1982, 1989
+
+lib/clu/_all_file_names_-save --- OK
+% Copyright    Barbara Liskov    1982
+
+lib/clu/_int_range --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+_int_range = proc () returns (int, int)
+lib/clu/_job_stuff --- OK
+% Copyright Massachusetts Institute of Technology 1982, 1989
+
+lib/clu/_job_stuff-save --- OK
+% Copyright    Barbara Liskov    1982
+
+lib/clu/_longsub --- OK
+% Copyright Massachusetts Institute of Technology 1980, 1989
+
+lib/clu/_longsub-save --- OK
+% Copyright    Barbara Liskov    1980
+
+lib/clu/_printn --- OK
+% Copyright Massachusetts Institute of Technology 1981, 1989
+
+lib/clu/_printn-save --- OK
+% Copyright    Barbara Liskov    1981
+
+lib/clu/_qindexc --- OK
+% Copyright Massachusetts Institute of Technology 1981, 1989
+
+lib/clu/_qindexc-save --- OK
+% Copyright    Barbara Liskov    1981
+
+lib/clu/_signal_type --- OK
+% Copyright Massachusetts Institute of Technology 1982, 1989
+
+lib/clu/_signal_type-save --- OK
+% Copyright    Barbara Liskov    1982
+
+lib/clu/_system_root --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+_system_root = proc () returns (string)
+lib/clu/_time_format --- OK
+% Copyright Massachusetts Institute of Technology 1980, 1989
+
+lib/clu/_time_format-save --- OK
+% Copyright    Barbara Liskov    1980
+
+lib/clu/_unquote --- OK
+% Copyright Massachusetts Institute of Technology 1981, 1989
+
+lib/clu/_unquote-save --- OK
+% Copyright    Barbara Liskov    1981
+
+lib/clu/all_file_names --- OK
+% Copyright Massachusetts Institute of Technology 1981, 1989
+
+lib/clu/all_file_names-save --- OK
+% Copyright    Barbara Liskov    1981
+
+lib/clu/array_replace --- OK
+% Copyright Massachusetts Institute of Technology 1980, 1989
+
+lib/clu/array_replace-save --- OK
+% Copyright    Barbara Liskov    1980
+
+lib/clu/bigint --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+bigint = cluster is
+lib/clu/delete_expunge --- OK
+% Copyright Massachusetts Institute of Technology 1982, 1989
+
+lib/clu/delete_expunge-save --- OK
+% Copyright    Barbara Liskov    1982
+
+lib/clu/dparse --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+%
+lib/clu/gc_copy --- OK
+% Copyright Massachusetts Institute of Technology 1982, 1989
+
+lib/clu/gc_copy-save --- OK
+% Copyright    Barbara Liskov    1982
+
+lib/clu/gc_dump --- OK
+% Copyright Massachusetts Institute of Technology 1982, 1989
+
+lib/clu/gc_dump-save --- OK
+% Copyright    Barbara Liskov    1982
+
+lib/clu/gcd_tab --- OK
+% Copyright Massachusetts Institute of Technology 1982,, 1989
+
+lib/clu/gcd_tab-save --- OK
+% Copyright    Barbara Liskov    1982, 1985
+
+lib/clu/heap --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+% This cluster is an implementation of priority queues.  It
+lib/clu/hex --- OK
+% Copyright Massachusetts Institute of Technology 1980, 1989
+
+lib/clu/hex-save --- OK
+% Copyright    Barbara Liskov    1980
+
+lib/clu/host_address --- OK
+% Copyright Massachusetts Institute of Technology 1984, 1989
+
+lib/clu/host_address-save --- OK
+% Copyright    Barbara Liskov    1984
+
+lib/clu/isqrt --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+isqrt = proc (i: int) returns (int) signals (complex_result)
+lib/clu/istream --- OK
+% Copyright Massachusetts Institute of Technology 1982, 1989
+
+lib/clu/istream-save --- OK
+% Copyright    Barbara Liskov    1982
+
+lib/clu/lex_scan --- OK
+% No Copyright.
+%
+lib/clu/lex_scan-save --- OK
+% No Copyright.
+%
+lib/clu/new_environment --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+new_environment = proc(envs: array[string]) returns(_wordvec)
+lib/clu/octal --- OK
+% Copyright Massachusetts Institute of Technology 1980, 1989
+
+lib/clu/octal-save --- OK
+% Copyright    Barbara Liskov    1980
+
+lib/clu/open_append --- OK
+% Copyright Massachusetts Institute of Technology 1980, 1989
+
+lib/clu/open_append-save --- OK
+% Copyright    Barbara Liskov    1980
+
+lib/clu/open_read --- OK
+% Copyright Massachusetts Institute of Technology 1980, 1989
+
+lib/clu/open_read-save --- OK
+% Copyright    Barbara Liskov    1980
+
+lib/clu/open_write --- OK
+% Copyright Massachusetts Institute of Technology 1980, 1989
+
+lib/clu/open_write-save --- OK
+% Copyright    Barbara Liskov    1980
+
+lib/clu/os --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+_operating_system = proc () returns (string)
+lib/clu/parse_line --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+as = array [ string ]
+lib/clu/pstream --- OK
+% Copyright Massachusetts Institute of Technology 1982, 1989
+
+lib/clu/pstream-save --- OK
+% Copyright    Barbara Liskov    1982
+
+lib/clu/quick_sort --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+quick_sort = proc [t: type] (a: at, low, high: int, less, equal: pt)
+lib/clu/quicksort --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+%%%% Sort routine using Quick Sort algorithm
+lib/clu/run_time --- OK
+% Copyright Massachusetts Institute of Technology 1980, 1989
+
+lib/clu/run_time-save --- OK
+% Copyright    Barbara Liskov    1980
+
+lib/clu/scase --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+# extend
+lib/clu/split_line --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+% This routine splits a string into fields based on the
+lib/clu/strim --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+% String trimming routines for general consumption
+lib/clu/string_lindexs --- OK
+% Copyright Massachusetts Institute of Technology 1980, 1989
+
+lib/clu/string_lindexs-save --- OK
+% Copyright    Barbara Liskov    1980
+
+lib/clu/string_ops --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+%
+lib/clu/table --- OK
+% Copyright Massachusetts Institute of Technology 1980, 1989
+
+lib/clu/table-save --- OK
+% Copyright    Barbara Liskov    1980
+
+lib/clu/time --- OK
+% Copyright Massachusetts Institute of Technology 1980, 1989
+
+lib/clu/time-save --- OK
+% Copyright Massachusetts Institute of Technology 1980, 1989
+
+lib/clu/unify_spacing --- OK
+% Copyright Massachusetts Institute of Technology 1980, 1989
+
+lib/clu/unify_spacing-save --- OK
+% Copyright    Barbara Liskov    1980
+
+lib/clu/xref --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+%	XREF CLU
+link/68000.equ --- OK
+%% Copyright Massachusetts Institute of Technology 1984,, 1989
+
+link/linker.equ --- OK
+
+%% Copyright Massachusetts Institute of Technology Barbara, 1989
+link/clu/_lnk_exact_nm --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/_lnk_exact_nm-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/_unhndld_exc --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/_unhndld_exc-save --- OK
+%% Copyright  Barbara Liskov 1982
+
+link/clu/a_strings --- OK
+
+%% Copyright Massachusetts Institute of Technology 1985, 1989
+link/clu/a_strings-save --- OK
+
+%% Copyright  Barbara Liskov 1985
+link/clu/a_symbol --- OK
+%% Copyright Massachusetts Institute of Technology 1984, 1989
+
+link/clu/a_symbol-save --- OK
+%% Copyright  Barbara Liskov 1984
+
+link/clu/address --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/address-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/adv_last_addr --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/adv_last_addr-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/all_constants --- OK
+%% Copyright Massachusetts Institute of Technology 1980, 1989
+
+link/clu/all_constants-save --- OK
+%% Copyright Barbara Liskov 1980
+
+link/clu/ask --- OK
+%% Copyright Massachusetts Institute of Technology 1980, 1989
+
+link/clu/ask-save --- OK
+%% Copyright Barbara Liskov 1980
+
+link/clu/bind_list --- OK
+%% Copyright Massachusetts Institute of Technology 1980, 1989
+
+link/clu/bind_list-save --- OK
+%% Copyright Barbara Liskov 1980
+
+link/clu/bswap_ --- OK
+%% Copyright Massachusetts Institute of Technology 1984, 1989
+
+link/clu/bswap_-save --- OK
+%% Copyright Barbara Liskov 1984
+
+link/clu/bug_note --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/bug_note-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/c_desc --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/c_desc-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/c_template --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/c_template-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/canon_table --- OK
+%% Copyright Massachusetts Institute of Technology 1980, 1989
+
+link/clu/canon_table-save --- OK
+%% Copyright Barbara Liskov 1980
+
+link/clu/chk_unkn_rtns --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/chk_unkn_rtns-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/cln_up_insts --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/cln_up_insts-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/cls_input_fil --- OK
+%% Copyright Massachusetts Institute of Technology 1980, 1989
+
+link/clu/cls_input_fil-save --- OK
+%% Copyright Barbara Liskov 1980
+
+link/clu/cls_o_file --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/cls_o_file-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/clust_inst --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/clust_inst-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/clust_ovrld --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/clust_ovrld-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/cnst_str_hash --- OK
+%% Copyright Massachusetts Institute of Technology 1980, 1989
+
+link/clu/cnst_str_hash-save --- OK
+%% Copyright Barbara Liskov 1980
+
+link/clu/comnd --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/comnd-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/constant --- OK
+%% Copyright Massachusetts Institute of Technology 1985, 1989
+
+link/clu/constant-save --- OK
+%% Copyright Barbara Liskov 1985
+
+link/clu/dbg_block --- OK
+%% Copyright Massachusetts Institute of Technology 1984, 1989
+
+link/clu/dbg_block-save --- OK
+%% Copyright Barbara Liskov 1984
+
+link/clu/dump_bug_info --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/dump_bug_info-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/dump_env --- OK
+%% Copyright Massachusetts Institute of Technology 1985, 1989
+
+link/clu/dump_env-save --- OK
+%% Copyright Barbara Liskov 1985
+
+link/clu/except_block --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/except_block-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/file_linker --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/file_linker-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/fnd_n_load_fl --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/fnd_n_load_fl-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/fnsh_addr_upd --- OK
+%% Copyright Massachusetts Institute of Technology 1985, 1989
+
+link/clu/fnsh_addr_upd-save --- OK
+%% Copyright Barbara Liskov 1985
+
+link/clu/fnsh_output --- OK
+%% Copyright Massachusetts Institute of Technology 1984, 1989
+
+link/clu/fnsh_output-save --- OK
+%% Copyright Barbara Liskov 1984
+
+link/clu/fxup_i_fl_spc --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/fxup_i_fl_spc-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/gt_ln_frm_chn --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/gt_ln_frm_chn-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/gt_o_fl_name --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/gt_o_fl_name-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/gt_siggy_addr --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/gt_siggy_addr-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/gt_use_addr --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/gt_use_addr-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/hash_consts --- OK
+%% Copyright Massachusetts Institute of Technology 1980, 1989
+
+link/clu/hash_consts-save --- OK
+%% Copyright Barbara Liskov 1980
+
+link/clu/hash_real --- OK
+%% Copyright Massachusetts Institute of Technology 1980, 1989
+
+link/clu/hash_real-save --- OK
+%% Copyright Barbara Liskov 1980
+
+link/clu/hash_sequence --- OK
+%% Copyright Massachusetts Institute of Technology 1980, 1989
+
+link/clu/hash_sequence-save --- OK
+%% Copyright Barbara Liskov 1980
+
+link/clu/in_chan --- OK
+%% Copyright Massachusetts Institute of Technology 1984, 1989
+
+link/clu/in_chan-save --- OK
+%% Copyright Barbara Liskov 1984
+
+link/clu/inf_runnable --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/inf_runnable-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/inst_consts --- OK
+%% Copyright Massachusetts Institute of Technology 1980, 1989
+
+link/clu/inst_consts-save --- OK
+%% Copyright Barbara Liskov 1980
+
+link/clu/inst_except --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/inst_except-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/inst_exceptn --- OK
+%% Copyright Massachusetts Institute of Technology 1980, 1989
+
+link/clu/inst_exceptn-save --- OK
+%% Copyright Barbara Liskov 1980
+
+link/clu/inst_list --- OK
+%% Copyright Massachusetts Institute of Technology 1980, 1989
+
+link/clu/inst_list-save --- OK
+%% Copyright Barbara Liskov 1980
+
+link/clu/inst_signal --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/inst_signal-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/intrfc --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/intrfc-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/intrfc.old --- no copyright
+link/clu/lib_spcl_lookup --- OK
+%% Copyright Massachusetts Institute of Technology 1987, 1989
+
+link/clu/lib_spcl_lookup-save --- OK
+%% Copyright	Barbara Liskov	1987
+
+link/clu/link_done --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/link_done-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/lnk_all_un_rs --- OK
+%% Copyright Massachusetts Institute of Technology 1984, 1989
+
+link/clu/lnk_all_un_rs-save --- OK
+%% Copyright Barbara Liskov 1984
+
+link/clu/lnk_env --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/lnk_env-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/lnk_pointers --- OK
+%% Copyright Massachusetts Institute of Technology 1984, 1989
+
+link/clu/lnk_pointers-save --- OK
+%% Copyright Barbara Liskov 1984
+
+link/clu/load_file --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/load_file-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/locate --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/locate-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/locates --- OK
+%% Copyright Massachusetts Institute of Technology 1985, 1989
+
+link/clu/locates-save --- OK
+%% Copyright Barbara Liskov 1985
+
+link/clu/mach_consts --- OK
+%% Copyright Massachusetts Institute of Technology 1984,, 1989
+
+link/clu/mach_consts-save --- OK
+%% Copyright Barbara Liskov 1984, 1987
+
+link/clu/mach_dep_env --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/mach_dep_env-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/mach_word --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/mach_word-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/mk_sel_name --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/mk_sel_name-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/name --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/name-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/o_address --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/o_address-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/o_bool --- OK
+%% Copyright Massachusetts Institute of Technology 1984, 1989
+
+link/clu/o_bool-save --- OK
+%% Copyright Barbara Liskov 1984
+
+link/clu/o_bss_sectn --- OK
+
+%% Copyright Massachusetts Institute of Technology 1984, 1989
+link/clu/o_bss_sectn-save --- OK
+
+%% Copyright Barbara Liskov 1984
+link/clu/o_cd_and_ents --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/o_cd_and_ents-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/o_char --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/o_char-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/o_code_head --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/o_code_head-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/o_consts --- OK
+%% Copyright Massachusetts Institute of Technology 1980, 1989
+
+link/clu/o_consts-save --- OK
+%% Copyright Barbara Liskov 1980
+
+link/clu/o_data_ref --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/o_data_ref-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/o_data_sectn --- OK
+%% Copyright Massachusetts Institute of Technology 1985, 1989
+
+link/clu/o_data_sectn-save --- OK
+%% Copyright Barbara Liskov 1985
+
+link/clu/o_dbg_blocks --- OK
+%% Copyright Massachusetts Institute of Technology 1984, 1989
+
+link/clu/o_dbg_blocks-save --- OK
+%% Copyright Barbara Liskov 1984
+
+link/clu/o_dbg_consts --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/o_dbg_consts-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/o_end_of_code --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/o_end_of_code-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/o_end_of_sigs --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/o_end_of_sigs-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/o_entry_head --- OK
+%% Copyright Massachusetts Institute of Technology 1984, 1989
+
+link/clu/o_entry_head-save --- OK
+%% Copyright Barbara Liskov 1984
+
+link/clu/o_everything --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/o_everything-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/o_exceptions --- OK
+%% Copyright Massachusetts Institute of Technology 1980, 1989
+
+link/clu/o_exceptions-save --- OK
+%% Copyright Barbara Liskov 1980
+
+link/clu/o_found_rtns --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/o_found_rtns-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/o_int --- OK
+%% Copyright Massachusetts Institute of Technology 1984, 1989
+
+link/clu/o_int-save --- OK
+%% Copyright Barbara Liskov 1984
+
+link/clu/o_null --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/o_null-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/o_oneof --- OK
+%% Copyright Massachusetts Institute of Technology 1984, 1989
+
+link/clu/o_oneof-save --- OK
+%% Copyright Barbara Liskov 1984
+
+link/clu/o_owns --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/o_owns-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/o_owns_addrs --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/o_owns_addrs-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/o_owns_header --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/o_owns_header-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/o_pointers --- OK
+%% Copyright Massachusetts Institute of Technology 1984, 1989
+
+link/clu/o_pointers-save --- OK
+%% Copyright Barbara Liskov 1984
+
+link/clu/o_prolog --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/o_prolog-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/o_real --- OK
+%% Copyright Massachusetts Institute of Technology 1984, 1989
+
+link/clu/o_real-save --- OK
+%% Copyright Barbara Liskov 1984
+
+link/clu/o_reference --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/o_reference-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/o_references --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/o_references-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/o_rewrites --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/o_rewrites-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/o_rtn_chains --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/o_rtn_chains-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/o_segment_map --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/o_segment_map-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/o_seq_address --- OK
+%% Copyright Massachusetts Institute of Technology 1980, 1989
+
+link/clu/o_seq_address-save --- OK
+%% Copyright Barbara Liskov 1980
+
+link/clu/o_sequence --- OK
+%% Copyright Massachusetts Institute of Technology 1980, 1989
+
+link/clu/o_sequence-save --- OK
+%% Copyright Barbara Liskov 1980
+
+link/clu/o_sg_hnd_call --- OK
+%% Copyright Massachusetts Institute of Technology 1984, 1989
+
+link/clu/o_sg_hnd_call-save --- OK
+%% Copyright Barbara Liskov 1984
+
+link/clu/o_signals --- OK
+%% Copyright Massachusetts Institute of Technology 1980, 1989
+
+link/clu/o_signals-save --- OK
+%% Copyright Barbara Liskov 1980
+
+link/clu/o_space_blocks --- OK
+%% Copyright Massachusetts Institute of Technology 1984, 1989
+
+link/clu/o_space_blocks-save --- OK
+%% Copyright Barbara Liskov 1984
+
+link/clu/o_string --- OK
+%% Copyright Massachusetts Institute of Technology 1984, 1989
+
+link/clu/o_string-save --- OK
+%% Copyright Barbara Liskov 1984
+
+link/clu/o_strs_sectn --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/o_strs_sectn-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/o_struct --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/o_struct-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/o_symb_sectn --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/o_symb_sectn-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/o_symbol_tabs --- OK
+%% Copyright Massachusetts Institute of Technology 1980, 1989
+
+link/clu/o_symbol_tabs-save --- OK
+%% Copyright Barbara Liskov 1980
+
+link/clu/o_text_sectn --- OK
+%% Copyright Massachusetts Institute of Technology 1985, 1989
+
+link/clu/o_text_sectn-save --- OK
+%% Copyright Barbara Liskov 1985
+
+link/clu/o_type --- OK
+%% Copyright Massachusetts Institute of Technology 1984, 1989
+
+link/clu/o_type-save --- OK
+%% Copyright Barbara Liskov 1984
+
+link/clu/o_vec_head --- OK
+%% Copyright Massachusetts Institute of Technology 1984, 1989
+
+link/clu/o_vec_head-save --- OK
+%% Copyright Barbara Liskov 1984
+
+link/clu/o_w_vecs --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/o_w_vecs-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/o_word --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/o_word-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/o_x_string --- OK
+%% Copyright Massachusetts Institute of Technology 1984, 1989
+
+link/clu/o_x_string-save --- OK
+%% Copyright Barbara Liskov 1984
+
+link/clu/o_zero_ref --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/o_zero_ref-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/old_addresses --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/old_addresses-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/open_i_file --- OK
+%% Copyright Massachusetts Institute of Technology 1980, 1989
+
+link/clu/open_i_file-save --- OK
+%% Copyright Barbara Liskov 1980
+
+link/clu/open_o_file --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/open_o_file-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/options --- OK
+%% Copyright Massachusetts Institute of Technology 1985, 1989
+
+link/clu/options-save --- OK
+%% Copyright Barbara Liskov 1985
+
+link/clu/ordered_set --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/ordered_set-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/out_link_chan --- OK
+%% Copyright Massachusetts Institute of Technology 1985, 1989
+
+link/clu/out_link_chan-save --- OK
+%% Copyright Barbara Liskov 1985
+
+link/clu/overload --- OK
+%% Copyright Massachusetts Institute of Technology 1985, 1989
+
+link/clu/overload-save --- OK
+%% Copyright Barbara Liskov 1985
+
+link/clu/pass_2_base --- OK
+%% Copyright Massachusetts Institute of Technology 1985, 1989
+
+link/clu/pass_2_base-save --- OK
+%% Copyright Barbara Liskov 1985
+
+link/clu/pos_stream --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/pos_stream-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/prpr_addr_upd --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/prpr_addr_upd-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/r_exc_blck_hd --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/r_exc_blck_hd-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/r_exc_blcks --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/r_exc_blcks-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/r_list --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/r_list-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/r_template --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/r_template-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/r_v_desc --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/r_v_desc-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/range --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/range-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/rd_dumped_env --- OK
+%% Copyright Massachusetts Institute of Technology 1985, 1989
+
+link/clu/rd_dumped_env-save --- OK
+%% Copyright Barbara Liskov 1985
+
+link/clu/ref_oneof --- OK
+%% Copyright Massachusetts Institute of Technology 1985, 1989
+
+link/clu/ref_oneof-save --- OK
+%% Copyright Barbara Liskov 1985
+
+link/clu/reference --- OK
+%% Copyright Massachusetts Institute of Technology 1984, 1989
+
+link/clu/reference-save --- OK
+%% Copyright Barbara Liskov 1984
+
+link/clu/relocate --- OK
+%% Copyright Massachusetts Institute of Technology 1984, 1989
+
+link/clu/relocate-save --- OK
+%% Copyright Barbara Liskov 1984
+
+link/clu/reparam_rtn --- OK
+%% Copyright Massachusetts Institute of Technology 1985, 1989
+
+link/clu/reparam_rtn-save --- OK
+%% Copyright Barbara Liskov 1985
+
+link/clu/reset_o_file --- OK
+%% Copyright Massachusetts Institute of Technology 1980, 1989
+
+link/clu/reset_o_file-save --- OK
+%% Copyright Barbara Liskov 1980
+
+link/clu/rewrite --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/rewrite-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/rtn_closure --- OK
+%% Copyright Massachusetts Institute of Technology 1983, 1989
+
+link/clu/rtn_closure-save --- OK
+%% Copyright Barbara Liskov 1983
+
+link/clu/rtn_desc --- OK
+%% Copyright Massachusetts Institute of Technology 1985, 1989
+
+link/clu/rtn_desc-save --- OK
+%% Copyright Barbara Liskov 1985
+
+link/clu/rtn_info --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/rtn_info-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/rtn_inst --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/rtn_inst-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/rtn_ovrld --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/rtn_ovrld-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/rtn_type --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/rtn_type-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/run_inferior --- OK
+%% Copyright Massachusetts Institute of Technology 1985, 1989
+
+link/clu/run_inferior-save --- OK
+%% Copyright Barbara Liskov 1985
+
+link/clu/s_desc --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/s_desc-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/scripting --- OK
+%% Copyright Massachusetts Institute of Technology 1980, 1989
+
+link/clu/scripting-save --- OK
+%% Copyright Barbara Liskov 1980
+
+link/clu/sel_value --- OK
+%% Copyright Massachusetts Institute of Technology 1984, 1989
+
+link/clu/sel_value-save --- OK
+%% Copyright Barbara Liskov 1984
+
+link/clu/setup_addrs --- OK
+%% Copyright Massachusetts Institute of Technology 1986, 1989
+
+link/clu/setup_addrs-save --- OK
+%% Copyright Barbara Liskov 1986
+
+link/clu/setup_times --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/setup_times-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/shld_nvr_hppn --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/shld_nvr_hppn-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/sig_hasher --- OK
+%% Copyright Massachusetts Institute of Technology 1980, 1989
+
+link/clu/sig_hasher-save --- OK
+%% Copyright Barbara Liskov 1980
+
+link/clu/size_of_ --- OK
+%% Copyright Massachusetts Institute of Technology 1984, 1989
+
+link/clu/size_of_-save --- OK
+%% Copyright Barbara Liskov 1984
+
+link/clu/sorted_set --- OK
+%% Copyright Massachusetts Institute of Technology 1980, 1989
+
+link/clu/sorted_set-save --- OK
+%% Copyright Barbara Liskov 1980
+
+link/clu/space_block --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/space_block-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/st_spcl_symbs --- OK
+%% Copyright Massachusetts Institute of Technology 1984, 1989
+
+link/clu/st_spcl_symbs-save --- OK
+%% Copyright Barbara Liskov 1984
+
+link/clu/start_ --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/start_-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/str_lower --- OK
+%% Copyright Massachusetts Institute of Technology 1980, 1989
+
+link/clu/str_lower-save --- OK
+%% Copyright Barbara Liskov 1980
+
+link/clu/system_root --- OK
+%% Copyright Massachusetts Institute of Technology 1988, 1989
+
+link/clu/system_root-save --- OK
+%% Copyright Barbara Liskov 1988
+
+link/clu/t_clust_addrs --- OK
+%% Copyright Massachusetts Institute of Technology 1980, 1989
+
+link/clu/t_clust_addrs-save --- OK
+%% Copyright Barbara Liskov 1980
+
+link/clu/t_rtn_addr --- OK
+%% Copyright Massachusetts Institute of Technology 1980, 1989
+
+link/clu/t_rtn_addr-save --- OK
+%% Copyright Barbara Liskov 1980
+
+link/clu/t_rtn_addrs --- OK
+%% Copyright Massachusetts Institute of Technology 1980, 1989
+
+link/clu/t_rtn_addrs-save --- OK
+%% Copyright Barbara Liskov 1980
+
+link/clu/tagged_type --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/tagged_type-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/type_desc --- OK
+%% Copyright Massachusetts Institute of Technology 1985, 1989
+
+link/clu/type_desc-save --- OK
+%% Copyright Barbara Liskov 1985
+
+link/clu/typeout_times --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/typeout_times-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/u_clust_addrs --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/u_clust_addrs-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/u_code_addrs --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/u_code_addrs-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/u_constants --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/u_constants-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/u_exc_addrs --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/u_exc_addrs-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/u_references --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/u_references-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/u_rtn_addrs --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/u_rtn_addrs-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/u_rtn_chns --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/u_rtn_chns-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/u_rtn_infos --- OK
+% Copyright Massachusetts Institute of Technology 1986, 1989
+
+link/clu/u_rtn_infos-save --- OK
+% Copyright Barbara Liskov    1986 
+
+link/clu/u_seg_map --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/u_seg_map-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/u_sigs_addrs --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/u_sigs_addrs-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/u_stack --- OK
+%% Copyright Massachusetts Institute of Technology 1984, 1989
+
+link/clu/u_stack-save --- OK
+%% Copyright Barbara Liskov 1984
+
+link/clu/u_sym_tables --- OK
+%% Copyright Massachusetts Institute of Technology 1986, 1989
+
+link/clu/u_sym_tables-save --- OK
+%% Copyright Barbara Liskov 1986
+
+link/clu/u_word_vec --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/u_word_vec-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/unique_get --- OK
+%% Copyright Massachusetts Institute of Technology 1980, 1989
+
+link/clu/unique_get-save --- OK
+%% Copyright Barbara Liskov 1980
+
+link/clu/unkn_rtn --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/unkn_rtn-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/unkn_rtn_clld --- OK
+%% Copyright Massachusetts Institute of Technology Liskov, 1989
+
+link/clu/unkn_rtn_clld-save --- OK
+%% Copyright 1982 Barbar Liskov
+
+link/clu/unparse_list --- OK
+%% Copyright Massachusetts Institute of Technology 1980, 1989
+
+link/clu/unparse_list-save --- OK
+%% Copyright Barbara Liskov 1980
+
+link/clu/unx_file_name --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/unx_file_name-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/unx_file_spec --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/unx_file_spec-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/use --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/use-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/use_list --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/use_list-save --- OK
+%% Copyright Barbara Liskov 1982
+
+link/clu/x_desc --- OK
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+link/clu/x_desc-save --- OK
+%% Copyright Barbara Liskov 1982
+
+sys/asm/__stub_cluster --- OK
+; Copyright	Massachusetts Institute of Technology     1989
+__stub_cluster = cluster is __stub_op
+sys/asm/__stub_routine --- OK
+; Copyright Massachusetts Institute of Technology 1981, 1989
+
+sys/asm/__stub_routine-save --- OK
+; Copyright    Barbara Liskov    1981
+
+sys/asm/_adv --- OK
+; Copyright Massachusetts Institute of Technology 1980, 1989
+
+sys/asm/_adv-save --- OK
+; Copyright    Barbara Liskov    1980
+
+sys/asm/_anyize --- OK
+; Copyright Massachusetts Institute of Technology 1980, 1989
+
+sys/asm/_anyize-save --- OK
+; Copyright    Barbara Liskov    1980
+
+sys/asm/_bytevec --- OK
+; Copyright Massachusetts Institute of Technology 1980, 1989
+
+sys/asm/_bytevec-save --- OK
+; Copyright    Barbara Liskov    1980
+
+sys/asm/_chan --- OK
+;; Copyright Massachusetts Institute of Technology 1980,, 1989
+
+sys/asm/_chan-save --- OK
+;; Copyright    Barbara Liskov    1980, 1985
+
+sys/asm/_cvt --- OK
+; Copyright Massachusetts Institute of Technology 1980, 1989
+
+sys/asm/_cvt-save --- OK
+; Copyright    Barbara Liskov    1980
+
+sys/asm/_environ --- OK
+; Copyright Massachusetts Institute of Technology 1985, 1989
+
+sys/asm/_environ-save --- OK
+; Copyright    Barbara Liskov    1985
+
+sys/asm/_environs --- OK
+; Copyright Massachusetts Institute of Technology 1985, 1989
+
+sys/asm/_environs-save --- OK
+; Copyright    Barbara Liskov    1985
+
+sys/asm/_event --- OK
+; Copyright Massachusetts Institute of Technology 1980, 1989
+
+sys/asm/_event-save --- OK
+; Copyright    Barbara Liskov    1980
+
+sys/asm/_gc --- OK
+
+; Copyright Massachusetts Institute of Technology 1980,, 1989
+sys/asm/_gc-save --- OK
+
+; Copyright    Barbara Liskov    1980, 1985
+sys/asm/_get_pid --- OK
+; Copyright Massachusetts Institute of Technology 1985, 1989
+
+sys/asm/_get_pid-save --- OK
+; Copyright    Barbara Liskov    1985
+
+sys/asm/_local_time --- OK
+; Copyright Massachusetts Institute of Technology 1985, 1989
+
+sys/asm/_local_time-save --- OK
+; Copyright    Barbara Liskov    1985
+
+sys/asm/_siggy --- OK
+; Copyright Massachusetts Institute of Technology 1980, 1989
+
+sys/asm/_siggy-save --- OK
+; Copyright    Barbara Liskov    1980
+
+sys/asm/_start --- OK
+; Copyright Massachusetts Institute of Technology 1980,, 1989
+
+sys/asm/_start-save --- OK
+; Copyright    Barbara Liskov    1980, 1985
+
+sys/asm/_tagcell --- OK
+; Copyright Massachusetts Institute of Technology 1980, 1989
+
+sys/asm/_tagcell-save --- OK
+; Copyright    Barbara Liskov    1980
+
+sys/asm/_unhandled_exception --- OK
+; Copyright Massachusetts Institute of Technology 1981, 1989
+
+sys/asm/_unhandled_exception-save --- OK
+; Copyright    Barbara Liskov    1981
+
+sys/asm/_vec --- OK
+; Copyright Massachusetts Institute of Technology 1980, 1989
+
+sys/asm/_vec-save --- OK
+; Copyright    Barbara Liskov    1980
+
+sys/asm/array --- OK
+; Copyright Massachusetts Institute of Technology 1980, 1989
+
+sys/asm/array-save --- OK
+; Copyright    Barbara Liskov    1980
+
+sys/asm/bool --- OK
+; Copyright Massachusetts Institute of Technology 1980, 1989
+
+sys/asm/bool-save --- OK
+; Copyright    Barbara Liskov    1980
+
+sys/asm/char --- OK
+; Copyright Massachusetts Institute of Technology 1980, 1989
+
+sys/asm/char-save --- OK
+; Copyright    Barbara Liskov    1980
+
+sys/asm/connected_dir --- OK
+; Copyright Massachusetts Institute of Technology 1986, 1989
+
+sys/asm/connected_dir-save --- OK
+; Copyright    Barbara Liskov    1986
+
+sys/asm/delete_file --- OK
+;; Copyright Massachusetts Institute of Technology 1985, 1989
+
+sys/asm/delete_file-save --- OK
+;; Copyright	Barbara Liskov	1985
+
+sys/asm/force --- OK
+; Copyright Massachusetts Institute of Technology 1980, 1989
+
+sys/asm/force-save --- OK
+; Copyright    Barbara Liskov    1980
+
+sys/asm/int --- OK
+; Copyright Massachusetts Institute of Technology 1980, 1989
+
+sys/asm/int-save --- OK
+; Copyright    Barbara Liskov    1980
+
+sys/asm/itertype --- OK
+; Copyright Massachusetts Institute of Technology 1980, 1989
+
+sys/asm/itertype-save --- OK
+; Copyright    Barbara Liskov    1980
+
+sys/asm/now --- OK
+; Copyright Massachusetts Institute of Technology 1985, 1989
+
+sys/asm/now-save --- OK
+; Copyright    Barbara Liskov    1985
+
+sys/asm/null --- OK
+; Copyright Massachusetts Institute of Technology 1980, 1989
+
+sys/asm/null-save --- OK
+; Copyright    Barbara Liskov    1980
+
+sys/asm/oneof --- OK
+; Copyright Massachusetts Institute of Technology 1980, 1989
+
+sys/asm/oneof-save --- OK
+; Copyright    Barbara Liskov    1980
+
+sys/asm/proctype --- OK
+; Copyright Massachusetts Institute of Technology 1980, 1989
+
+sys/asm/proctype-save --- OK
+; Copyright    Barbara Liskov    1980
+
+sys/asm/real --- OK
+; Copyright Massachusetts Institute of Technology 1985, 1989
+
+sys/asm/real-save --- OK
+; Copyright    Barbara Liskov    1985
+
+sys/asm/record --- OK
+; Copyright Massachusetts Institute of Technology 1980, 1989
+
+sys/asm/record-save --- OK
+; Copyright    Barbara Liskov    1980
+
+sys/asm/rename_file --- OK
+;; Copyright Massachusetts Institute of Technology 1985, 1989
+
+sys/asm/rename_file-save --- OK
+;; Copyright	Barbara Liskov	1985
+
+sys/asm/sequence --- OK
+; Copyright Massachusetts Institute of Technology 1980, 1989
+
+sys/asm/sequence-save --- OK
+; Copyright    Barbara Liskov    1980
+
+sys/asm/string --- OK
+; Copyright Massachusetts Institute of Technology 1980, 1989
+
+sys/asm/string-save --- OK
+; Copyright    Barbara Liskov    1980
+
+sys/asm/struct --- OK
+; Copyright Massachusetts Institute of Technology 1980, 1989
+
+sys/asm/struct-save --- OK
+; Copyright    Barbara Liskov    1980
+
+sys/asm/type --- OK
+; Copyright Massachusetts Institute of Technology 1980, 1989
+
+sys/asm/type-save --- OK
+; Copyright    Barbara Liskov    1980
+
+sys/asm/type_of --- OK
+; Copyright Massachusetts Institute of Technology 1980, 1989
+
+sys/asm/type_of-save --- OK
+; Copyright    Barbara Liskov    1980
+
+sys/asm/variant --- OK
+; Copyright Massachusetts Institute of Technology 1980, 1989
+
+sys/asm/variant-save --- OK
+; Copyright    Barbara Liskov    1980
+
+sys/clu/_cause_bounds --- OK
+% Copyright Massachusetts Institute of Technology 1981, 1989
+
+sys/clu/_cause_bounds-save --- OK
+% Copyright    Barbara Liskov    1981
+
+sys/clu/_cause_illegal_char --- OK
+% Copyright Massachusetts Institute of Technology 1981, 1989
+
+sys/clu/_cause_illegal_char-save --- OK
+% Copyright    Barbara Liskov    1981
+
+sys/clu/_cause_overflow --- OK
+% Copyright Massachusetts Institute of Technology 1981, 1989
+
+sys/clu/_cause_overflow-save --- OK
+% Copyright    Barbara Liskov    1981
+
+sys/clu/_cause_wrong_tag --- OK
+% Copyright Massachusetts Institute of Technology 1981, 1989
+
+sys/clu/_cause_wrong_tag-save --- OK
+% Copyright    Barbara Liskov    1981
+
+sys/clu/_cause_wrong_type --- OK
+% Copyright Massachusetts Institute of Technology 1981, 1989
+
+sys/clu/_cause_wrong_type-save --- OK
+% Copyright    Barbara Liskov    1981
+
+sys/clu/_cleanup_ --- OK
+% Copyright Massachusetts Institute of Technology 1981, 1989
+
+sys/clu/_cleanup_-save --- OK
+% Copyright    Barbara Liskov    1981
+
+sys/clu/_dir_ent_size --- OK
+% Copyright Massachusetts Institute of Technology 1983, 1989
+
+sys/clu/_dir_ent_size-save --- OK
+% Copyright    Barbara Liskov    1983
+
+sys/clu/_erstr --- OK
+% Copyright Massachusetts Institute of Technology 1983, 1989
+
+sys/clu/_erstr-save --- OK
+% Copyright    Barbara Liskov    1983
+
+sys/clu/_fixup_dir_part --- OK
+% Copyright Massachusetts Institute of Technology 1981, 1989
+
+sys/clu/_fixup_dir_part-save --- OK
+% Copyright    Barbara Liskov    1981
+
+sys/clu/_fixup_file_name --- OK
+% Copyright Massachusetts Institute of Technology 1981, 1989
+
+sys/clu/_fixup_file_name-save --- OK
+% Copyright    Barbara Liskov    1981
+
+sys/clu/_get_termcap --- OK
+% Copyright Massachusetts Institute of Technology 1981, 1989
+
+sys/clu/_get_termcap-save --- OK
+% Copyright    Barbara Liskov    1981
+
+sys/clu/_home_dir --- OK
+% Copyright Massachusetts Institute of Technology 1983, 1989
+
+sys/clu/_home_dir-save --- OK
+% Copyright    Barbara Liskov    1983
+
+sys/clu/_last_indexc --- OK
+% Copyright Massachusetts Institute of Technology 1981, 1989
+
+sys/clu/_last_indexc-save --- OK
+% Copyright    Barbara Liskov    1981
+
+sys/clu/_skip_fill --- OK
+% Copyright Massachusetts Institute of Technology 1983, 1989
+
+sys/clu/_skip_fill-save --- OK
+% Copyright    Barbara Liskov    1983
+
+sys/clu/_split_name_part --- OK
+% Copyright Massachusetts Institute of Technology 1981, 1989
+
+sys/clu/_split_name_part-save --- OK
+% Copyright    Barbara Liskov    1981
+
+sys/clu/_termcap --- OK
+% Copyright Massachusetts Institute of Technology 1983, 1989
+
+sys/clu/_termcap-save --- OK
+% Copyright    Barbara Liskov    1983
+
+sys/clu/_termcap_entry --- OK
+% Copyright Massachusetts Institute of Technology 1983, 1989
+
+sys/clu/_termcap_entry-save --- OK
+% Copyright    Barbara Liskov    1983
+
+sys/clu/_working_dir --- OK
+% Copyright Massachusetts Institute of Technology 1982, 1989
+
+sys/clu/_working_dir-save --- OK
+% Copyright    Barbara Liskov    1982
+
+sys/clu/date --- OK
+% Copyright Massachusetts Institute of Technology 1980, 1989
+
+sys/clu/date-save --- OK
+% Copyright    Barbara Liskov    1980
+
+sys/clu/file_name --- OK
+% Copyright Massachusetts Institute of Technology 1981, 1989
+
+sys/clu/file_name-save --- OK
+% Copyright    Barbara Liskov    1981
+
+sys/clu/file_name_fill --- OK
+% Copyright Massachusetts Institute of Technology 1981, 1989
+
+sys/clu/file_name_fill-save --- OK
+% Copyright    Barbara Liskov    1981
+
+sys/clu/file_spec --- OK
+% Copyright Massachusetts Institute of Technology 1981, 1989
+
+sys/clu/file_spec-save --- OK
+% Copyright    Barbara Liskov    1981
+
+sys/clu/set_working_dir --- OK
+% Copyright Massachusetts Institute of Technology 1981, 1989
+
+sys/clu/set_working_dir-save --- OK
+% Copyright    Barbara Liskov    1981
+
+sys/clu/stream --- OK
+% Copyright Massachusetts Institute of Technology 1982, 1989
+
+sys/clu/stream-save --- OK
+% Copyright    Barbara Liskov    1982
+
+sys/clu/user_name --- OK
+% Copyright Massachusetts Institute of Technology 1981, 1989
+
+sys/clu/user_name-save --- OK
+% Copyright    Barbara Liskov    1981
+
+sys/clu/working_dir --- OK
+% Copyright Massachusetts Institute of Technology 1981, 1989
+
+sys/clu/working_dir-save --- OK
+% Copyright    Barbara Liskov    1981
+
+ted/display.equ --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+_peek			= input$peek
+ted/ted.equ --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+# extend
+ted/asm/_calc_hpos --- OK
+; Copyright Massachusetts Institute of Technology 1985, 1989
+
+ted/asm/_calc_hpos-save --- OK
+; Copyright    Barbara Liskov    1985
+
+ted/asm/_cleanup_ --- OK
+; Copyright	Massachusetts Institute of Technology     1989
+_cleanup_ = qproc ()
+ted/asm/_image --- OK
+; Copyright Massachusetts Institute of Technology 1985, 1989
+
+ted/asm/_image-save --- OK
+; Copyright    Barbara Liskov    1985
+
+ted/asm/_io_buf --- OK
+; Copyright	Massachusetts Institute of Technology     1989
+_io_buf = qproc () returns (_bytevec)
+ted/asm/_io_wait --- OK
+; Copyright	Massachusetts Institute of Technology     1989
+_io_wait = qproc (speed: int) returns (bool)
+ted/clu/_buffered_read --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+_buffered_read = proc (e: env, chan: _chan) returns (ast, string)
+ted/clu/_calc_hpos_copy --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+_calc_hpos_copy = proc (s: string, a: act) returns (int, int)
+ted/clu/_death --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+_death = proc ()
+ted/clu/_last_indexc --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+_last_indexc = proc (c: char, s: string) returns (int)
+ted/clu/adjust --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+adjust = proc (e: env, start_line, limit, width, init_hpos: int) returns (int)
+ted/clu/break_line --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+break_line = proc (s: string, place, just, width, pos, hpos, line: int)
+ted/clu/buf --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+buf = cluster is create,
+ted/clu/buffer_help --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+% Type out the menuized help given by the buffer. The menu
+ted/clu/bufset --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+bufset = cluster is init, create_buf, kill_buf, next, fetch, fetch_filename,
+ted/clu/case --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+make_upper_case = proc (s: string) returns (string)
+ted/clu/change_case --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+change_case = proc (e: env, c: char)
+ted/clu/change_default --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+change_default = proc (e: env, c: char)
+ted/clu/change_title --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+change_title = proc (e: env, fnm: string)
+ted/clu/check_for_interrupt --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+check_for_interrupt = proc () returns (bool)
+ted/clu/check_for_mail --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+check_for_mail = proc (e: env, c: char)
+ted/clu/check_spelling --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+check_spelling = proc (e: env, c: char)
+ted/clu/command_line --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+command_line = proc (e: env, prompt, default: string) returns (string)
+ted/clu/compile_file --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+compile_file = proc (e: env, opt: char, curfn: fname, curfns: string)
+ted/clu/compile_files --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+compile_files = proc (e: env, opt: char) returns (buf) signals (errmsg(string))
+ted/clu/construct_box --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+ted/clu/determine_update --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+determine_update = proc (obj, replace: string, case: bool)
+ted/clu/draw --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+% The following routines supply a primitive line drawing
+ted/clu/ed_help --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+% The following routine is run to either display or flush the editor or user
+ted/clu/env --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+% The env cluster supports editor environments.  Each editor
+ted/clu/extract_strings --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+extract_strings = proc (b: buf, bv: _bytevec, max: int)
+ted/clu/get_file_list --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+get_file_list = proc (e: env, prompt: string, single: bool)
+ted/clu/get_file_name --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+get_file_name = proc (e: env, prompt: string) returns (fname)
+ted/clu/get_frame_list --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+get_frame_list = proc (e: env) returns (afnt)
+ted/clu/get_frame_name --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+get_frame_name = proc (e: env) returns (string)
+ted/clu/get_option --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+% The following procedure is used to get an option character
+ted/clu/get_string_arg --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+get_string_arg = proc (old_env: env, prompt, default: string) returns (string)
+ted/clu/get_string_arg_env --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+get_string_arg_env = proc (old_env: env) returns (env) signals (errmsg(string))
+ted/clu/ienv --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+% indenter environment
+ted/clu/incr_search --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+run_incsrch = proc (e: env, c: char)
+ted/clu/incremental_update --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+% The following routine supports incremental updating of the
+ted/clu/indyan --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+indyan = proc (e: env, c: char) signals (errmsg(string), stop(env, string))
+ted/clu/input --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+input = cluster is peek,		% peek a char
+ted/clu/insert_char --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+% The following routine is called whenever we attempt to insert
+ted/clu/insert_new_files --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+insert_new_files = proc (e: env, fns: string, afn: afnt)
+ted/clu/jobtab --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+jobtab = cluster is fetch_job, create_job, flush_job
+ted/clu/lindexv --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+_bytevec_lindexv = proc (find, s: _bytevec, i: int) returns (int)
+ted/clu/list_files --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+list_files = proc (oe: env, afn: afnt, fns, name: string)
+ted/clu/macro_file --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+exec_macro_file = proc (e: env, c: char)
+ted/clu/mconfirm --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+mconfirm = proc (e: env, msg: string, top: bool)
+ted/clu/misc --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+array_zap = proc [t: type] (a: at, i, len: int, val: t)
+ted/clu/move_by_indent --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+move_by_indent = proc (e: env, c: char)
+ted/clu/move_by_list --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+move_by_list = proc (e: env, c: char)
+ted/clu/move_by_region --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+move_by_region = proc (e: env, c: char)
+ted/clu/move_under --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+move_under = proc (e: env, cnt: int)
+ted/clu/mult_buffers --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+run_multiple_buffers = proc (e: env, c: char)
+ted/clu/mult_windows --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+run_multiple_windows = proc (e: env, c: char)
+ted/clu/one_char --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+run_ctrla = proc (e: env, c: char) signals (errmsg(string), stop(env, string))
+ted/clu/output --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+output = cluster is outc,		% output a character
+ted/clu/pattern --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+%	^A	alphanumeric
+ted/clu/read_file --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+read_file = proc (e: env, fn: fname) signals (errmsg(string))
+ted/clu/read_from_file --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+read_from_file = proc (e: env, fn: fname, delflg, dspflg: bool)
+ted/clu/ready_frame_insert --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+ready_frame_insert = proc (e: env)
+ted/clu/rem_newlines --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+rem_newlines = proc (s: string) returns (string)
+ted/clu/restrict --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+% Option to restrict buffer being used to portion between mark and cursor.
+ted/clu/run_adjust --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+run_adjust = proc (e: env, c: char) signals (errmsg(string), stop(env, string))
+ted/clu/run_compiler --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+# extend
+ted/clu/run_ctrlat --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+run_ctrlat = proc (e: env, c: char) signals (errmsg(string), stop(env, string))
+ted/clu/run_ctrlk --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+run_ctrlk = proc (e: env, c: char) signals (errmsg(string), stop(env, string))
+ted/clu/run_ctrlnp --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+run_ctrlnp = proc (e: env, c: char) signals (errmsg(string), stop(env, string))
+ted/clu/run_ctrlr --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+run_ctrlr = proc (e: env, c: char) signals (errmsg(string), stop(env, string))
+ted/clu/run_ctrlsk --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+run_ctrlsk = proc (e: env, c: char) signals (errmsg(string), stop(env, string))
+ted/clu/run_ctrlsn --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+run_ctrlsn = proc (e: env, c: char) signals (errmsg(string), stop(env, string))
+ted/clu/run_ctrlso --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+# extend
+ted/clu/run_ctrlu --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+run_ctrlu = proc (e: env, c: char) signals (errmsg(string), stop(env, string))
+ted/clu/run_ctrlv --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+run_ctrlv = proc (e: env, c: char) signals (errmsg(string), stop(env, string))
+ted/clu/run_ctrlx --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+run_ctrlx = proc (e: env, c: char) signals (errmsg(string), stop(env, string))
+ted/clu/run_ctrly --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+run_ctrly = proc (e: env, c: char) signals (errmsg(string), stop(env, string))
+ted/clu/run_interactive --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+# extend
+ted/clu/run_lower_job --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+# extend
+ted/clu/run_str_macro --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+run_str_macro = proc (e: env, c: char)
+ted/clu/save_buffers --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+# extend
+ted/clu/scan_buf_chars --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+scan_buf_chars = iter (b: buf, line, pos, sign: int)
+ted/clu/scan_type_files --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+scan_type_files = proc (oe: env, afn: afnt, fns: string, opt: char, obj: string)
+ted/clu/scan_word --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+scan_word = proc (b: buf, line, pos, arg: int, neg: bool, chars: string)
+ted/clu/screen --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+% Physical screen hacking cluster, for editors, etc.
+ted/clu/set_file_name --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+set_file_name = proc (e: env, fn: fname)
+ted/clu/set_options --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+qs = sequence[string]
+ted/clu/sort_buffer --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+srec = record[aln, aps: int,	% start of record
+ted/clu/spiffy --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+_begin_body	= 1
+ted/clu/split_modules --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+split_modules = proc (e: env) signals (errmsg(string))
+ted/clu/start_up --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+# extend
+ted/clu/string_match_at_pos --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+% Checks for exact match of first string at indicated position in
+ted/clu/string_search --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+% Search a buffer for a string obj arg times, return true if found.
+ted/clu/ted --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+% ted (e) performs the read-eval-print loop for characters
+ted/clu/top_display --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+top_display = proc (e: env, msg: string)
+ted/clu/type_string --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+type_string = proc (e: env, msg: string, title: string)
+ted/clu/type_sub_buf --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+% Type a portion of a buffer to the user, prompting when
+ted/clu/update_title --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+update_title = proc (e: env, title: string)
+ted/clu/versions --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+file_versions = proc (fs: string) returns (afnt, string)
+ted/clu/winset --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+winset = cluster is init, reset, overlay, remove, split, push, pop,
+ted/clu/write_all_files --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+write_all_files = proc (e: env) returns (afnt) signals (errmsg(string))
+ted/clu/write_file --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+# extend
+ted/clu/wstream --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+wstream = cluster is open, put, puts, close
+util/calc.clu --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+% An interactive calculator.
+util/compare.clu --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+%	COMPARE CLU
+util/gcdprt.clu --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+start_up = proc ()
+util/liblst.clu --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+ac = array[char]
+util/parseflags.clu --- OK
+%  Copyright	Massachusetts Institute of Technology     1989
+ai = array [ int ]

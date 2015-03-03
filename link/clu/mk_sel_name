@@ -1,0 +1,7 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+Make_Selector_Name = proc (Nm: string, RI: routine_instantiation)
+		       returns (string);
+    Indx: int := constant$Get_Int(params$Top(RI.Params));
+    return (Nm || "_" || RI.Type_Desc.Sel_Name_Strings[Indx]);
+    end Make_Selector_Name;

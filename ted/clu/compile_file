@@ -1,0 +1,58 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+compile_file = proc (e: env, opt: char, curfn: fname, curfns: string)
+		 returns (buf) signals (errmsg(string))
+    cmds: string := rem_newlines(env$fetch_str(e, "prefix_commands", ""))
+    if opt = 'O' then cmds := cmds || "#o" end
+    cmp: string := env$fetch_str(e, "compiler_name", "clu")
+    if string$indexs("argus", cmp) > 0
+       then cmp := "arg"
+     elseif string$indexs("oculus", cmp) > 0
+       then cmp := "eye"
+     else cmp := "clu" end
+    cmd: string := curfn.suffix
+    if string$empty(cmd)  cor  cmd = cmp
+       then if opt = 'H'
+	       then cmd := "ch"
+	       else cmd := "co"
+	       end
+     elseif cmd = "equ"
+       then cmd := "ce"
+     elseif cmd = "spc"
+       then cmd := "sp"
+     elseif cmd = "xfile"
+       then cmd := "xf"
+     else if ~(opt = 'J'  cor  mconfirm(e, "Compile " || curfns, true))
+	     then signal errmsg(quit_msg) end
+	     resignal errmsg
+	  if opt = 'H'
+	     then cmd := "ch"
+	     else cmd := "co"
+	     end
+     end
+    cmds := cmds || "#" || cmd || " " || curfns
+    if opt = 'C'
+       then top_display(e, "Compiling " || curfns)
+     elseif opt = 'O'
+       then top_display(e, "Optimizing " || curfns)
+     elseif opt = 'H'
+       then top_display(e, "Checking " || curfns)
+     else % ask for JCL explicitly
+	  cmds := command_line(e, "Compiler commands", cmds)
+	     resignal errmsg
+	  no_good: bool := true
+	  for cc: char in string$chars(cmds) do
+	      if cc = '#'
+		 then no_good := false
+		      break
+	       elseif cc > ' '
+		 then cmds := "#co " || cmds
+		      no_good := false
+		      break
+	       end
+	      end
+	  if no_good then signal errmsg("Bad compiler commands!") end
+	  top_display(e, "Compiling " || cmds)
+     end
+    return(run_compiler(e, cmds, false))
+       resignal errmsg
+    end compile_file

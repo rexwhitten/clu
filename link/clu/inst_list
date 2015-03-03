@@ -1,0 +1,27 @@
+%% Copyright Massachusetts Institute of Technology 1980, 1989
+
+Instantiate_List = proc [t: type] (S: sequence[t], Env: lnk_env)
+		     returns (sequence[t]) signals (error(string))
+	    where t has instantiate: proctype (t, lnk_env) returns (t)
+				       signals (error(string));
+    own Own_Ts: array[t] := array[t]$Predict(1, 10);
+    own Free: bool := true;
+    Ts: array[t];
+    Old_Free: bool := Free;
+    if (Free)
+       then array[t]$Trim(Own_Ts, 1, 0);
+	    Ts := Own_Ts;
+	    Free := false;
+       else Ts := array[t]$Predict(1, sequence[t]$Size(S));
+       end;
+    for E: t in sequence[t]$Elements(S) do
+	array[t]$AddH(Ts, t$Instantiate(E, Env));
+	   resignal Error;
+	end;
+    S := sequence[t]$A2S(Ts);
+    if (Old_Free)
+       then array[t]$Trim(Own_Ts, 1, 0);
+	    Free := true;
+       end;
+    return (S);
+    end Instantiate_List;

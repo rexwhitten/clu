@@ -1,0 +1,687 @@
+; Copyright Massachusetts Institute of Technology 1980, 1989
+
+sequence = cluster [t: type] is new, cons, e2s, size, subseq, fill,
+				fill_copy, fetch, bottom, top, replace,
+				addh, addl, remh, reml, concat, a2s, s2a,
+				empty, elements, indexes, equal, similar,
+				copy, print, encode, decode, _gcd
+
+new = qproc () returns (cvt)
+	return([])
+	end new
+
+cons = qproc (x: cvt) returns (cvt)
+	return(rr)
+	end cons
+
+e2s = qproc (x: t) returns (cvt)
+	movea	rr,r1
+	moveq	6,n1			; get header
+	moveq	8,n2			; get byte count
+	movea	heaphi,rr		; alloc
+	iflt	sub	n2,freecnt
+	then	jsr	memout
+	end
+	add	n2,heaphi
+	movem	n1/r1,(rr)
+	return(rr)
+	end e2s
+
+size = qproc (s: cvt) returns (int)
+	move	(rr),n1
+	asr	1,n1
+	return(n1)
+	end size
+
+subseq = qproc (s: cvt, first: int, length: int) returns (cvt)
+					 signals (bounds, negative_size)
+	movem	first,n3/r1
+	move	(r1),n2
+	ifhi	subq	3,n3			; check start
+		blt	this
+		add	n3,n3
+		cmp	n2,n3
+	then	signal	bounds
+	end
+	iflt	move	rr,n1			; check length
+	then	signal	negative_size
+	end
+	move	n2,n4
+	sub	n3,n2				; get real length
+	add	n1,n1
+	ifhi	cmp	n2,n1
+	then	move	n2,n1
+	end
+	ifeq	cmp	n4,n1			; whole thing?
+	then	return(r1)			; yes
+	end
+	moveq	2,n2
+	ifeq	cmp	n1,n2			; empty?
+	then	return([])			; yes
+	end
+	add	n1,n2				; get byte count
+	movea	heaphi,rr			; alloc
+	iflt	sub	n2,freecnt
+	then	jsr	memout
+	end
+	add	n2,heaphi
+	movea	rr,r2
+	move	n1,(r2)+			; point at first space
+	lea	4(r1,n3),r1			; point at first elt
+	asr	2,n1
+	subq	1,n1
+	loop
+		move	(r1)+,(r2)+		; copy
+		dbra	n1,this
+		swap	n1
+		subqw	1,n1
+		blt	next
+		swap	n1
+	end
+	movea	n0,r1
+	movea	n0,r2
+	return(rr)
+	end subseq
+
+fill = qproc (length: int, x: t) returns (cvt) signals (negative_size)
+	iflt	move	length,n1		; check length
+	then	signal	negative_size
+	end
+	ifeq	cmp	n0,n1			; empty?
+	then	return([])
+	end
+	ifge	cmpi	0177,,0177777,n1	; too big?
+	then	signal	failure("huge allocation request")
+	end
+	movea	rr,r1
+	add	n1,n1				; get header
+	move	n1,n2				; get byte count
+	addq	2,n2
+	movea	heaphi,rr			; alloc
+	iflt	sub	n2,freecnt
+	then	jsr	memout
+	end
+	add	n2,heaphi
+	movea	rr,r2
+	move	n1,(r2)+			; point at first space
+	asr	2,n1
+	subq	1,n1
+	loop
+		move	r1,(r2)+		; fill
+		dbra	n1,this
+		swap	n1
+		subqw	1,n1
+		blt	next
+		swap	n1
+	end
+	movea	n0,r2
+	return(rr)
+	end fill
+
+fill_copy = proc (length: int, x: t) returns (cvt) signals (negative_size)
+			where t has copy: proctype (t) returns (t)
+	var	s,idx
+	s := sequence[t]$fill(length, x)
+	    resignal negative_size
+	move	n0,idx
+	loop
+		subq	2,length	; in range?
+		blt	next
+		t$copy(x)		; yes, copy elt
+		addq	4,idx		; bump index
+		movem	idx,n1/r1
+		move	rr,-1(r1,n1)	; store
+	end
+	return(s)
+	end fill_copy
+
+fetch = qproc (s: cvt, i: int) returns (t) signals (bounds)
+	move	rr,n1
+	ifls	cmp	n0,n1			; check bounds
+		ble	next
+		add	n1,n1
+		movea	s,rr
+		cmp	(rr),n1
+	then	movea	-2(rr,n1),rr		; fetch
+		return(rr)
+	end
+	signal	bounds
+	end fetch
+
+bottom = qproc (s: cvt) returns (t) signals (bounds)
+	moveq	2,n1
+	ifne	cmp	(rr),n1			; empty?
+	then	movea	4(rr),rr		; no, fetch
+		return(rr)
+	end
+	signal	bounds
+	end bottom
+
+top = qproc (s: cvt) returns (t) signals (bounds)
+	move	(rr),n1
+	ifne	subq	2,n1			; empty?
+	then	movea	(rr,n1),rr		; no, fetch
+		return(rr)
+	end
+	signal	bounds
+	end top
+
+replace = qproc (s: cvt, i: int, x: t) returns (cvt) signals (bounds)
+	movem	i,n3/r1
+	ifhi	cmp	n0,n3			; check bounds
+		ble	this
+		add	n3,n3
+		move	(r1),n1
+		cmp	n1,n3
+	then	signal	bounds
+	end
+	movea	rr,r2
+	move	n1,n2				; get byte count
+	addq	2,n2
+	movea	heaphi,rr			; alloc
+	iflt	sub	n2,freecnt
+	then	jsr	memout
+	end
+	add	n2,heaphi
+	movea	rr,r3
+	asr	2,n1
+	loop
+		move	(r1)+,(r3)+		; copy
+		dbra	n1,this
+		swap	n1
+		subqw	1,n1
+		blt	next
+		swap	n1
+	end
+	movea	n0,r1
+	movea	n0,r3
+	move	r2,-2(rr,n3)			; store new elt
+	return(rr)
+	end replace
+
+addh = qproc (s: cvt, x: t) returns (cvt)
+	movea	rr,r1
+	movea	s,r2
+	move	(r2),n1				; get header
+	addq	4,n1
+	move	n1,n2				; get byte count
+	addq	2,n2
+	movea	heaphi,rr			; alloc
+	iflt	sub	n2,freecnt
+	then	jsr	memout
+	end
+	add	n2,heaphi
+	movea	rr,r3
+	move	n1,(r3)+			; point at first space
+	ifgt	subq	8,n2			; any to copy?
+	then	addq	4,r2			; yes, point at first element
+		asr	2,n2
+		subq	1,n2
+		loop
+			move	(r2)+,(r3)+	; copy
+			dbra	n2,this
+			swap	n2
+			subqw	1,n2
+			blt	next
+			swap	n2
+		end
+		movea	n0,r2
+	end
+	move	r1,(r3)				; store new elt
+	movea	n0,r3
+	return(rr)
+	end addh
+
+addl = qproc (s: cvt, x: t) returns (cvt)
+	movea	rr,r1
+	movea	s,r2
+	move	(r2),n1				; get header
+	addq	4,n1
+	move	n1,n2				; get byte count
+	addq	2,n2
+	movea	heaphi,rr			; alloc
+	iflt	sub	n2,freecnt
+	then	jsr	memout
+	end
+	add	n2,heaphi
+	movea	rr,r3
+	move	n1,(r3)+			; point at first space
+	move	r1,(r3)+			; store new elt
+	ifgt	subq	8,n2			; any to copy?
+	then	addq	4,r2			; yes, point at first element
+		asr	2,n2
+		subq	1,n2
+		loop
+			move	(r2)+,(r3)+	; copy
+			dbra	n2,this
+			swap	n2
+			subqw	1,n2
+			blt	next
+			swap	n2
+		end
+		movea	n0,r2
+	end
+	movea	n0,r3
+	return(rr)
+	end addl
+
+remh = qproc (s: cvt) returns (cvt) signals (bounds)
+	move	(rr),n1
+	iflt	subq	4,n1			; empty?
+	then	signal	bounds
+	end
+	moveq	2,n2
+	ifeq	cmp	n1,n2			; singleton?
+	then	return([])
+	end
+	movea	rr,r1
+	add	n1,n2				; get byte count
+	movea	heaphi,rr			; alloc
+	iflt	sub	n2,freecnt
+	then	jsr	memout
+	end
+	add	n2,heaphi
+	movea	rr,r2
+	move	n1,(r2)+			; point at first space
+	addq	4,r1				; point at first element
+	asr	2,n1
+	subq	1,n1
+	loop
+		move	(r1)+,(r2)+		; copy
+		dbra	n1,this
+		swap	n1
+		subqw	1,n1
+		blt	next
+		swap	n1
+	end
+	movea	n0,r1
+	movea	n0,r2
+	return(rr)
+	end remh
+
+reml = qproc (s: cvt) returns (cvt) signals (bounds)
+	move	(rr),n1
+	iflt	subq	4,n1			; empty?
+	then	signal	bounds
+	end
+	moveq	2,n2
+	ifeq	cmp	n1,n2			; singleton?
+	then	return([])
+	end
+	movea	rr,r1
+	add	n1,n2				; get byte count
+	movea	heaphi,rr			; alloc
+	iflt	sub	n2,freecnt
+	then	jsr	memout
+	end
+	add	n2,heaphi
+	movea	rr,r2
+	move	n1,(r2)+			; point at first space
+	addq	8,r1				; point at second element
+	asr	2,n1
+	subq	1,n1
+	loop
+		move	(r1)+,(r2)+		; copy
+		dbra	n1,this
+		swap	n1
+		subqw	1,n1
+		blt	next
+		swap	n1
+	end
+	movea	n0,r1
+	movea	n0,r2
+	return(rr)
+	end reml
+
+concat = qproc (s1, s2: cvt) returns (cvt)
+	movea	s1,r1
+	move	(r1),n3
+	ifgt	subq	2,n3			; empty?
+	then	move	(rr),n1			; no
+		moveq	2,n2
+		ifeq	cmp	n1,n2		; empty?
+		then	return(r1)		; yes
+		end
+		movea	rr,r2
+		move	n1,n4
+		add	n3,n1			; get header
+		add	n1,n2			; get byte count
+		movea	heaphi,rr		; alloc
+		iflt	sub	n2,freecnt
+		then	jsr	memout
+		end
+		add	n2,heaphi
+		movea	rr,r3
+		move	n1,(r3)+		; point at first space
+		addq	4,r1			; point at first element
+		asr	2,n3
+		subq	1,n3
+		loop
+			move	(r1)+,(r3)+	; copy
+			dbra	n3,this
+			swap	n3
+			subqw	1,n3
+			blt	next
+			swap	n3
+		end
+		addq	4,r2			; point at first element
+		asr	2,n4
+		subq	1,n4
+		loop
+			move	(r2)+,(r3)+	; copy
+			dbra	n4,this
+			swap	n4
+			subqw	1,n4
+			blt	next
+			swap	n4
+		end
+		movea	n0,r1
+		movea	n0,r2
+		movea	n0,r3
+	end
+	return(rr)
+	end concat
+
+a2s = qproc (a: array[t]) returns (cvt)
+	iflt	move	dv%max(rr),n3		; empty?
+	then	return([])			; yes
+	end
+	movea	rr,r1
+	move	n3,n1				; get header
+	addq	3,n1
+	add	n1,n1
+	move	n1,n2				; get byte count
+	addq	2,n2
+	movea	heaphi,rr			; alloc
+	iflt	sub	n2,freecnt
+	then	jsr	memout
+	end
+	add	n2,heaphi
+	movea	rr,r2
+	move	n1,(r2)+			; point at first space
+	movea	dv%rel(r1),r1			; point at first element
+	addq	1,r1
+	asr	2,n1
+	subq	1,n1
+	loop
+		move	(r1)+,(r2)+		; copy
+		dbra	n1,this
+		swap	n1
+		subqw	1,n1
+		blt	next
+		swap	n1
+	end
+	movea	n0,r1
+	movea	n0,r2
+	return(rr)
+	end a2s
+
+s2a = qproc (s: cvt) returns (array[t])
+	move	(rr),n3
+	moveq	2,n2
+	ifne	cmp	n2,n3			; empty?
+	then	movea	rr,r1			; no
+		add	n3,n2			; get byte count
+		movea	heaphi,rr		; alloc
+		iflt	sub	n2,freecnt
+		then	jsr	memout
+		end
+		add	n2,heaphi
+		movea	rr,r2
+		move	n3,n1
+		asr	2,n1
+		loop
+			move	(r1)+,(r2)+	; copy
+			dbra	n1,this
+			swap	n1
+			subqw	1,n1
+			blt	next
+			swap	n1
+		end
+		movea	n0,r2
+	end
+	movea	rr,r1
+	move	%adv,,1,n1			; get header
+	moveq	dv%blen,n2			; get byte count
+	moveq	3,n4				; get low
+	asr	1,n3				; get max
+	sub	n4,n3
+	moveaw	3,r2				; get lcnt
+	movea	heaphi,rr			; alloc
+	iflt	sub	n2,freecnt
+	then	jsr	memout
+	end
+	add	n2,heaphi
+	adda	r2,r1				; get rel
+	movem	n1/n3/n4/r1/r2,(rr)		; initialize
+	return(rr)
+	end s2a
+
+empty = qproc (s: cvt) returns (bool)
+	moveq	2,n1
+	cmp	(rr),n1			; check size
+	seq	n1
+	return(n1)
+	end empty
+
+elements = iter (s: cvt) yields (t)
+	var	idx
+	move	n0,idx
+	loop
+		addq	4,idx		; bump index
+		move	idx,n1
+		movea	s,rr
+		cmp	(rr),n1		; done?
+		bgt	next
+		movea	-1(rr,n1),rr	; fetch
+		yield(rr)
+	end
+	end elements
+
+indexes = iter (s: cvt) yields (int)
+	var	max,idx
+	move	(rr),n1
+	asr	1,n1
+	movem	n0/n1,idx
+	loop
+		addq	2,idx		; bump index
+		movea	idx,rr
+		cmpa	max,rr		; done?
+		bgt	next
+		yield(rr)
+	end
+	end indexes
+
+equal = proc (s1, s2: cvt) returns (bool)
+		where t has equal: proctype (t, t) returns (bool)
+	var	idx
+	movea	s1,r1
+	move	(rr),n1
+	ifne	cmp	(r1),n1			; compare sizes
+	then	return(false)
+	end
+	move	n0,idx
+	qloop
+		addq	4,idx			; bump index
+		movem	idx,n1/r1
+		cmp	(r1),n1			; in range?
+		bgt	next
+		movea	s1,rr
+		move	-1(rr,n1),-(sp)		; fetch
+		movea	-1(r1,n1),rr		; fetch
+		t$equal(*, rr)			; compare
+		move	rr,n7
+		bne	this
+		return(rr)
+	end
+	return(true)
+	end equal
+
+similar = proc (s1, s2: cvt) returns (bool)
+		where t has similar: proctype (t, t) returns (bool)
+	var	idx
+	movea	s1,r1
+	move	(rr),n1
+	ifne	cmp	(r1),n1			; compare sizes
+	then	return(false)
+	end
+	move	n0,idx
+	qloop
+		addq	4,idx			; bump index
+		movem	idx,n1/r1
+		cmp	(r1),n1			; in range?
+		bgt	next
+		movea	s1,rr
+		move	-1(rr,n1),-(sp)		; fetch
+		movea	-1(r1,n1),rr		; fetch
+		t$similar(*, rr)		; compare
+		move	rr,n7
+		bne	this
+		return(rr)
+	end
+	return(true)
+	end similar
+
+copy = proc (s: cvt) returns (cvt)
+		where t has copy: proctype (t) returns (t)
+	var	ss,idx
+	move	(rr),n1				; get header
+	moveq	2,n2
+	ifeq	cmp	n1,n2			; empty?
+	then	return(rr)			; yes
+	end
+	add	n1,n2				; get byte count
+	movea	heaphi,rr			; alloc
+	iflt	sub	n2,freecnt
+	then	jsr	memout
+	end
+	add	n2,heaphi
+	move	n1,(rr)
+	movem	n0/rr,idx
+	loop
+		addq	4,idx			; bump index
+		move	idx,n1
+		movea	s,rr
+		cmp	(rr),n1			; done?
+		bgt	next
+		movea	-1(rr,n1),rr		; fetch
+		t$copy(rr)			; copy
+		movem	idx,n1/r1
+		move	rr,-1(r1,n1)		; store
+	end
+	return(ss)
+	end copy
+
+print = proc (s: cvt, pst: pstream)
+		where t has print: proctype (t, pstream)
+	var	idx
+	ift	pstream$start(pst, "[")
+	then	move	n0,idx
+		loop
+			addq	4,idx			; bump index
+			movem	idx,n1/rr
+			movea	s,r1
+			cmp	(r1),n1			; in range?
+			bgt	next
+			moveq	5,n2			; yes
+			ifne	cmp	n2,n1		; first?
+			then	pstream$pause(rr, ",")	; no, print comma
+				move	rr,n7
+				beq	next		; stop if ...
+				movem	idx,n1/rr
+				movea	s,r1
+			end
+			move	-1(r1,n1),-(sp)		; fetch
+			t$print(*, rr)			; print it
+		end
+	end
+	pstream$stop(pst, "]")
+	end print
+
+;; Encode a sequence as its size, followed by the encode of each element.
+encode = proc (s: cvt, ist: istream) signals (not_possible(string))
+			where t has encode: proctype (t, istream)
+						signals (not_possible(string))
+	var	idx			;; Byte index into sequence. The index
+					;; + 1 is stored so that it looks
+					;; like a CLU int.
+	var	max			;; Maximum byte index into sequence +1.
+	begin
+	move	rr, -(sp)
+	movea	s, rr
+	move	(rr), n1		;; Get sequence size * 4 + 2
+	move	n1, max
+	subq	1, max			;; Save sequence size * 4 + 1 for later
+	asr	1, n1			;; Get size as CLU int.
+	istream$%puti(*, n1)		;; Encode size.
+	ifne	cmp	max, n0		;; Empty sequence?
+	then	moveq	5, n1		;; No, setup for loop.
+		move	n1, idx		;; Store initial index.
+		loop
+			movea	s, rr
+			move	-1(rr, n1), -(sp)	;; Fetch next element.
+			t$encode (*, ist)	;; Encode.
+			move	idx, n1
+			addq	4, n1		;; Bump index.
+			cmp	max, n1  	;; More to do?
+			bgt	next
+			move	n1, idx	 	;; Yes, store new index and loop.
+			end
+		end
+	end resignal not_possible
+	end encode
+
+decode = proc (ist: istream) returns (cvt)
+				signals (end_of_file, not_possible(string))
+		where t has decode: proctype (istream) returns (t)
+						signals (end_of_file, not_possible(string))
+	var	s, idx, max		;; s is the new sequence, idx and max
+					;; are as in encode above.
+	iflt	istream$%geti(rr)	;; Get size.
+		move	rr, n2
+		blt	next		;; Make sure that it's not negative
+		cmpi	0177,,0177777, n2 ;; and that it is < 23bits worth.
+	then	ifne	cmp	n0, n2
+		then	lea	-1(rr, rr), rr	;; Get size * 4 + 1
+			move	rr, max	;; Save it.
+			move	rr, n2
+			addq	3, n2	;; Amount of memory to allocate.
+			movea	heaphi, rr
+			iflt	sub	n2, freecnt	;; Alloc.
+			then	jsr	memout
+				end
+			add	n2, heaphi
+			subq	2, n2
+			move	n2, (rr);; Store header.
+			move	rr, s	;; Save sequence.
+			move	5, idx	;; Initial index.
+			loop
+				t$decode(ist)	;; Decode next element.
+				move	idx, n1
+				movea	s, r1
+				move	rr, -1(r1, n1)	;; Store element.
+				addq	4, n1	;; Bump index.
+				cmp	max, n1	;; Done?
+				bgt	next
+				move	n1, idx	;; Store next index.
+				end
+			return (s)
+			end
+		return ([])
+		end resignal	end_of_file, not_possible
+	signal	not_possible("bad format")
+	end decode
+		
+
+_gcd = proc (s: cvt, tab: gcd_tab) returns (int)
+			where t has _gcd: proctype (t, gcd_tab) returns (int)
+	move	rr,-(sp)
+	movea	s,rr
+	move	(rr),n1
+	add	n1,n1
+	addq	5,n1
+	gcd_tab$%insert(*, n1, <2: t$_gcd>, rr)
+	return(rr)
+	end _gcd
+
+end sequence

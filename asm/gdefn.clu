@@ -1,0 +1,291 @@
+%	GDEFN CLU
+% Copyright Massachusetts Institute of Technology 1980, 1989
+%	MC68000 Assembler: definition generator
+
+# extend
+
+mitype = proctype (int) returns (idnkind)
+mwtype = proctype (mref) returns (idnkind)
+
+g_definition = proc (e: g_env, def: definition)
+	tagcase def
+	   tag equates (d: equatelist):
+		g_equatelist(e, d)
+	   tag apply (d: applydefn):
+		g_applydefn(e, d, "")
+	   tag cluster_ (d: typedefn):
+		g_typedefn(e, d)
+	   end
+	end g_definition
+
+g_equatelist = proc (e: g_env, list: equatelist)
+	for eq: equate in equatelist$elements(list) do
+		e.line := eq.line
+		g_env$define(e, eq.idn,
+			     idnkind$make_expr(e_const(e, eq.expr, false)))
+		end
+	end g_equatelist
+
+g_applydefn = proc (e: g_env, def: applydefn, cname: str)
+	te: g_tenv := e.tenv
+	me: g_menv := e.menv
+	kind: int := def.kind
+	quick: bool := kind = _is_qproc  cor  kind = _is_qselproc
+	g_env$begin_routine(e,
+			    g_tenv$store_str(te, def.name),
+			    g_tenv$store_sconst(te, cname || def.name),
+			    kind)
+	need_loc: int
+	if ~quick
+	   then xinst(me, LINK, _EP)
+		need_loc := g_menv$next_loc(me)
+		immed(me, 0)
+	   end
+	pos: int := 0
+	for dec: decl in decllist$elements(def.parms) do
+		for id: idn in idnlist$elements(dec.idns) do
+			pos := pos + 1
+			g_env$define(e, id,
+				     idnkind$make_rparm(mref$make_val(pos)))
+			end
+		end
+	if kind = _is_selproc  cor  kind = _is_qselproc
+	   then if pos > 0
+		   then g_env$err(e, "use of parameters in SELPROC") end
+		e.rparm_count := -1
+		pos := -1
+	   else e.rparm_count := pos
+	   end
+	nargs: int := 0
+	for dec: decl in decllist$elements(def.args) do
+		nargs := nargs + idnlist$size(dec.idns)
+		end
+	e.arg_count := nargs
+	pp_pushed: bool := false
+	move_loc: int := g_menv$next_loc(me)
+	if ~(quick  cor  (pos = 0  cand  e.cparm_count = 0))
+	   then if nargs > 0
+		   then xinst(me, MOVEMM, _idisp_EP)
+			immed(me, 0020400)
+			immed(me, -8)
+		   else minst(me, MOVE, idisp_EP_, _addrd_PP)
+			immed(me, -4)
+		   end
+		pp_pushed := true
+	   end
+	nres: int := typelist$size(def.vals)
+	e.res_count := nres
+	pos := 4 * nargs
+	imake: mitype := idnkind$make_epvar
+	if kind = _is_iter
+	   then pos := pos + 4
+	elseif quick
+	   then pos := pos - 4
+		imake := idnkind$make_spvar
+	end
+	names: qv := qv$new()
+	last: idn
+	for dec: decl in decllist$elements(def.args) do
+		for id: idn in idnlist$elements(dec.idns) do
+			g_env$define(e, id, imake(pos))
+			last := id
+			pos := pos - 4
+			names := qv$addh(names, g_tenv$store_sconst(te, id.str))
+			end
+		end
+	e.arg_names := g_tenv$store_cell(te,
+					 _const_seq,
+					 g_tenv$store_vec(te, names))
+	g_menv$begin_vars(me)
+	if pp_pushed
+	   then g_menv$alloc_var(me) end
+	if nargs > 0
+	   then if quick
+		   then last.kind := idnkind$make_tos(nil)
+		   else last.kind := imake(g_menv$alloc_var(me))
+			if ~pp_pushed
+			   then minst(me, MOVE, idisp_EP_, _addrd_RR)
+				immed(me, -4)
+			   end
+		   end
+	   end
+	names := qv$new()
+	need: int := me.var_pos
+	g_equatelist(e, def.equates)
+	if quick  cand  varlist$size(def.vars) > 0
+	   then g_env$err(e, "cannot have local variables in qprocs") end
+	for vdec: vardecl in varlist$elements(def.vars) do
+		e.line := vdec.line
+		for id: idn in idnlist$elements(vdec.idns) do
+			g_env$define(e, id, imake(g_menv$alloc_var(me)))
+			names := qv$addh(names, g_tenv$store_sconst(te, id.str))
+			end
+		end
+	e.var_count := qv$size(names)
+	e.var_names := g_tenv$store_cell(te,
+					 _const_seq,
+					 g_tenv$store_vec(te, names))
+	g_wveclist(e, def.wvecs)
+	wmake: mwtype
+	if decllist$empty(def.parms)  cand  e.cparm_count = 0
+	   then wmake := idnkind$make_rown
+	   else wmake := idnkind$make_prown
+	   end
+	names := qv$new()
+	pos := 1
+	for vdec: vardecl in varlist$elements(def.owns) do
+		e.line := vdec.line
+		for id: idn in idnlist$elements(vdec.idns) do
+			pos := pos + 1
+			g_env$define(e, id, wmake(mref$make_val(pos)))
+			names := qv$addh(names, g_tenv$store_sconst(te, id.str))
+			end
+		end
+	e.own_names := g_tenv$store_cell(te,
+					 _const_seq,
+					 g_tenv$store_vec(te, names))
+	if pos = 1
+	   then pos := 0 end
+	e.rown_count := pos
+	for id: idn in idnlist$elements(def.labels) do
+		g_env$define(e, id, idnkind$make_flabel(ai$new()))
+		end
+	if nres = 1
+	   then rt: typespec := e_type(e, typelist$bottom(def.vals))
+		val: mref, pflag: int := g_tenv$store_tdesc(te, rt)
+		e.result := val
+	   else for rt: typespec in typelist$elements(def.vals) do
+			e_type(e, rt)
+			end
+		e.result := te.no_type
+	   end
+	for sig: exception in exceptionlist$elements(def.sigs) do
+		sig.types := e_typelist(e, sig.types)
+		end
+	e.xsignals := def.sigs
+	g_body(e, def.body)
+	if nres = 0  cor  kind = _is_iter
+	   then tagcase stmtlist$top(def.body).abs
+		   tag return_, signal_:
+		   others:
+			g_return(e, exprlist$new())
+		   end except when bounds: g_return(e, exprlist$new()) end
+	elseif stmtlist$empty(def.body)
+	   then x: expr := expr$create(exprabs$make_str("no return values"))
+		sig: condition := condition${name: "failure",
+					     vals: exprlist$[x]}
+		g_signal(e, sig)
+	end
+	def.body := stmtlist$new()
+	mpos: int := me.min_pos
+	fixups: ai := g_env$pop_fixups(e)
+	if mpos = 0
+	   then inst = MOVEA + _SP * 01000 + _addrd_EP
+		 for i: int in ai$indexes(fixups) do
+			loc: int := fixups[i] - i
+			g_menv$remove(me, loc, 1)
+			g_menv$store_value(me, loc - 1, inst)
+			end
+	   else for loc: int in ai$elements(fixups) do
+			g_menv$store_value(me, loc, mpos)
+			end
+	   end
+	if ~quick
+	   then g_menv$store_value(me, need_loc, mpos)
+		if need - mpos = 0
+		   then if nargs > 0  cand  pp_pushed
+			   then g_menv$store_value(me, move_loc,
+						   MOVEMM + _indir_SP)
+				g_menv$remove(me, move_loc + 2, 1)
+			elseif pp_pushed
+			   then g_menv$store_value(me, move_loc,
+						   MOVE + (indir_SP_ * 0100) +
+						   _addrd_PP)
+				g_menv$remove(me, move_loc + 1, 1)
+			elseif nargs > 0
+			   then g_menv$store_value(me, move_loc,
+						   MOVE + (indir_SP_ * 0100) +
+						   _addrd_RR)
+				g_menv$remove(me, move_loc + 1, 1)
+			end
+		end
+	   end
+	g_menv$end_vars(me)
+	g_env$end_routine(e)
+	end g_applydefn
+
+g_wveclist = proc (e: g_env, wvecs: wveclist)
+	te: g_tenv := e.tenv
+	for wdef: wvecdef in wveclist$elements(wvecs) do
+		e.line := wdef.line
+		x: expr := e_expr(e, wdef.size)
+		z: mref
+		tagcase x.abs
+		   tag int_ (i: int):
+			z := mref$make_val(i)
+		   others:
+			g_env$err(e, "illegal wvec size")
+			z := mref$make_val(0)
+		   end
+		for id: idn in idnlist$elements(wdef.idns) do
+			val: mref := g_tenv$store_cell(te, 1, z)
+			g_env$define(e, id, idnkind$make_wvec(val))
+			end
+		end
+	end g_wveclist
+
+g_typedefn = proc (e: g_env, d: typedefn)
+	te: g_tenv := e.tenv
+	me: g_menv := e.menv
+	cname: str := d.name
+	g_env$begin_type(e, g_tenv$store_str(te, cname))
+	cname := cname || "$"
+	parms: exprlist := exprlist$new()
+	pos: int := 0
+	for dec: decl in decllist$elements(d.parms) do
+		for id: idn in idnlist$elements(dec.idns) do
+			pos := pos + 1
+			g_env$define(e, id,
+				     idnkind$make_cparm(mref$make_val(pos)))
+			t: typespec := typespec$create(typeabs$make_idn(id))
+			parms := exprlist$addh(parms,
+					       expr$create(exprabs$make_type_(t)))
+			end
+		end
+	if d.select
+	   then if pos > 0
+		   then g_env$err(e, "use of parameters in SELECTOR") end
+		e.cparm_count := -1
+		pos := -1
+		parms := exprlist$[expr$create(exprabs$make_star(nil))]
+	   else e.cparm_count := pos
+	   end
+	e.up_type := typespec$create(typeabs$make_cluster_(
+						clutype${gen:   d.name,
+							 parms: parms}))
+	g_equatelist(e, d.equates)
+	g_wveclist(e, d.wvecs)
+	wmake: mwtype
+	if pos = 0
+	   then wmake := idnkind$make_cown
+	   else wmake := idnkind$make_pcown
+	   end
+	onames: qv := qv$new()
+	pos := 1
+	for vdec: vardecl in varlist$elements(d.owns) do
+		e.line := vdec.line
+		for id: idn in idnlist$elements(vdec.idns) do
+			pos := pos + 1
+			g_env$define(e, id, wmake(mref$make_val(pos)))
+			onames := qv$addh(onames, g_tenv$store_sconst(te, id.str))
+			end
+		end
+	if pos = 1
+	   then pos := 0 end
+	e.cown_count := pos
+	e.cown_names := g_tenv$store_vec(te, onames)
+	for op: applydefn in applydefnlist$elements(d.body) do
+		g_applydefn(e, op, cname)
+		end
+	g_env$end_type(e)
+	end g_typedefn

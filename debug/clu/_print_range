@@ -1,0 +1,36 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+%%% Print a range (inclusive) of the invocations that routine x contains.
+%%% The first invocation is numbered 1. [user-interface routine]
+%%% (SEP/Nov  6 1984)
+
+_print_range = proc (x: _obj, from, to: int) signals (not_found)
+    flag: bool := _enter_system()
+    rtn: _rtn_info := _get_rtn_info(x)
+       except when not_found:
+		   _exit_system(flag)
+		   signal not_found
+	      end
+    pp: pstream := pstream$primary_output()
+    i: int := 0
+    pstream$pause(pp, "")
+    for callee, slot: _obj in _call_slots(x, rtn) do
+	i := i + 1
+	if i >= from
+	   then if i <= to
+		   then pstream$putright(pp, int$unparse(i), 3)
+			if (_Is_Traced_Slot(x, slot))
+			   then pstream$Text(PP, ": * ");
+			   else pstream$Text(PP, ":   ");
+			   end;
+			if _obj$is_bvec(callee)
+			   then pstream$pause(pp, _cvt[_obj, string](callee))
+			   else _obj$print(callee, pp)
+				pstream$pause(pp, "")
+			   end
+		   else break
+		   end
+	   end
+	end
+    _exit_system(flag)
+    end _print_range

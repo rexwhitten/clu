@@ -1,0 +1,1042 @@
+%% Copyright Massachusetts Institute of Technology 1985, 1989
+
+%% Vax cross linker for 68000.
+
+#extend
+
+vVax = false		%% True if linker is to run on a Vax.
+
+out_link_chan = cluster is
+	new, open, temp_open, pipe_open, re_open,
+	close, delete, reset, print,
+	write_word_pair, write_long_word, write_tagged_long,
+	write_chars, write_bytes, write_word, write_byte,
+	pad_to_long, write_page,
+	skip, transfer, get_position, rewrite,
+	write_header, force_out, position,
+	cur_addr_to_string,
+ 	start_object,
+	start_text_section, end_text_section,
+	start_data_section, end_data_section,
+	set_bss_size, get_bss_size,
+	start_symbol_section, end_symbol_section,
+	output_strings_section,
+	set_entry_address,
+	set_p0_size, set_p1_size,
+	set_name_tab_addr, set_rtn_tab_addr, set_seg_map_addr,
+	set_result_code, set_result_address,
+	_gcd;
+
+    rep = variant[None:   null,
+		  Exists: window];
+    window = record [ Chan:         _chan,        %% The channel
+		      Start_Addr:   address,      %% Address of first byte in page.
+		      %				  %% Always on a word boundary.
+		      Page:         _wordvec,     %% Page being used for buffering.
+		      Idx:          int,          %% Index of next byte in Page.
+		      Text_Start:   address,	  %% Header information.
+		      Text_End:     address,
+		      Data_Start:   address,
+		      Data_End:     address,
+		      Data_File_Base: int,
+		      Symbol_Start: address,
+		      Symbol_End:   address,
+		      BSS_Size:     int,
+		      Entry_Addr:   address,
+		      Locs:	    locates,
+		      Long_Buf:	    _wordvec,	  %% Buffer for Send_Long, ...
+		      Pipe_Fl_Nm:   mfn,	  %% Pipe file name (if any)
+		      Use_Pipe:	    bool];	  %% True if output is through pipe.
+
+    mfn = oneof[None:   null,
+		Exists: file_name];
+
+    vA_Out_Magic	= 0413;	%% ZMAGIC (read-only text, demand-load).
+    vBuf_Size		= 4096;
+    vBuf_Max		= vBuf_Size + 1;
+    vBuf_Long_Left	= vBuf_Max  - 4;
+    vHeader_Size	= vPage_Size		%% One page of headers
+    vNum_Head_Entries   = vHeader_Size / vLong_Size;
+    vBase_Address	= vLow_Address
+    vFile_Base_Address	= vBase_Address - vHeader_Size;
+    vText_Fill		= vPage_Size		%% Pad text section to page.
+    vData_Fill		= vPage_Size		%% Pad data section to page.
+
+    %% Pipe protocol codes.
+    vDone_Code		= 0
+    vWrite_Code		= 1
+    vP0_Size_Code	= 2
+    vP1_Size_Code	= 3
+    vName_Tab_Code	= 4
+    vRtn_Tab_Code	= 5
+    vSeg_Map_Code	= 6
+    vLink_Result_Code	= 7
+
+
+    New = proc () returns (cvt);
+	return (rep$Make_None(nil));
+	end New;
+
+    Print = proc (OC: cvt, S: pstream);
+	pstream$Text(S, "<out_link_chan>");
+	end Print;
+
+    Open = proc (Fn: file_name, Locs: locates) returns (cvt)
+	     signals (not_possible(string));
+	Ch: _chan := _chan$Open(Fn, "write", 0755);
+	   resignal Not_Possible;
+	Start_Addr: address := address$Make_Specific(vFile_Base_Address);
+	Pg: _wordvec := _wordvec$Create(vBuf_Size/4);
+	W: window := window${ Chan:	    Ch,
+			      Start_Addr:   Start_Addr,
+			      Page:	    Pg,
+			      Idx:	    1,
+			      Text_Start:   address$Make_Null(),
+			      Text_End:     address$Make_Null(),
+			      Data_Start:   address$Make_Null(),
+			      Data_End:     address$Make_Null(),
+			      Data_File_Base: -1,
+			      Symbol_Start: address$Make_Null(),
+			      Symbol_End:   address$Make_Null(),
+			      BSS_Size:     0,
+			      Entry_Addr:   address$Make_Null(),
+			      Locs:	    Locs,
+			      Long_Buf:	    _wordvec$Create(1),
+			      Pipe_Fl_Nm:   mfn$Make_None(nil),
+			      Use_Pipe:	    false
+			     };
+	OLC: rep := rep$Make_Exists(W);
+	Write_Long_Word(up(OLC), vA_Out_Magic);	%% Magic first word for A.Out files.
+	for I: int in int$From_To(2, vNum_Head_Entries) do
+	    Write_Long_Word(up(OLC), 0);	%% Zero other pointers.
+	    end;
+	Force_Window_Out(W);
+	W.Start_Addr := address$Make_Specific(vBase_Address);
+	return (rep$Make_Exists(W));
+	end Open;
+
+    Temp_Open = proc (Fn: file_name, Locs: locates, Start_Addr: address)
+		  returns (cvt) signals (not_possible(string));
+	Ch: _chan := _chan$Open(Fn, "random", 0755);
+	   resignal Not_Possible;
+	Pg: _wordvec := _wordvec$Create(vBuf_Size/4);
+	Start_Addr := address$Fix_Address(Start_Addr, Locs);
+	W: window := window${ Chan:	    Ch,
+			      Start_Addr:   Start_Addr,
+			      Page:	    Pg,
+			      Idx:	    1,
+			      Text_Start:   address$Make_Null(),
+			      Text_End:     address$Make_Null(),
+			      Data_Start:   address$Make_Null(),
+			      Data_End:     address$Make_Null(),
+			      Data_File_Base: -1,
+			      Symbol_Start: address$Make_Null(),
+			      Symbol_End:   address$Make_Null(),
+			      BSS_Size:     0,
+			      Entry_Addr:   address$Make_Null(),
+			      Locs:         Locs,
+			      Long_Buf:	    _wordvec$Create(1),
+			      Pipe_Fl_Nm:   mfn$Make_None(nil),
+			      Use_Pipe:     false
+			     };
+	return (rep$Make_Exists(W));
+	end Temp_Open;
+
+
+    Pipe_Open = proc (Pipe: _chan, Locs: locates, Pipe_File_Name: mfn)
+		  returns (cvt) signals (not_possible(string));
+	Pg: _wordvec := _wordvec$Create(vBuf_Size/4);
+	W: window := window${ Chan:	    Pipe,
+			      Start_Addr:   address$Make_Specific(0),
+			      Page:	    Pg,
+			      Idx:	    1,
+			      Text_Start:   address$Make_Null(),
+			      Text_End:     address$Make_Null(),
+			      Data_Start:   address$Make_Null(),
+			      Data_End:     address$Make_Null(),
+			      Data_File_Base: -1,
+			      Symbol_Start: address$Make_Null(),
+			      Symbol_End:   address$Make_Null(),
+			      BSS_Size:     0,
+			      Entry_Addr:   address$Make_Null(),
+			      Locs:	    Locs,
+			      Long_Buf:	    _wordvec$Create(1),
+			      Pipe_Fl_Nm:   Pipe_File_Name,
+			      Use_Pipe:	    true
+			     };
+	return (rep$Make_Exists(W));
+	end Pipe_Open;
+
+    Re_Open = proc (Pipe: _chan, Locs: locates, Pipe_File_Name: mfn)
+		returns (cvt) signals (not_possible(string));
+	Pg: _wordvec := _wordvec$Create(vBuf_Size/4);
+	W: window := window${ Chan:	    Pipe,
+			      Start_Addr:   locates$ReStart_Address(Locs),
+			      Page:	    Pg,
+			      Idx:	    1,
+			      Text_Start:   address$Make_Null(),
+			      Text_End:     address$Make_Null(),
+			      Data_Start:   address$Make_Null(),
+			      Data_End:     address$Make_Null(),
+			      Data_File_Base: -1,
+			      Symbol_Start: address$Make_Null(),
+			      Symbol_End:   address$Make_Null(),
+			      BSS_Size:     0,
+			      Entry_Addr:   address$Make_Null(),
+			      Locs:	    Locs,
+			      Long_Buf:	    _wordvec$Create(1),
+			      Pipe_Fl_Nm:   Pipe_File_Name,
+			      Use_Pipe:	    true
+			     };
+	return (rep$Make_Exists(W));
+	end Re_Open;
+
+
+    Close = proc (OC: cvt) signals (not_possible);
+	tagcase OC
+	   tag None:
+	       signal Not_Possible;
+	   tag Exists (W: window):
+	       Force_Window_Out(W);
+	       if (~ W.Use_Pipe)
+		  then _chan$Close(W.Chan);
+			  except when Not_Possible (Err_S: string):
+				      Should_Never_Happen[window](
+					  "Unable to close output _chan: " || Err_S, W);
+				 end;
+		  else Done(up(OC));
+		  end;
+	       rep$Change_None(OC, nil);
+	   end;
+	end Close;
+
+    Delete = proc (OC: cvt);
+	tagcase OC
+	   tag None:
+	   tag Exists (W: window):
+	       if (~ W.Use_Pipe)
+		  then _chan$Abort(W.Chan);
+		  end;
+	       rep$Change_None(OC, nil);
+	   end;
+	end Delete;
+
+    Reset = proc (OC: cvt);
+	tagcase OC
+	   tag None:
+	   tag Exists (W: window):
+	       Force_Window_Out(W);
+	       if (~ W.Use_Pipe)
+		  then _chan$Close(W.Chan);
+			  except when Not_Possible (Err_S: string):
+				      Should_Never_Happen[window](
+					  "Unable to close output _chan: " || Err_S, W);
+				 end;
+		  end;
+	       rep$Change_None(OC, nil);
+	   end;
+	end Reset;
+
+
+    Write_Header = proc (OC: cvt, Env:lnk_env);
+	vText_Size_Pos	=  4;
+	vData_Size_Pos	=  8;
+	vBSS_Size_Pos	= 12;
+	vSyms_Size_Pos  = 16;
+	vEntry_Addr_Pos = 20;
+	W: window := rep$Value_Exists(OC);
+	if (W.Use_Pipe)
+	   then return;			%% No header for pipe mode.
+	   end;
+	Force_Window_Out(W);
+	Locs: locates := W.Locs;
+	Write_at_File_Pos(W, vText_Size_Pos,		%% Size of text segment.
+			  address$Fix_Address(W.Text_End, Locs) -
+			  address$Fix_Address(W.Text_Start, Locs));
+	Write_at_File_Pos(W, vData_Size_Pos,		%% Size of data segment.
+			  address$Fix_Address(W.Data_End, Locs) -
+			  address$Fix_Address(W.Data_Start, Locs));
+	Write_at_File_Pos(W, vBSS_Size_Pos,		%% Size of BSS segment.
+			  W.BSS_Size);
+	Write_at_File_Pos(W, vSyms_Size_Pos,		%% Size of symbol segment.
+			  address$Fix_Address(W.Symbol_End, Locs) -
+			  address$Fix_Address(W.Symbol_Start, Locs));
+	Write_at_File_Pos(W, vEntry_Addr_Pos,		%% Entry point.
+			  address$A_to_Int(W.Entry_Addr, Locs));
+	end Write_Header;
+
+
+    Write_Long_Word = proc (OC: cvt, Out_Wrd: int) signals (not_possible);
+	tagcase OC
+	   tag None:
+	       signal Not_Possible;
+	   tag Exists (W: window):
+	       if (W.Idx > vBuf_Long_Left)
+		  then Dump_It(W);
+		  end;
+	       if (vVax)
+		  then %% Must swap bytes.
+		       BSwap_LStore(W.Page, W.Idx, Out_Wrd);
+		  else _wordvec$LStore(W.Page, W.Idx, Out_Wrd);
+		  end
+	       W.Idx := W.Idx + 4;
+	   end;
+	end Write_Long_Word;
+
+    Write_Word_Pair = proc (OC: cvt, High_Word, Low_Word: int) signals (not_possible);
+	tagcase OC
+	   tag None:
+	       signal Not_Possible;
+	   tag Exists (W: window):
+	       if (W.Idx > vBuf_Long_Left)
+		  then Dump_It(W);
+		  end;
+	       if (vVax)
+		  then %% Must swap words and bytes.
+		       BSwap_WStore(W.Page, W.Idx,   High_Word);
+		       BSwap_WStore(W.Page, W.Idx+2, Low_Word);
+		  else _wordvec$WStore(W.Page, W.Idx,   High_Word);
+		       _wordvec$WStore(W.Page, W.Idx+2, Low_Word);
+		  end
+	       W.Idx := W.Idx + 4;
+	   end;
+	end Write_Word_Pair;
+
+    Write_Tagged_Long = proc (OC: cvt, Tag_Value: int, Long: int) signals (not_possible);
+	tagcase OC
+	   tag None:
+	       signal Not_Possible;
+	   tag Exists (W: window):
+	       if (W.Idx > vBuf_Long_Left)
+		  then Dump_It(W);
+		  end;
+	       if (vVax)
+		  then %% Must swap all bytes.
+		       BSwap_LStore(W.Page, W.Idx, Long);
+		  else _wordvec$LStore(W.Page, W.Idx, Long);
+		  end
+	       _wordvec$BStore(W.Page, W.Idx+0, Tag_Value);
+	       W.Idx := W.Idx + 4;
+	   end;
+	end Write_Tagged_Long;
+
+
+    %% Chars will be padded with zeroes to long word.
+
+    Write_Chars = proc (OC: cvt, Chars: string) signals (not_possible);
+	tagcase OC
+	   tag None:
+	       signal Not_Possible;
+	   tag Exists (W: window):
+	       Page: _wordvec := W.Page;
+	       Idx: int := W.Idx;
+	       Size: int := string$Size(Chars);
+	       I: int := 1;
+	       while (Size > 0) do
+		   if (Idx > vBuf_Size)
+		      then W.Idx := Idx;
+			   Dump_It(W);
+			   Idx := W.Idx;
+		      end;
+		   Room: int := int$Min(Size, (vBuf_Max - Idx));
+		   _wordvec$Move_B2W(_Cvt[string, _bytevec](Chars), I,
+				     Page, Idx,
+				     Room);
+		   Size := Size - Room;
+		   Idx := Idx + Room;
+		   I := I + Room;
+		   end;
+	       %% Now pad.
+	       Cur_Offset: int := address$Advance(W.Start_Addr,
+						  (Idx - 1)).Addr_Offset;
+	       while ((Cur_Offset // 4) ~= 0) do
+		   _wordvec$BStore(Page, Idx, 0);
+		   Idx := Idx + 1;
+		   Cur_Offset := Cur_Offset + 1;
+		   end;
+	       W.Idx := Idx;
+	   end;
+	end Write_Chars;
+
+
+    %% Will not be padded.
+
+    Write_Bytes = proc (OC: cvt, Bytes: ints) signals (not_possible);
+	tagcase OC
+	   tag None:
+	       signal Not_Possible;
+	   tag Exists (W: window):
+	       Page: _wordvec := W.Page;
+	       Idx: int := W.Idx;
+	       Size: int := ints$Size(Bytes);
+	       Room: int := 0;
+	       for B: int in ints$Elements(Bytes) do
+		   if (Room = 0)
+		      then if (Idx > vBuf_Size)
+			      then W.Idx := Idx;
+				   Dump_It(W);
+				   Idx := W.Idx;
+			      end;
+			   Room := int$Min(Size, (vBuf_Max - Idx));
+			   Size := Size - Room;
+		      end;
+		   _wordvec$BStore(Page, Idx, B);
+		   Room := Room - 1;
+		   Idx := Idx + 1;
+		   end;
+	       W.Idx := Idx;
+	   end;
+	end Write_Bytes;
+
+
+    %% Write short word (2 bytes) no padding!
+
+    Write_Word = proc (OC: cvt, Word: int) signals (not_possible);
+	tagcase OC
+	   tag None:
+	       signal Not_Possible;
+	   tag Exists (W: window):
+	       if (W.Idx > vBuf_Size)
+		  then Dump_It(W);
+		  end;
+	       if (vVax)
+		  then %% Must swap all bytes.
+		       BSwap_WStore(W.Page, W.Idx, Word);
+		  else _wordvec$WStore(W.Page, W.Idx, Word);
+		  end
+	       W.Idx := W.Idx + 2;
+	   end;
+	end Write_Word;
+
+    Write_Byte = proc (OC: cvt, Byte: int) signals (not_possible);
+	tagcase OC
+	   tag None:
+	       signal Not_Possible;
+	   tag Exists (W: window):
+	       if (W.Idx > vBuf_Size)
+		  then Dump_It(W);
+		  end;
+	       _wordvec$BStore(W.Page, W.Idx, Byte);
+	       W.Idx := W.Idx + 1;
+	   end;
+	end Write_Byte;
+
+    Pad_to_Long = proc (OC: cvt, Pad: int) signals (not_possible);
+	tagcase OC
+	   tag None:
+	       signal Not_Possible;
+	   tag Exists (W: window):
+	       Idx: int := W.Idx;
+	       Page: _wordvec := W.Page;
+	       %% Now pad.
+	       Cur_Offset: int := address$Advance(W.Start_Addr,
+						  (Idx - 1)).Addr_Offset;
+	       while ((Cur_Offset // 4) ~= 0) do
+		   _wordvec$BStore(Page, Idx, Pad);
+		   Idx := Idx + 1;
+		   Cur_Offset := Cur_Offset + 1;
+		   end;
+	       W.Idx := Idx;
+	   end;
+	end Pad_to_Long;
+
+
+    %% Base and Size in bytes.
+    Write_Page = proc (OC: cvt, P: _wordvec, Base: int, Num_Bytes: int)
+		   signals (not_possible);
+	tagcase OC
+	   tag None:
+	       signal Not_Possible;
+	   tag Exists (W: window):
+	       Idx: int := W.Idx;
+	       while (Num_Bytes > 0) do
+		   if (Idx > vBuf_Size)
+		      then W.Idx := Idx;
+			   Dump_It(W);
+			   Idx := W.Idx;
+		      end;
+		   Moved: int := int$Min((vBuf_Max - Idx), Num_Bytes);
+		   _bytevec$Move_LR(_Cvt[_wordvec, _bytevec](P), Base,
+				    _Cvt[_wordvec, _bytevec](W.Page), Idx,
+				    Moved);
+		   Num_Bytes := Num_Bytes - Moved;
+		   Base := Base + Moved;
+		   Idx := Idx + Moved;
+		   end;
+	       W.Idx := Idx;
+	   end;
+	end Write_Page;
+
+    Skip = proc (OC: cvt, Num_Bytes: int) signals (not_possible);
+	own Zeroes: _wordvec := _wordvec$Create(vBuf_Size/4);
+	tagcase OC
+	   tag None:
+	       signal Not_Possible;
+	   tag Exists (W: window):
+	       while (Num_Bytes > vBuf_Size) do
+		   Write_Page(up(OC), Zeroes, 1, vBuf_Size);
+		   Num_Bytes := Num_Bytes - vBuf_Size;
+		   end;
+	       if (Num_Bytes > 0)
+		  then Write_Page(up(OC), Zeroes, 1, Num_Bytes);
+		  end;
+	   end;
+	end Skip;
+
+
+    %% Transfer contents of one out_link_chan into this one.
+
+    Transfer = proc (OC: cvt, From_OC: cvt);
+	Force_Out(up(OC));		%% First force out the two chans.
+	Force_Out(up(From_OC));
+	TW: window := rep$Value_Exists(OC);
+	FW: window := rep$Value_Exists(From_OC);
+	TCh: _chan := TW.Chan;
+	FCh: _chan := FW.Chan;
+	_chan$Reset(FCh);
+	FPg: _wordvec := FW.Page;
+	TSA: address := TW.Start_Addr;
+	while (true) do
+	    Cnt: int := _chan$GetW(FCh, FPg);
+	    if (TW.Use_Pipe)
+	       then Send_Long(TCh, TW.Long_Buf, vWrite_Code);
+		    AH, AL: int := address$A_to_Ints(TSA, TW.Locs);
+		    Send_2_Words(TCh, TW.Long_Buf, AH, AL);
+		    Send_Long(TCh, TW.Long_Buf, Cnt);
+		    if (mfn$Is_Exists(TW.Pipe_Fl_Nm))
+		       then PF_Ch: _chan := Open_Pipe_File(TW);
+			    Send_Long(PF_Ch, TW.Long_Buf, vWrite_Code);
+			    Send_2_Words(PF_Ch, TW.Long_Buf, AH, AL);
+			    Send_Long(PF_Ch, TW.Long_Buf, Cnt);
+			    _chan$Close(PF_Ch)
+		       end
+	       end;
+	    _chan$PutW(TCh, FPg, 1, Cnt, false);
+	    TSA := address$Advance(TSA, Cnt);
+	    end;
+	   except when End_of_File:
+		  end;
+	TW.Start_Addr := TSA;
+	TW.Idx := 1;
+	end Transfer;
+
+
+    Get_Position = proc (OC: cvt) returns (address) signals (not_possible);
+	tagcase OC
+	   tag None:
+	       signal Not_Possible
+	   tag Exists (W: window):
+	       return (address$Advance(W.Start_Addr, (W.Idx - 1)));
+	   end;
+	end Get_Position;
+
+    ReWrite = proc (OC: cvt, Pos: address, Wrd: int) signals (not_possible);
+	tagcase OC
+	   tag None:
+	       signal Not_Possible;
+	   tag Exists (W: window):
+	       Force_Window_Out(W);
+	       if (W.Use_Pipe)
+		  then P: _chan := W.Chan;
+		       Buf: _wordvec := W.Long_Buf;
+		       Send_Long(P, Buf, vWrite_Code);
+		       AH, AL: int := address$A_to_Ints(Pos, W.Locs);
+		       Send_2_Words(P, Buf, AH, AL);	%% Tell where to write.
+		       Send_Long(P, Buf, 4);		%% 4 bytes.
+		       Send_Long(P, Buf, Wrd);	%% The longword.
+		       if (mfn$Is_Exists(W.Pipe_Fl_Nm))
+			  then PF_Ch: _chan := Open_Pipe_File(W);
+			       Send_Long(P, Buf, vWrite_Code);
+			       Send_2_Words(P, Buf, AH, AL);    %% Tell where to write.
+			       Send_Long(P, Buf, 4);            %% 4 bytes.
+			       Send_Long(P, Buf, Wrd);  %% The longword.
+			       _chan$Close(PF_Ch);
+			  end
+		  else if (address$In_P1(Pos))
+			  then signal Not_Possible;
+			  end;
+		       Write_at_File_Pos(W,
+					 (address$A_to_Int(Pos, W.Locs) - vFile_Base_Address),
+					 Wrd);
+			  resignal Not_Possible;
+			  except when Overflow:
+				      signal Not_Possible;
+				 end;
+		  end;
+	   end;
+	   except when Not_Possible(*):
+		       signal Not_Possible;
+		  end;
+	end ReWrite;
+
+    %% FPos is byte index in output _chan.
+    Write_at_File_Pos = proc (W: window, FPos: int, Wrd: int);
+	W.Chan.Access := FPos;
+	   except when Not_Possible (Err_S: string):
+		       Should_Never_Happen[window](
+			   "Unable to position output _chan: " || Err_S, W);
+		  end;
+	if (vVax)
+	   then BSwap_LStore(W.Page, W.Idx, Wrd);
+	   else _wordvec$LStore(W.Page, W.Idx, Wrd);
+	   end
+	W.Idx := W.Idx + 4;
+	Dump_It(W);
+	end Write_at_File_Pos;
+
+    Position = proc (OC: cvt, Pos: address) signals (not_possible, mis_aligned);
+	tagcase OC
+	   tag None:
+	       signal Not_Possible;
+	   tag Exists (W: window):
+	       Pos := address$Fix_Address(Pos, W.Locs);
+		  resignal Not_Possible;
+	       if (Pos ~= address$Advance(W.Start_Addr, (W.Idx - 1)))
+		  then Force_Window_Out(W);
+		       if (~ W.Use_Pipe)
+			  then if ((Pos.Addr_Offset // vLong_Size) ~= 0)
+				  then signal Mis_Aligned;      %% Must be on long word boundary.
+				  end;
+			       if (address$In_P1(Pos))
+				  then signal Not_Possible;
+				  end;
+			       Access_Pos: int := address$A_to_Int(Pos, W.Locs);
+			       if ((W.Data_File_Base ~= -1) cand
+				   (Pos > W.Data_Start))
+				  then W.Chan.Access := Access_Pos - W.Data_File_Base;
+					  except when Overflow:
+						      exit Not_Possible("position overflow");
+						 end;
+					  except when Not_Possible (Err_S: string):
+						      Should_Never_Happen[window](
+							  "Unable to position output _chan: " || Err_S, W);
+						 end;
+				  else W.Chan.Access := Access_Pos - vFile_Base_Address;
+					  except when Overflow:
+						      exit Not_Possible("position overflow");
+						 end;
+					  except when Not_Possible (Err_S: string):
+						      Should_Never_Happen[window](
+							  "Unable to position output _chan: " || Err_S, W);
+						 end;
+				  end;
+			elseif ((Pos.Addr_Offset // vWord_Size) ~= 0)
+			  then signal Mis_Aligned;      %% Must be on word boundary.
+			end;
+		       W.Start_Addr := Pos;
+		  end;
+	   end;
+	end Position;
+
+
+    Dump_It = proc (W: window);
+	Cnt: int := W.Idx - 1;
+	Byte_Rem: int := Cnt // 2;		%% Must keep Page word aligned.
+	Cnt := Cnt - Byte_Rem;
+	if (W.Use_Pipe)
+	   then P: _chan := W.Chan;
+		Buf: _wordvec := W.Long_Buf;
+		Send_Long(P, Buf, vWrite_Code);	%% Writing data.
+		AH, AL: int := address$A_to_Ints(W.Start_Addr, W.Locs);
+		Send_2_Words(P, Buf, AH, AL);	%% Start address.
+		Send_Long(P, Buf, Cnt);		%% Number of bytes.
+		_chan$PutW(P, W.Page, 1, Cnt, false);
+		if (mfn$Is_Exists(W.Pipe_Fl_Nm))
+		   then PF_Ch: _chan := Open_Pipe_File(W);
+			Send_Long(PF_Ch, Buf, vWrite_Code);     %% Writing data.
+			Send_2_Words(PF_Ch, Buf, AH, AL);       %% Start address.
+			Send_Long(PF_Ch, Buf, Cnt);             %% Number of bytes.
+			_chan$PutW(PF_Ch, W.Page, 1, Cnt, false);
+			_chan$Close(PF_Ch);
+		   end;
+	   else _chan$PutW(W.Chan, W.Page, 1, Cnt, false);
+		   except when Not_Possible (Err_S: string):
+			       Should_Never_Happen[window](
+				   "Unable to write to _chan: " || Err_S, W);
+			  end;
+	   end;
+	W.Start_Addr := address$Advance(W.Start_Addr, Cnt);
+	if (Byte_Rem > 0)
+	   then %% Move top 2 bytes down to bottom.
+		P: _wordvec := W.Page;
+		_wordvec$WStore(P, 1,
+				_wordvec$WFetch(P, Cnt+1));
+	   end;
+	W.Idx := Byte_Rem + 1;
+	end Dump_It;
+
+    Force_Window_Out = proc (W: window);
+	if (W.Idx ~= 1)
+	   then if (false)	%% Try not doing this hidden padding! ???
+		   then %% Be sure that all bytes get output by padding with zeroes
+			%% to longword boundary.
+			Cur_Offset: int := address$Advance(W.Start_Addr,
+							   (W.Idx - 1)).Addr_Offset;
+			while ((Cur_Offset // 4) ~= 0) do
+			    _wordvec$BStore(W.Page, W.Idx, 0);
+			    W.Idx := W.Idx + 1;
+			    Cur_Offset := Cur_Offset + 1;
+			    end;
+		   end
+		Dump_It(W);
+	   end;
+	end Force_Window_Out;
+
+    Force_Out = proc (OC: cvt);
+	tagcase OC
+	   tag None:
+	   tag Exists (W: window):
+	       Force_Window_Out(W);
+	   end;
+	end Force_Out;
+
+
+    Start_Text_Section = proc (OC: cvt) signals (not_possible);
+	tagcase OC
+	   tag None:
+	       signal Not_Possible;
+	   tag Exists (W: window):
+	       Force_Window_Out(W);
+	       W.Text_Start := W.Start_Addr;
+	   end;
+	end Start_Text_Section;
+
+    End_Text_Section = proc (OC: cvt, Env: lnk_env) signals (not_possible);
+	tagcase OC
+	   tag None:
+	       signal Not_Possible;
+	   tag Exists (W: window):
+	       if (~ W.Use_Pipe)
+		  then %% Must fill out to full allignment.
+		       Slop: int := address$A_to_Int(Get_Position(up(OC)),
+						     Env.Locates) // vText_Fill;
+		       if (Slop > 0)
+			  then Skip(up(OC),
+				    (vText_Fill - Slop));   %% Skip, filling with zeroes, to end of page.
+			  end;
+		  end;
+	       Force_Window_Out(W);
+	       W.Text_End := W.Start_Addr;
+	   end;
+	end End_Text_Section;
+
+    Start_Data_Section = proc (OC: cvt, Start_Addr: address) signals (not_possible);
+	tagcase OC
+	   tag None:
+	       signal Not_Possible;
+	   tag Exists (W: window):
+	       Force_Window_Out(W);
+	       W.Data_Start := Start_Addr;
+	       W.Start_Addr := Start_Addr;
+	       if (~ W.Use_Pipe)
+		  then Cur_Addr: int := address$A_to_Int(Start_Addr, W.Locs);
+		       W.Data_File_Base := Cur_Addr - W.Chan.Access;
+		  end;
+	   end;
+	end Start_Data_Section;
+
+    End_Data_Section = proc (OC: cvt, Env: lnk_env) signals (not_possible);
+	tagcase OC
+	   tag None:
+	       signal Not_Possible;
+	   tag Exists (W: window):
+	       if (~ W.Use_Pipe)
+		  then  %% Must fill out to full allignment.
+		       Slop: int := address$A_to_Int(Get_Position(up(OC)),
+						     Env.Locates) // vData_Fill;
+		       if (Slop > 0)
+			  then Skip(up(OC),
+				    (vData_Fill - Slop));   %% Skip, filling with zeroes, to end of page.
+			  end;
+		  end;
+	       Force_Window_Out(W);
+	       W.Data_End := W.Start_Addr;
+	   end;
+	end End_Data_Section;
+
+    Set_BSS_Size = proc (OC: cvt, Size: int) signals (not_possible);
+	tagcase OC
+	   tag None:
+	       signal Not_Possible;
+	   tag Exists (W: window):
+	       W.BSS_Size := Size;
+	   end;
+	end Set_BSS_Size;
+
+    Get_BSS_Size = proc (OC: cvt) returns (int) signals (not_possible);
+	tagcase OC
+	   tag None:
+	       signal Not_Possible;
+	   tag Exists (W: window):
+	       return (W.BSS_Size);
+	   end;
+	end Get_BSS_Size;
+
+
+    Start_Symbol_Section = proc (OC: cvt) signals (not_possible);
+	tagcase OC
+	   tag None:
+	       signal Not_Possible;
+	   tag Exists (W: window):
+	       Force_Window_Out(W);
+	       W.Symbol_Start := W.Start_Addr;
+	   end;
+	end Start_Symbol_Section;
+
+    End_Symbol_Section = proc (OC: cvt) signals (not_possible);
+	tagcase OC
+	   tag None:
+	       signal Not_Possible;
+	   tag Exists (W: window):
+	       Force_Window_Out(W);
+	       W.Symbol_End := W.Start_Addr;
+	   end;
+	end End_Symbol_Section;
+
+    Output_Strings_Section = proc (OC: cvt, Strs: a_strings) signals (not_possible);
+	Write_Long_Word(up(OC), Strs.Size);
+	   resignal Not_Possible;
+	tagcase OC
+	   tag None:
+	       signal Not_Possible;
+	   tag Exists (W: window):
+	       Page: _wordvec := W.Page;
+	       Idx: int := W.Idx;
+	       for S: string in a_strings$Strings(Strs) do
+		   Size: int := string$Size(S);
+		   I: int := 1;
+		   while (Size > 0) do
+		       if (Idx > vBuf_Size)
+			  then W.Idx := Idx;
+			       Dump_It(W);
+			       Idx := W.Idx;
+			  end;
+		       Room: int := int$Min(Size, (vBuf_Max - Idx));
+		       _wordvec$Move_B2W(_Cvt[string, _bytevec](S), I,
+					 Page, Idx,
+					 Room);
+		       Size := Size - Room;
+		       Idx := Idx + Room;
+		       I := I + Room;
+		       end;
+		   if (Idx > vBuf_Size)
+		      then W.Idx := Idx;
+			   Dump_It(W);
+			   Idx := W.Idx;
+		      end;
+		   _wordvec$BStore(Page, Idx, 0);	%% End with zero byte.
+		   Idx := Idx + 1;
+		   end;
+	       W.Idx := Idx;
+	       Pad_to_Long(up(OC), 0);		%% Pad out with zeros.
+	       Force_Window_Out(W);
+	   end;
+	end Output_Strings_Section;
+
+    Set_Entry_Address = proc (OC: cvt, Entry_Addr: address);
+	rep$Value_Exists(OC).Entry_Addr := Entry_Addr;
+	end Set_Entry_Address;
+
+    Start_Object = proc (OC: cvt) returns (address);
+	W: window := rep$Value_Exists(OC);
+	return (address$Advance(W.Start_Addr, (W.Idx - 1)));
+	end Start_Object;
+
+    Cur_Addr_to_String = proc (OC: cvt) returns (string);
+	W: window := rep$Value_Exists(OC);
+	CA: address := address$Advance(W.Start_Addr, (W.Idx - 1));
+	return (address$OUnparse(CA) || " " || address$HUnparse(CA));
+	end Cur_Addr_To_String;
+
+    _gcd = proc (CT: cvt, Tab: gcd_tab) returns (int);
+	drep = variant[None:   null,
+		       Exists: null];
+	%% Must be a None for this to work.
+	return (drep$_gcd(_cvt[rep, drep](CT), Tab));
+	end _gcd;
+
+
+    Done = proc (OC: cvt) signals (not_possible);
+	tagcase OC
+	   tag None:
+	       signal Not_Possible;
+	   tag Exists (W: window):
+	       if (W.Use_Pipe)
+		  then Send_Long(W.Chan, W.Long_Buf, vDone_Code);
+		       if (mfn$Is_Exists(W.Pipe_Fl_Nm))
+			  then PF_Ch: _chan := Open_Pipe_File(W);
+			       Send_Long(PF_Ch, W.Long_Buf, vDone_Code);
+			       _chan$Close(PF_Ch);
+			  end;
+		  end;
+	   end;
+	end Done;
+
+    Set_P0_Size = proc (OC: cvt, Size: int) signals (not_possible);
+	tagcase OC
+	   tag None:
+	       signal Not_Possible;
+	   tag Exists (W: window):
+	       if (W.Use_Pipe)
+		  then P: _chan := W.Chan;
+		       Buf: _wordvec := W.Long_Buf;
+		       Send_Long(P, Buf, vP0_Size_Code);
+		       Send_Long(P, Buf, Size);
+		       if (mfn$Is_Exists(W.Pipe_Fl_Nm))
+			  then PF_Ch: _chan := Open_Pipe_File(W);
+			       Send_Long(PF_Ch, Buf, vP0_Size_Code);
+			       Send_Long(PF_Ch, Buf, Size);
+			       _chan$Close(PF_Ch);
+			  end;
+		  end;
+	   end;
+	end Set_P0_Size;
+
+    Set_P1_Size = proc (OC: cvt, Size: int) signals (not_possible);
+	tagcase OC
+	   tag None:
+	       signal Not_Possible;
+	   tag Exists (W: window):
+	       if (W.Use_Pipe)
+		  then P: _chan := W.Chan;
+		       Buf: _wordvec := W.Long_Buf;
+		       Send_Long(P, Buf, vP1_Size_Code);
+		       Send_Long(P, Buf, Size);
+		       if (mfn$Is_Exists(W.Pipe_Fl_Nm))
+			  then PF_Ch: _chan := Open_Pipe_File(W);
+			       Send_Long(PF_Ch, Buf, vP1_Size_Code);
+			       Send_Long(PF_Ch, Buf, Size);
+			       _chan$Close(PF_Ch);
+			  end;
+		  end;
+	   end;
+	end Set_P1_Size;
+
+    Set_Name_Tab_Addr = proc (OC: cvt, Addr: address) signals (not_possible);
+	tagcase OC
+	   tag None:
+	       signal Not_Possible;
+	   tag Exists (W: window):
+	       if (W.Use_Pipe)
+		  then P: _chan := W.Chan;
+		       Send_Long(P, W.Long_Buf, vName_Tab_Code);
+		       AH, AL: int := address$A_to_Ints(Addr, W.Locs);
+		       Send_2_Words(P, W.Long_Buf, AH, AL);
+		       if (mfn$Is_Exists(W.Pipe_Fl_Nm))
+			  then PF_Ch: _chan := Open_Pipe_File(W);
+			       Send_Long(PF_Ch, W.Long_Buf, vName_Tab_Code);
+			       Send_2_Words(PF_Ch, W.Long_Buf, AH, AL);
+			       _chan$Close(PF_Ch);
+			  end;
+		  end;
+	   end;
+	end Set_Name_Tab_Addr;
+
+    Set_Rtn_Tab_Addr = proc (OC: cvt, Addr: address) signals (not_possible);
+	tagcase OC
+	   tag None:
+	       signal Not_Possible;
+	   tag Exists (W: window):
+	       if (W.Use_Pipe)
+		  then P: _chan := W.Chan;
+		       Send_Long(P, W.Long_Buf, vRtn_Tab_Code);
+		       AH, AL: int := address$A_to_Ints(Addr, W.Locs);
+		       Send_2_Words(P, W.Long_Buf, AH, AL);
+		       if (mfn$Is_Exists(W.Pipe_Fl_Nm))
+			  then PF_Ch: _chan := Open_Pipe_File(W);
+			       Send_Long(PF_Ch, W.Long_Buf, vRtn_Tab_Code);
+			       Send_2_Words(PF_Ch, W.Long_Buf, AH, AL);
+			       _chan$Close(PF_Ch);
+			  end;
+		  end;
+	   end;
+	end Set_Rtn_Tab_Addr;
+
+    Set_Seg_Map_Addr = proc (OC: cvt, Addr: address) signals (not_possible);
+	tagcase OC
+	   tag None:
+	       signal Not_Possible;
+	   tag Exists (W: window):
+	       if (W.Use_Pipe)
+		  then P: _chan := W.Chan;
+		       Send_Long(P, W.Long_Buf, vSeg_Map_Code);
+		       AH, AL: int := address$A_to_Ints(Addr, W.Locs);
+		       Send_2_Words(P, W.Long_Buf, AH, AL);
+		       if (mfn$Is_Exists(W.Pipe_Fl_Nm))
+			  then PF_Ch: _chan := Open_Pipe_File(W);
+			       Send_Long(PF_Ch, W.Long_Buf, vSeg_Map_Code);
+			       Send_2_Words(PF_Ch, W.Long_Buf, AH, AL);
+			       _chan$Close(PF_Ch);
+			  end;
+		  end;
+	   end;
+	end Set_Seg_Map_Addr;
+
+    Set_Result_Code = proc (OC: cvt, Res: int) signals (not_possible);
+	tagcase OC
+	   tag None:
+	       signal Not_Possible;
+	   tag Exists (W: window):
+	       if (W.Use_Pipe)
+		  then P: _chan := W.Chan;
+		       Send_Long(P, W.Long_Buf, vLink_Result_Code);
+		       Send_Long(P, W.Long_Buf, Res);
+		       if (mfn$Is_Exists(W.Pipe_Fl_Nm))
+			  then PF_Ch: _chan := Open_Pipe_File(W);
+			       Send_Long(PF_Ch, W.Long_Buf, vLink_Result_Code);
+			       Send_Long(PF_Ch, W.Long_Buf, Res);
+			       _chan$Close(PF_Ch);
+			  end;
+		  end;
+	   end;
+	end Set_Result_Code;
+
+    Set_Result_Address = proc (OC: cvt, Addr: address) signals (not_possible);
+	tagcase OC
+	   tag None:
+	       signal Not_Possible;
+	   tag Exists (W: window):
+	       if (W.Use_Pipe)
+		  then P: _chan := W.Chan;
+		       Send_Long(P, W.Long_Buf, vLink_Result_Code);
+		       AH, AL: int := address$A_to_Ints(Addr, W.Locs);
+		       Send_2_Words(P, W.Long_Buf, AH, AL);
+		       if (mfn$Is_Exists(W.Pipe_Fl_Nm))
+			  then PF_Ch: _chan := Open_Pipe_File(W);
+			       Send_Long(PF_Ch, W.Long_Buf, vLink_Result_Code);
+			       Send_2_Words(PF_Ch, W.Long_Buf, AH, AL);
+			       _chan$Close(PF_Ch);
+			  end;
+		  end;
+	   end;
+	end Set_Result_Address;
+
+    Send_Long = proc (Ch: _chan, Buf: _wordvec, L: int) signals (not_possible(string));
+	vByte_Div = 2 ** vBits_per_Byte;
+	Buf[1] := L;
+	_chan$PutW(Ch, Buf, 1, 4, false);
+	   resignal Not_Possible;
+	end Send_Long;
+
+    Send_2_Words = proc (Ch: _chan, Buf: _wordvec, H, L: int) signals (not_possible(string));
+	vByte_Div = 2 ** vBits_per_Byte;
+	if (vVax)
+	   then %% Not used in Vax cross linker.
+	   else _wordvec$Store2(Buf, 1, H, L);
+	   end
+	_chan$PutW(Ch, Buf, 1, 4, false);
+	   resignal Not_Possible;
+	end Send_2_Words;
+
+    Open_Pipe_File = proc (W: window) returns (_chan)
+	return (_chan$Open(mfn$Value_Exists(W.Pipe_Fl_Nm),
+			   "append", 0644))
+	   except when Not_Possible (Err_S: string):
+		       Should_Never_Happen[null](
+			   "Can't open pipe file " ||
+			   file_name$Unparse(mfn$Value_Exists(W.Pipe_Fl_Nm)) ||
+			   "  " || Err_S,
+			   nil)
+		  end;
+	end Open_Pipe_File
+    end out_link_chan;

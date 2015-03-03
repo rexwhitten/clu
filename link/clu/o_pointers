@@ -1,0 +1,24 @@
+%% Copyright Massachusetts Institute of Technology 1984, 1989
+
+Output_Pointers = proc (Env: lnk_env);
+    Out: out_link_chan := Env.Output;
+    Pnts: lnk_pointers  := Env.Pointers;
+    if (Env.Options.Output_to_File)
+       then out_link_chan$Position(Out,
+				   Env.Locates.Pointers.Start_Address);
+	    out_link_chan$Write_Word_Pair(Env.Output,
+					  vJMP_Instr[1], vJMP_Instr[2]);  %% Jump to start.
+	    Output_Address(Env.Start_Routine.Code_Address, Env);
+	    %% First set up stack, heap and special pointers;
+	    Pnts.Stack_Size     := Env.Options.Stack_Size;
+	    Pnts.Heap_Size      := Env.Options.Heap_Size;
+	    Pnts.Version_Number := Env.Options.Version_Number;
+	    Pnts.JCL_Size       := Env.Options.JCL_Size;
+
+	    lnk_pointers$Output_All(Env.Pointers, Env)
+       else 
+	    Out.Name_Tab_Addr := Pnts.Name_Symbol_Table;
+	    Out.Rtn_Tab_Addr  := Pnts.Rtn_Symbol_Table;
+	    Out.Seg_Map_Addr  := Pnts.Seg_Map;
+       end;
+    end Output_Pointers;

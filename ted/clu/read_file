@@ -1,0 +1,19 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+read_file = proc (e: env, fn: fname) signals (errmsg(string))
+    nb: buf
+    fn, nb := read_from_file(e, fn, true, true)
+       except when not_possible (why: string):
+		   signal errmsg("'" || fname$unparse(fn) || "' - " || why)
+	      end
+    set_file_name(e, fn)
+    b: buf := e.buffer
+    if buf$empty(b)
+       then buf$replace(b, nb)
+       else line, pos: int := buf$get_cursor(b)
+	    buf$insert_buf(b, nb)
+	    buf$set_cursor(b, line, pos)
+       end
+    b.changed := false
+    e.change_count := 0
+    env$change_all(e)
+    end read_file

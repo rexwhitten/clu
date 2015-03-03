@@ -1,0 +1,102 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+except_block = cluster is
+	read, print, invert;
+
+    rep = record[
+	      Range:	      range,
+	      Name_List:      sequence[excpt_str],
+	      Handler_Addr:   address
+		 ];
+
+    ara = array[range_addr]
+
+    own Code_Unit: int := mach_constants$Code_Unit();
+
+    Read = proc (Input: in_chan, Base: address, Uses: use_list)
+	     returns (cvt);
+	own Resignal_Address: address :=
+		address$Make_Specific(0);	%% Use 0 address for resignals.
+	Rng: range,
+	Nm_List: sequence[excpt_str],
+	Offset: int := Read_Except_Block(Input, Base, Uses);
+	H_A: address;
+	if (Offset = 0)
+	   then H_A := Resignal_Address;
+	   else H_A := address$Advance(Base, (Offset * Code_Unit))
+	   end;
+	EB: rep := rep${ Range:        Rng,
+			 Name_List:    Nm_List,
+			 Handler_Addr: H_A
+			};
+	return (EB);
+	end Read;
+
+    Print = proc (EB: cvt, S: pstream);
+	rep$Print(EB, S);
+	end Print;
+
+    Read_Except_Block = proc (Input: in_chan, Base: address, Uses: use_list)
+			  returns (range, sequence[excpt_str], int);
+	Start, Length,
+	Addr,  Nm_Strs: int := Read_Except_Block_Head(Input);
+	Rng: range := range$Create(address$Advance(Base, (Start * Code_Unit)),
+				   (Length * Code_Unit));
+	Names: sequence[excpt_str] := Read_Except_Strings(Input, Nm_Strs, Uses);
+	return (Rng, Names, Addr);
+	end Read_Except_Block;
+
+    Read_Except_Strings = proc (Input: in_chan, Num_Strings: int, Uses: use_list)
+			    returns (sequence[excpt_str]);
+	own Indx_Array: array[int] := array[int]$Predict(1, 30);
+	own Str_Array: array[excpt_str] := array[excpt_str]$Predict(1, 30);
+	Index: int;
+	array[excpt_str]$Trim(Str_Array, 1, 0);
+	array[int]$Trim(Indx_Array, 1, 0);
+	in_chan$Read_Buf(Input, Num_Strings, Indx_Array);
+	for I: int in int$From_To(1, Num_Strings) do
+	    Index := Indx_Array[I];
+	    U: use := Uses[Index];
+	       except when Bounds:
+			   Should_Never_Happen
+			       [int]("Bounds violation for exception index.",
+				     Index);
+		      end;
+	    array[excpt_str]$AddH(Str_Array, U.Except_String);
+	       except when Not_Possible:
+			   Should_Never_Happen
+			       [int]("Ref to non-exception use in exception-block.",
+				     Index);
+		      end;
+	    end;
+	return (sequence[excpt_str]$A2S(Str_Array));
+	end Read_Except_Strings;
+
+    Invert = proc (E_B: cvt, Othrs: ara, Env: lnk_env) signals (not_possible);
+	ex_strs = sequence[excpt_str];
+	own Null_Ex_S: excpt_str := excpt_str${ Const:
+						constant$Make_Null(),
+						Str:  "" };
+	Inst_Es: inst_excepts := Env.Inst_Excepts;
+	RA: range_addr := range_addr${ Range:	E_B.Range,
+				       Addr:	E_B.Handler_Addr
+				      };
+	if (ex_strs$Empty(E_B.Name_List))
+	   then Inst_E: inst_except := inst_excepts$Find(Inst_Es, "", Null_Ex_S);
+		ara$AddH(Othrs, RA);
+		inst_except$Add_Range(Inst_E, RA);
+	   else Rng: range := E_B.Range;
+		for Ex_S: excpt_str in ex_strs$Elements(E_B.Name_List) do
+		    S: string := Ex_S.Str;
+		    Inst_E: inst_except := inst_excepts$Find(Inst_Es, S, Ex_S);
+		    for Oth_RA: range_addr in ara$Elements(Othrs) do
+			if (range$Includes(Rng, Oth_RA.Range))
+			   then inst_except$Add_Range(Inst_E, Oth_RA);
+			   end;
+			end;
+		    inst_except$Add_Range(Inst_E, RA);
+		    end;
+	   end;
+	end Invert;
+
+    end except_block;

@@ -1,0 +1,396 @@
+% Copyright Massachusetts Institute of Technology 1982,, 1989
+
+# extend
+
+gcd_tab = cluster is grind, grindc, grindp
+
+rep = record[next:  int,        % next address to allocate
+	     cnt:   int,        % gc count
+	     oq:    aobj,       % objects to process
+	     iq:    ainf,       % info to process
+	     bucks: veco]       % hash chains
+
+bucket = record[obj:  _obj,
+		addr: int,
+		next: _obj]
+
+aobj = array[_obj]
+ainf = array[ginfo]
+
+wvec = _wordvec
+bvec = _bytevec
+veco = _vec[_obj]
+tago = _tagcell[_obj]
+advo = _adv[_obj]
+seqo = sequence[_obj]
+
+mo = _cvt[int, _obj]
+cb = _cvt[_obj, bucket]
+mz = _cvt[null, _obj]
+
+ginfo = oneof[a_bvec: null,
+	      b_vec:  gproc,
+	      c_sel:  gproclist,
+	      d_cell: gproclist,
+	      e_sell: gproc,
+	      f_adv:  _obj,
+	      g_arp:  gproc]
+
+gproc = proctype (_obj, gcd_tab) returns (int)
+gproclist = sequence[gproc]
+
+nbuckets = 500
+
+pagesz	= 1024
+pagesz2	= pagesz - 2
+pagesz5 = pagesz - 5
+bpagesz	= 4 * pagesz
+
+_userlo	= 020000
+
+_cellhd = 060000		% _tagcell header
+_advhd  = 020000		% _adv header
+
+grind = proc [t: type] (x: t, fn: file_name) returns (file_name)
+	  signals (not_possible(string))
+	    where t has _gcd: proctype (t, gcd_tab) returns (int)
+    ch: _chan := _chan$open(fn, "write", 0)
+       resignal not_possible
+    fn := ch.name
+    tab: gcd_tab := up(rep${next:  _userlo,
+			    cnt:   _gc$count(),
+			    oq:    aobj$new(),
+			    iq:    ainf$new(),
+			    bucks: veco$create(nbuckets)})
+    buf: wvec := wvec$create(pagesz)
+    _event$defer()
+    begin
+    mgrind[t](tab, buf, ch, x)
+    buf[1] := down(tab).next - _userlo
+    ch.access := 4
+    _chan$putw(ch, buf, 1, 4, false)
+    end except when not_possible (why: string):
+		    _event$undefer()
+		    _chan$abort(ch)
+		       except when not_possible (*): end
+		    signal not_possible(why)
+	       end
+    _event$undefer()
+    _chan$close(ch)
+       resignal not_possible
+    return(fn)
+    end grind
+
+grindc = proc [t: type] (x: t, ch: _chan, pos: int)
+	   signals (not_possible(string))
+	    where t has _gcd: proctype (t, gcd_tab) returns (int)
+    ch.access := pos
+       resignal not_possible
+    tab: gcd_tab := up(rep${next:  _userlo,
+			    cnt:   _gc$count(),
+			    oq:    aobj$new(),
+			    iq:    ainf$new(),
+			    bucks: veco$create(nbuckets)})
+    buf: wvec := wvec$create(pagesz)
+    _event$defer()
+    begin
+    mgrind[t](tab, buf, ch, x)
+    buf[1] := down(tab).next - _userlo
+    ch.access := pos + 4
+    _chan$putw(ch, buf, 1, 4, false)
+    end except when not_possible (why: string):
+		    _event$undefer()
+		    signal not_possible(why)
+	       end
+    _event$undefer()
+    end grindc
+
+grindp = proc [t: type] (x: t, ch: _chan) signals (not_possible(string))
+	    where t has _gcd: proctype (t, gcd_tab) returns (int)
+    tab: gcd_tab := up(rep${next:  _userlo,
+			    cnt:   _gc$count(),
+			    oq:    aobj$new(),
+			    iq:    ainf$new(),
+			    bucks: veco$create(nbuckets)})
+    buf: wvec := wvec$create(pagesz)
+    _event$defer()
+    begin
+    pgrind[t](tab, x)
+    buf[2] := down(tab).next - _userlo
+    down(tab).next := 0
+    mgrind[t](tab, buf, ch, x)
+    end except when not_possible (why: string):
+		    _event$undefer()
+		    signal not_possible(why)
+	       end
+    _event$undefer()
+    end grindp
+
+pgrind = proc [t: type] (tab: gcd_tab, x: t)
+	    where t has _gcd: proctype (t, gcd_tab) returns (int)
+    t$_gcd(x, tab)
+    iq: ainf := down(tab).iq
+    oq: aobj := down(tab).oq
+    idx: int := 0
+    while true do
+	idx := idx + 1
+	tagcase iq[idx]
+	   tag a_bvec:
+	   tag b_vec (p: gproc):
+	       v: seqo := _cvt[_obj, seqo](oq[idx])
+	       for e: _obj in seqo$elements(v) do
+		   p(e, tab)
+		   end
+	   tag c_sel (l: gproclist):
+	       v: seqo := _cvt[_obj, seqo](oq[idx])
+	       for i: int in seqo$indexes(v) do
+		   l[i](v[i], tab)
+		   end
+	   tag d_cell (l: gproclist):
+	       i: int, e: _obj := tago$get(_cvt[_obj, tago](oq[idx]))
+	       l[i](e, tab)
+	   tag e_sell (p: gproc):
+	       i: int, e: _obj := tago$get(_cvt[_obj, tago](oq[idx]))
+	       p(e, tab)
+	   tag f_adv (inf: _obj):
+	       a: advo := _cvt[_obj, advo](oq[idx])
+	       v: veco := a.vector
+	       insert(tab, 4 * (veco$size(v) + 1),
+		      _cvt[_obj, ginfo](inf), _cvt[veco, _obj](v))
+	   tag g_arp (p: gproc):
+	       v: seqo := _cvt[_obj, seqo](oq[idx])
+	       for e:_obj in seqo$elements(v) do
+		   if e ~= mz(nil)
+		      then p(e, tab) end
+		   end
+	   end
+	end except when bounds: end
+    end pgrind
+
+mgrind = proc [t: type] (tab: gcd_tab, buf: wvec, ch: _chan, x: t)
+	   signals (not_possible(string))
+	    where t has _gcd: proctype (t, gcd_tab) returns (int)
+    wvec$store2(buf, 1, 0140106, 0144470)
+    pos: int := 3
+    val: int := t$_gcd(x, tab)
+    if val = 0
+       then wvec$store_obj(buf, 3, _cvt[t, _obj](x))
+     elseif val > 0
+       then buf[3] := val
+     else wvec$xstore(buf, 3, _cvt[t, _obj](x).reftag, -val) end
+    iq: ainf := down(tab).iq
+    oq: aobj := down(tab).oq
+    while true do
+	tagcase ainf$reml(iq)
+	   tag a_bvec:
+	       b: bvec := _cvt[_obj, bvec](aobj$reml(oq))
+	       if pos = pagesz
+		  then _chan$putw(ch, buf, 1, bpagesz, false)
+		       pos := 0
+		  end
+	       pos := pos + 1
+	       z: int := bvec$size(b)
+	       wvec$store_obj(buf, pos, mo(z))
+	       i: int := 1
+	       while z > 0 do
+		   if pos = pagesz
+		      then _chan$putw(ch, buf, 1, bpagesz, false)
+			   pos := 0
+		      end
+		   cnt: int := pagesz - pos
+		   moved: int := cnt * 4
+		   if moved > z
+		      then cnt := (z + 3) / 4
+			   moved := z
+		      end
+		   wvec$move_b2w(b, i, buf, pos * 4 + 1, moved)
+		   z := z - moved
+		   i := i + moved
+		   pos := pos + cnt
+		   if moved // 4 ~= 0
+		      then i := pos * 4
+			   if moved // 4 = 3
+			      then wvec$bstore(buf, i, 0)
+			      else wvec$wstore(buf, i - 1, 0)
+				   if moved // 4 = 1
+				      then wvec$bstore(buf, i - 2, 0) end
+			      end
+		      end
+		   end
+	   tag b_vec (p: gproc):
+	       v: seqo := _cvt[_obj, seqo](aobj$reml(oq))
+	       if pos = pagesz
+		  then _chan$putw(ch, buf, 1, bpagesz, false)
+		       pos := 0
+		  end
+	       pos := pos + 1
+	       buf[pos] := 4 * seqo$size(v) + 2
+	       for e: _obj in seqo$elements(v) do
+		   if pos = pagesz
+		      then _chan$putw(ch, buf, 1, bpagesz, false)
+			   pos := 0
+		      end
+		   pos := pos + 1
+		   val := p(e, tab)
+		   if val = 0
+		      then wvec$store_obj(buf, pos, e)
+		    elseif val > 0
+		      then buf[pos] := val
+		    else wvec$xstore(buf, pos, e.reftag, -val) end
+		   end
+	   tag c_sel (l: gproclist):
+	       v: seqo := _cvt[_obj, seqo](aobj$reml(oq))
+	       if pos = pagesz
+		  then _chan$putw(ch, buf, 1, bpagesz, false)
+		       pos := 0
+		  end
+	       pos := pos + 1
+	       z: int := seqo$size(v)
+	       buf[pos] := 4 * z + 2
+	       for i: int in int$from_to(1, z) do
+		   if pos = pagesz
+		      then _chan$putw(ch, buf, 1, bpagesz, false)
+			   pos := 0
+		      end
+		   pos := pos + 1
+		   e: _obj := v[i]
+		   val := l[i](e, tab)
+		   if val = 0
+		      then wvec$store_obj(buf, pos, e)
+		    elseif val > 0
+		      then buf[pos] := val
+		    else wvec$xstore(buf, pos, e.reftag, -val) end
+		   end
+	   tag d_cell (l: gproclist):
+	       i: int, e: _obj := tago$get(_cvt[_obj, tago](aobj$reml(oq)))
+	       if pos > pagesz2
+		  then _chan$putw(ch, buf, 1, 4 * pos, false)
+		       pos := 0
+		  end
+	       wvec$store2(buf, pos + 1, _cellhd, i)
+	       pos := pos + 2
+	       val := l[i](e, tab)
+	       if val = 0
+		  then wvec$store_obj(buf, pos, e)
+		elseif val > 0
+	          then buf[pos] := val
+		else wvec$xstore(buf, pos, e.reftag, -val) end
+	   tag e_sell (p: gproc):
+	       i: int, e: _obj := tago$get(_cvt[_obj, tago](aobj$reml(oq)))
+	       if pos > pagesz2
+		  then _chan$putw(ch, buf, 1, 4 * pos, false)
+		       pos := 0
+		  end
+	       wvec$store2(buf, pos + 1, _cellhd, i)
+	       pos := pos + 2
+	       val := p(e, tab)
+	       if val = 0
+		  then wvec$store_obj(buf, pos, e)
+		elseif val > 0
+		  then buf[pos] := val
+		else wvec$xstore(buf, pos, e.reftag, -val) end
+	   tag f_adv (inf: _obj):
+	       a: advo := _cvt[_obj, advo](aobj$reml(oq))
+	       v: veco := a.vector
+	       z: int := veco$size(v)
+	       val := insert(tab, 4 * (z + 1), _cvt[_obj, ginfo](inf),
+			     _cvt[veco, _obj](v))
+	       if pos > pagesz5
+		  then _chan$putw(ch, buf, 1, 4 * pos, false)
+		       pos := 0
+		  end
+	       hval: int := _advhd
+	       lcnt: int := a.predict
+	       while lcnt > 255 do
+		   hval := hval + 256
+		   lcnt := (lcnt + 1) / 2
+		   end
+	       hval := hval + lcnt
+	       lcnt := a.start
+	       wvec$store2(buf, pos + 1, hval, z - lcnt - a.size + 2)
+	       buf[pos + 2] := 2 * (a.size - 1)
+	       wvec$store_obj(buf, pos + 3, mo(a.low))
+	       lcnt := 4 * lcnt - 1
+	       buf[pos + 4] := val + lcnt
+	       pos := pos + 5
+	       buf[pos] := lcnt
+	   tag g_arp (p: gproc):
+	       v: seqo := _cvt[_obj, seqo](aobj$reml(oq))
+	       if pos = pagesz
+		  then _chan$putw(ch, buf, 1, bpagesz, false)
+		       pos := 0
+		  end
+	       pos := pos + 1
+	       buf[pos] := 4 * seqo$size(v) + 2
+	       for e:_obj in seqo$elements(v) do
+		   if pos = pagesz
+		      then _chan$putw(ch, buf, 1, bpagesz, false)
+			   pos := 0
+		      end
+		   pos := pos + 1
+		   if e = mz(nil)
+		      then buf[pos] := 0
+		      else val := p(e, tab)
+			   if val = 0
+			      then wvec$store_obj(buf, pos, e)
+			    elseif val > 0
+			      then buf[pos] := val
+			    else wvec$xstore(buf, pos, e.reftag, -val) end
+		      end
+		   end
+	   end
+	end
+       resignal not_possible
+       except when bounds: end
+    _chan$putw(ch, buf, 1, 4 * pos, false)
+       resignal not_possible
+    end mgrind
+
+insert = proc (tab: cvt, z: int, inf: ginfo, x: _obj) returns (int)
+    while tab.cnt ~= _gc$count() do
+	tab.cnt := _gc$count()
+	rehash(tab)
+	end
+    i: int := hash_obj(x, nbuckets) + 1
+    xmb: _obj := tab.bucks[i]
+    mb: _obj := xmb
+    while mb ~= mz(nil) do
+	if x = cb(mb).obj
+	   then return(cb(mb).addr) end
+	mb := cb(mb).next
+	end
+    addr: int := tab.next
+    tab.bucks[i] := _cvt[bucket, _obj](bucket${obj:  x,
+					       addr: addr,
+					       next: xmb})
+    aobj$addh(tab.oq, x)
+    ainf$addh(tab.iq, inf)
+    tab.next := addr + z
+    return(addr)
+    end insert
+
+rehash = proc (tab: rep)
+    bucks: veco := tab.bucks
+    chain: _obj := mz(nil)
+    for i: int in int$from_to(1, nbuckets) do
+	nchain: _obj := bucks[i]
+	if nchain = mz(nil)
+	   then continue end
+	bucks[i] := mz(nil)
+	buck: bucket := cb(nchain)
+	while buck.next ~= mz(nil) do
+	    buck := cb(buck.next)
+	    end
+	buck.next := chain
+	chain := nchain
+	end
+    while chain ~= mz(nil) do
+	nchain: _obj := cb(chain).next
+	hash: int := hash_obj(cb(chain).obj, nbuckets) + 1
+	cb(chain).next := bucks[hash]
+	bucks[hash] := chain
+	chain := nchain
+	end
+    end rehash
+
+end gcd_tab

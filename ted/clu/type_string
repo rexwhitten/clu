@@ -1,0 +1,74 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+type_string = proc (e: env, msg: string, title: string)
+    i: int := 2
+    for c: char in string$chars(msg) do
+	if c = '\n'
+	   then i := i + 1 end
+	end
+    whole: bool, bdl, xdl: int := choose_type_area(e, i)
+    speed: int := _output_speed()
+    if speed < 100
+      then msg:="[[[Ted output speed is " || int$unparse(speed) || 
+		"]]] \n" || msg
+           speed:=300
+	end %if
+    mod: int := (speed + 1500) / 1600
+    i := 1
+    while true do
+	if whole
+	   then _should_scroll(1, 0, 2)
+	   end except when clear: _clear() end
+	_display_line(title, bdl)
+	for ln: int in int$from_to(bdl + 1, xdl) do
+	    j: int := _bytevec$indexc('\n', _cvt[string, _bytevec](msg), i)
+	    if j = 0
+	       then _display_line(string$rest(msg, i), ln)
+		    j := string$size(msg)
+	       else _display_line(string$substr(msg, i, j - i), ln)
+	       end
+	    i := j + 1
+	    if ln // mod = 0 cand _io_wait(speed) cand ' ' ~= _peek()
+	       then exit stop end
+	    end
+	if (whole  cand  ~_pending_chars())  cor
+	   (~whole  cand  ~env$xdisplay(e, bdl, xdl))
+	   then if i > string$size(msg)
+		   then top_display(e, "(type next command)")
+		   else top_display(e, "(type next command, or <SP> for more)")
+		   end
+	   end
+	if ' ' ~= _peek() then break end
+	_getc()
+	if i > string$size(msg) then break end
+	end
+       except when stop: end
+    if whole
+       then _should_scroll(1, 0, 2)
+       end except when clear: _clear() end
+    end type_string
+
+choose_type_area = proc (e: env, cnt: int) returns (bool, int, int)
+    xdl, bdl: int := _get_screen_size()
+    xdl := xdl - 1
+    bdl := 1
+    mode: int := env$fetch_num(e, "sub_display_mode", 0)
+    if mode = 1  cor  mode = 2
+       then top: int := e.top_line
+	    last: int := e.last_line
+	    if top = 1  cand  last = xdl
+	       then mode := 0
+	     elseif mode = 1
+	       then bdl := top
+		    xdl := last
+	     elseif xdl - last > top - 2
+	       then bdl := last + 1
+	     else xdl := top - 1 end
+     elseif mode > 0  cand  (mode < xdl  cor  cnt < xdl)
+       then bdl := xdl - int$min(mode, cnt) + 1
+     else mode := 0 end
+    for ee: env in winset$displayed() do
+	if ee.top_line <= xdl  cand  ee.last_line >= bdl
+	   then env$change_all(ee) end
+	end
+    return(mode = 0, bdl, xdl)
+    end choose_type_area

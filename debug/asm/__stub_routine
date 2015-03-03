@@ -1,0 +1,83 @@
+;; Copyright Massachusetts Institute of Technology 1984, 1989
+
+%inst_movem = 044356,,0120000		;; movem pp/sp, n(ep)
+%inst_move = 026515			;; move pp, n(ep)
+
+;; Debugger version of __stub_routine: collects the arguments to the
+;; unimplemented routine in a sequence which is saved in a local variable
+;; of __stub_routine (along with the name of the unimplemented routine),
+;; and calls _enter_debugger with the string "unimplemented: <rtn name>".
+;; The local variables, called 'args' and 'name', may be examined by the
+;; user from the listen loop.
+
+__stub_routine = proc [num_args: int, rtn_name: string] ()
+	var	name, args
+
+	movea	rr, r1			;; Save last arg, if any.
+	move	rtn_name, name		;; Set locals for viewing.
+	move	num_args, n1		;; Get num. of args as a CLU integer.
+	asr	1, n1			;; Get real number.
+	iflt	tst	n1		;; Known number of args?
+	then	movea	"unknown number of arguments", rr	;; No.
+	elf	bgt	next		;; Any args?
+	then	movea	[], rr		;; None.
+	else	move	num_args, n2	;; Some. Get (num. of args * 4) + 4
+		asl	1, n2
+		addq	2, n2
+		movea	heaphi, rr	;; Make a sequence to hold args.
+		iflt	sub 	n2, freecnt	;; Alloc. memory.
+		then	jsr	memout
+			end
+		add	n2, heaphi
+
+		lea	(ep, n2), r2	;; Get start of args on stack in r2.
+
+		movea	rr, r4
+		subq	2, n2
+		move	n2, (r4)+	;; Store size: (num of args * 4) + 2
+
+		move	8(ep), n4	;; Get potential loop body.
+
+		;; Try to determine whether there is a code address at
+		;; 8(ep) and if so, whether it looks like the start of a loop
+		;; body (implying that the called routine is an iterator).
+		;; The theory is that a loop body will start with one of:
+		;; 	move pp, n(ep)		;; n unknown
+		;;  or  movem pp/sp, n(ep)	;; n unknown
+		;;
+		;; There is really no nice and easy way to find out if we
+		;; have an iterator.
+
+		if	btst	0, n4	;; Must be an even number (not an int).
+			bne	next
+			cmp	heaplo, n4	;; Must be below the heap.
+			bge	next
+			cmpi	0377, n4	;; Must be >8bits (non-literal).
+			ble	next
+			movea	n4, r3	;; Must be either 'movem pp/sp, n(ep)',
+			cmpi	%inst_movem, (r3)
+			beq	this
+			cmpiw	%inst_move, (r3)	;; or 'move pp, n(ep)'.
+			bne	next
+		then	lea	4(r2), r2	;; Assume it is an iterator and
+					;; skip over the loop body on the stack.
+			end
+		ifgt	subq	1, n1	;; Get number of args - 1
+		then	qloop	move	-(r2), (r4)+	;; If more than 1,
+				subq	1, n1		;; move the args in.
+				bgt	this
+				end
+			end
+		move	r1, (r4)	;; Move the last arg in.
+		movea	n0, r4		;; (Don't leave around an invalid ref.)
+		end
+	move	rr, args		;; Remember sequence of args.
+	string$concat ("unimplemented: ", name)
+	move	rr, -(sp)
+	loop
+		movea	(sp), rr
+		_enter_debugger (rr)
+		end
+	end __stub_routine
+
+

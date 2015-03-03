@@ -1,0 +1,17 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+Output_Struct = proc (S: consts, Env: lnk_env) returns (address);
+%    own Max_Vec_Size: int  := mach_constants$Max_Vec_Size();
+%    if (consts$Size(S) > Max_Vec_Size)
+%       then Should_Never_Happen[consts]("Struct too big to be output.", S);
+%       end;
+    for C: constant in consts$Elements(S) do
+	constant$Output_Block(C, true, Env);
+	end;
+    St_Addr: address := out_link_chan$Start_Object(Env.Output);
+    Output_Vec_Head(consts$Size(S), Env);
+    for C: constant in consts$Elements(S) do
+	constant$Output_Ref(C, Env);
+	end;
+    return (St_Addr);
+    end Output_Struct;

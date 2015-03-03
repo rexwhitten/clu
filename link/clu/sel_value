@@ -1,0 +1,117 @@
+%% Copyright Massachusetts Institute of Technology 1984, 1989
+
+sel_value = cluster is
+	create,
+	similar,
+	would_be_integer,
+	unparse,
+	hasher,
+	print,
+	insert_reference,
+	output,
+	_gcd;
+
+    rep = oneof[ a_Tag:		int,
+		 b_Index:	int,
+		 c_Int:		int,
+		 d_Header:	int ];
+
+    %% Kind	       Type	Output
+    %%   0		tag	 index
+    %%   1		index	 index
+    %%   2		int	 index
+    %%   3		header	 %cell,,index
+
+    vTag	= 0
+    vIndex	= 1
+    vInt	= 2
+    vHeader	= 3
+
+    Create = proc (Kind: int, Index: int) returns (cvt);
+	if      (Kind = vTag)
+	   then return (rep$Make_a_Tag(Index));
+	 elseif (Kind = vIndex)
+	   then return (rep$Make_b_Index(Index));
+	 elseif (Kind = vInt)
+	   then return (rep$Make_c_Int(Index));
+	 elseif (Kind = vHeader)
+	   then return (rep$Make_d_Header(Index));
+	 else Should_Never_Happen[int](
+		  ("Invalid selector type code " || int$Unparse(Kind)),
+		  Kind);
+	 end;
+	end Create;
+
+    Similar = proc (SV1, SV2: cvt) returns (bool);
+	return (rep$Similar(SV1, SV2));
+	end Similar;
+
+    Would_be_Integer = proc (Kind: int, Index: int) returns (bool);
+	return (Kind = vInt);
+	end Would_be_Integer;
+
+    Unparse = proc (SV: cvt) returns (string);
+	tagcase SV
+	   tag a_Tag (I: int):
+	       return ("Selector tag " || int$Unparse(I));
+	   tag b_Index (I: int):
+	       return ("Selector index " || int$Unparse(I));
+	   tag c_Int (I: int):
+	       return ("Selector int " || int$Unparse(I));
+	   tag d_Header (I: int):
+	       return ("Selector header " || int$Unparse(I));
+	   end;
+	end Unparse;
+
+    Hasher = proc (SV: cvt, Size: int) returns (int);
+	tagcase SV
+	   tag a_Tag (I: int):
+	       return (Hash_Int(I, Size));
+	   tag b_Index (I: int):
+	       return (Hash_Int((I * 64), Size));
+	   tag c_Int (I: int):
+	       return (Hash_Int((I * 128), Size));
+	   tag d_Header (I: int):
+	       return (Hash_Int((I * 256), Size));
+	   end;
+	end Hasher;
+
+    Print = proc (SV: cvt, S: pstream);
+	rep$Print(SV, S);
+	end Print;
+
+    Insert_Reference = proc (SV: cvt, Input: in_chan) returns (reference);
+	tagcase SV
+	   tag a_Tag (I: int):
+	       reference$Insert_Word(Input, word$Cons(I, 0));
+	   tag b_Index (I: int):
+	       reference$Insert_Word(Input, word$Cons(4*I, 0));
+	   tag c_Int (I: int):
+	       reference$Insert_Int(Input, I);
+	   tag d_Header (I: int):
+	       reference$Insert_Tagged_Int(Input, vTagCell_Byte, I);
+	   end;
+	end Insert_Reference;
+
+    Output = proc (SV: cvt, Env: lnk_env) returns (address);
+	Out: out_link_chan := Env.Output;
+	Addr: address := out_link_chan$Start_Object(Out);
+	tagcase SV
+	   tag a_Tag (I: int):
+	       out_link_chan$Write_Word_Pair(Out, I, 0)
+	   tag b_Index (I: int):
+	       out_link_chan$Write_Word_Pair(Out, (4 * I), 0)
+	   tag c_Int (I: int):
+	       Output_Int(I, Env);
+	   tag d_Header (I: int):
+	       %% Overflow should not occur.
+	       out_link_chan$Write_Tagged_Long(Out, vTagCell_Byte, I);
+	   end;
+	return (Addr);
+	end Output;
+
+    _gcd = proc (SV: cvt, Tab: gcd_tab) returns (int);
+	return (rep$_gcd(SV, Tab));
+	end _gcd;
+
+    end sel_value;

@@ -1,0 +1,789 @@
+; Copyright Massachusetts Institute of Technology 1985, 1989
+
+
+_wordvec = cluster is create, fetch, store, fetch2, store2, xstore,
+		      bfetch, bstore, wfetch, wstore, lfetch, lstore,
+		      move_lr, move_rl, store_obj, fetch_obj,
+		      get_byte, set_byte, word_size, byte_size, bytes_per_word,
+		      move_b2w, move_w2b, size, equal, copy, _gcd
+
+
+create = qproc (n: int) returns (cvt) signals (toobig)
+	; number of words
+	move	rr, n2
+	add	n2, n2
+	subq	2, n2			;; Get (and save) size * 4.
+	move	n2, n3			;; Get (size * 4) as a CLU int.
+	add	n3, n3
+	ifle	addq	1, n3
+		ble	next
+		cmpi	037,,0177777, n3;; (The constant comes from the max size of a _bytevec).
+	then	addq	4, n2		;; Get (size * 4) + 4
+		movea	heaphi, rr
+		iflt	sub	n2, freecnt	;; Alloc mem. for the wordvec.
+		then	jsr	memout
+			end
+		add	n2, heaphi
+		move	n3, (rr)	;; Put in header.
+		return (rr)
+		end
+	signal 	toobig
+	end create
+
+
+fetch = qproc (wv: cvt, idx: int) returns (int) signals (bounds, overflow)
+	; start index is 1
+	ifle	move	rr, n2
+		add	n2, n2
+		subq	2, n2		;; Check bounds. Get (index*4)
+		ble	next
+		movea	wv, r1
+		move	(r1), n1	;; De-integerize size from header.
+		asr	1, n1
+		cmp	n1, n2
+	then	move	(r1, n2), n1	;; Fetch
+		ifvc	add	n1, n1	;; Integerize - check for overflow.
+		then	addqb	1, n1
+			return (n1)
+			end
+		signal	overflow
+		end
+	signal 	bounds
+	end fetch
+
+store = qproc (wv: cvt, idx, i: int) signals (bounds)
+	; start index is 1
+	ifle	move	idx, n1		;; Check bounds.
+		add	n1, n1
+		subq	2, n1		;; Get (index * 4).
+		ble	next
+		movea	wv, r1
+		move	(r1), n2
+		asr	1, n2		;; De-integerize size from header.
+		cmp	n2, n1
+	then	move	rr, n2
+		asr	1, n2		;; De-integerize word to be stored.
+		move	n2, (r1, n1)	;; Store it.
+		return
+		end
+	signal	bounds
+	end store
+
+fetch2 = qproc (wv: cvt, idx: int) returns (int, int) signals (bounds)
+	; returns left and right halves sign extended
+	ifle	move	rr, n2
+		add	n2, n2
+		subq	2, n2		;; Check bounds. Get (index*4).
+		ble	next
+		movea	wv, r1
+		move	(r1), n1
+		asr	1, n1		;; De-integerize size from header.
+		cmp	n1, n2
+	then	adda	n2, r1
+		movew	(r1)+, n1	;; Get top word.
+		ext	n1		;; Sign extend it.
+		add	n1, n1
+		addqb	1, n1		;; Integerize.
+		move	n1, -(sp)
+		movew	(r1), n1	;; Get bottom word.
+		ext	n1		;; Sign extend.
+		add	n1, n1
+		addqb	1, n1		;; Integerize.
+		movea	n1, rr
+		movea	n0, r1
+		return	(*, rr)
+		end
+	signal	bounds
+	end fetch2
+
+store2 = qproc (wv: cvt, idx, l, r: int) signals (bounds)
+	; stores left and right halves
+	ifle	move	idx, n1		;; Check bounds.
+		add	n1, n1
+		subq	2, n1		;; Get (index * 4).
+		ble	next
+		movea	wv, r1
+		move	(r1), n2
+		asr	1, n2		;; De-integerize size from header.
+		cmp	n2, n1
+	then	adda	n1, r1
+		move	l, n2
+		asr	1, n2		;; De-integerize.
+		movew	n2, (r1)+	;; Store top half.
+		move	rr, n2
+		asr	1, n2		;; De-integerize.
+		movew	n2, (r1)	;; Store bottom half.
+		movea	n0, r1
+		return
+		end
+	signal	bounds
+	end store2
+
+fetch_obj  = qproc (wv: cvt, idx: int) returns (_obj) signals (bounds)
+	; start index is 1
+	ifle	move	rr, n2
+		add	n2, n2
+		subq	2, n2		;; Check bounds. Get (index*4)
+		ble	next
+		movea	wv, r1
+		move	(r1), n1	;; De-integerize size from header.
+		asr	1, n1
+		cmp	n1, n2
+	then	movea	(r1, n2), rr	;; Fetch (don't integerize)
+		return (rr)
+		end
+	signal 	bounds
+	end fetch_obj
+
+store_obj = qproc (wv: cvt, idx: int, o: _obj) signals (bounds)
+	; start index is 1
+	ifle	move	idx, n1		;; Check bounds.
+		add	n1, n1
+		subq	2, n1		;; Get (index * 4).
+		ble	next
+		movea	wv, r1
+		move	(r1), n2
+		asr	1, n2		;; De-integerize size from header.
+		cmp	n2, n1
+	then	move	rr, (r1, n1)	;; Store obj.
+		return
+		end
+	signal	bounds
+	end	store_obj
+
+
+xstore = qproc (wv: cvt, idx, b, l: int) signals (bounds)
+	; stores high byte and low 24-bit values
+	ifle	move	idx, n1		;; Check bounds.
+		add	n1, n1
+		subq	2, n1		;; Get (index * 4).
+		ble	next
+		movea	wv, r1
+		move	(r1), n2
+		asr	1, n2		;; De-integerize size from header.
+		cmp	n2, n1
+	then	adda	n1, r1
+		move	rr, n2
+		asr	1, n2		;; De-integerize low part.
+		move	n2, (r1)	;; Store low part.
+		move	b, n2
+		asr	1, n2		;; De-integerize high byte.
+		moveb	n2, (r1)	;; Store high byte.
+		movea	n0, r1
+		return
+		end
+	signal	bounds
+	end xstore
+
+bfetch = qproc (wv: cvt, idx: int) returns (int) signals (bounds)
+	; start byte index is 1
+	move	rr, n2			;; Check bounds.
+	ifle	subq	2, n2		;; Index - 1 as a CLU int.
+	then	signal	bounds
+		end
+	movea	wv, r1
+	iflt	cmp	(r1), n2
+	then	movea	0, rr
+		asr	1, n2		;; (Index - 1) de-integerized.
+		clr	n6
+		moveb	4(r1, n2), n6	;; Fetch byte.
+		add	n6, n6
+		addqb	1, n6		;; Integerize.
+		return (n6)
+		end
+	signal	bounds
+	end bfetch
+
+bstore = qproc (wv: cvt, idx, i: int) signals (bounds)
+	; start byte index is 1
+	move	idx, n2
+	ifle	subq	2, n2		;; Index - 1 as a CLU int.
+	then	signal	bounds
+		end
+	movea	wv, r1
+	iflt	cmp	(r1), n2
+	then	asr	1, n2		;; (Index - 1) de-integerized.
+		move	rr, n1
+		asr	1, n1		;; De-integerize byte to store.
+		moveb	n1, 4(r1, n2)
+		return
+		end
+	signal 	bounds
+	end bstore
+
+wfetch = qproc (wv: cvt, idx: int) returns (int) signals (bounds)
+	; start byte index is 1
+	move	rr, n2			;; Check bounds.
+	ifle	subq	2, n2			;; Index - 1 as a CLU int.
+	then	signal	bounds
+		end
+	movea	wv, r1
+	move	(r1), n1
+	subq	2, n1			;; (#bytes in wvec - 1) as a CLU int.
+	iflt	cmp	n1, n2
+	then	asr	1, n2		;; De-integerize index.
+		clr	n3
+		ifeq	btst	0, n2	;; Is the index at a word boundary?
+		then	movew	4(r1, n2), n3	;; Yes, fetch word.
+		else	moveb	4(r1, n2), n3	;; No, Fetch first byte.
+			asl	8, n3		;; Shift into second byte of register.
+			orb	5(r1, n2), n3	;; Or in the next byte.
+			end
+		add	n3, n3		;; Integerize it.
+		addqb	1, n3
+		return (n3)
+		end
+	signal  bounds	
+	end wfetch
+
+wstore = qproc (wv: cvt, idx, i: int) signals (bounds)
+	; start byte index is 1
+	move	idx, n2			;; Check bounds.
+	ifle	subq	2, n2		;; Index - 1 as a CLU int.
+	then	signal	bounds
+		end
+	movea	wv, r1
+	move	(r1), n1
+	subq	2, n1			;; (#bytes in wvec - 1) as a CLU int.
+	iflt	cmp	n1, n2
+	then	asr	1, n2		;; De-integerize index.
+		move	rr, n1
+		asr	1, n1		;; De-integerize value to be stored.
+		ifeq	btst	0, n2	;; Is index at word boundary?
+		then	movew	n1, 4(r1, n2)	;; Yes, store entire word.
+		else	moveb	n1, 5(r1, n2)	;; No. Store second (lower) byte.
+			asr	8, n1		;; Shift register down to get high byte.
+			moveb	n1, 4(r1, n2)	;; Store high byte.
+			end
+		return
+		end
+	signal	bounds
+	end wstore
+
+lfetch = qproc (wv: cvt, idx: int) returns (int) signals (bounds, overflow)
+	; start byte index is 1
+	move	rr, n2
+	ifle	subq	2, n2		;; Index - 1 as CLU int.
+	then	signal	bounds
+		end
+	movea	wv, r1
+	move	(r1), n1
+	subq	6, n1			;; (#bytes in wvec - 3) as CLU int.
+	iflt	cmp	n1, n2		;; Check bounds.
+	then	asr	1, n2		;; De-integerize index.
+		ifeq	btst	0, n2	;; Is index at word boundary?
+		then	move	4(r1, n2), n1	;; Yes. Fetch entire longword.
+		;; Fetch byte-at-a-time ultra optimized:
+		;; Start with bytes in memory, say 4=MSB, 1=LSB (4 3 2 1)
+		;; Fetch 2 to get (X X X 2)
+		;; Swap to get (X 2 X X)
+		;; Fetch 4 to get (X 2 X 4)
+		;; Shift left to get (2 X 4 X)
+		;; Fetch 3 to get (2 X 4 3)
+		;; Swap to get (4 3 2 X)
+		;; Fetch 1 and we're done.
+		else	clr	n1	;; No.
+			moveb	6(r1, n2), n1	;; Fetch (2)
+			swap	n1
+			moveb	4(r1, n2), n1	;; Fetch (4)
+			lsl	8, n1
+			moveb	5(r1, n2), n1	;; Fetch (3)
+			swap	n1
+			moveb	7(r1, n2), n1	;; Fetch (1)
+			end
+		ifvc	add	n1, n1	;; Integerize result.
+		then	addqb	1, n1
+			return (n1)
+			end
+		signal 	overflow
+		end
+	signal	bounds
+	end lfetch
+
+lstore = qproc (wv: cvt, idx, i: int) signals (bounds)
+	; start byte index is 1
+	move	idx, n2
+	ifle	subq	2, n2		;; Index - 1 as CLU int.
+	then	signal	bounds
+		end
+	movea	wv, r1
+	move	(r1), n1
+	subq	6, n1			;; (#bytes in wvec - 3) as CLU int.
+	iflt	cmp	n1, n2		;; Check bounds.
+	then	asr	1, n2		;; De-integerize index.
+		move	rr, n1
+		asr	1, n1		;; De-integerize value to be stored.
+		ifeq	btst	0, n2	;; Is index at word boundary?
+		then	move	n1, 4(r1, n2)	;; Yes. Store entire word.
+		;; Store byte-at-a-time, ultra-optimized:
+		;; We start with the bytes in n1, say 4=MSB, 1=LSB (4 3 2 1)
+		;; Store 1, then swap n1 to get (2 1 4 3),
+		;; Store 3, then shift n1 right to get: (X 2 1 4)
+		;; Store 4, then swap n1 to get: (1 4 X 2)
+		;; Store 2.
+		else	moveb	n1, 7(r1, n2)	;; No.Store lowest byte (1)
+			swap	n1
+			moveb	n1, 5(r1, n2)	;; Store (3)
+			lsr	8, n1
+			moveb	n1, 4(r1, n2)	;; Store (4)
+			swap	n1
+			moveb	n1, 6(r1, n2)	;; Store (2)
+			end
+		return
+		end
+	signal	bounds
+	end lstore
+
+move_lr = qproc (w1: cvt, s1: int, w2: cvt, s2: int, len: int)
+						signals (negative_size, bounds)
+	; moves len words from w1 starting at s1 to w2 starting at s2
+	; first word is moved first
+	; 1 <= s1 <= size(w1) + 1
+	; 1 <= s2 <= size(w2) + 1
+	; len >= 0
+	cmpa	n0, rr			;; Check length.
+	blt	negz
+
+	move	s1, n1
+	asr	1, n1
+	subq	1, n1			;; s1 - 1 as normal int.
+	blt	bnds
+	movea	w1, r1
+	move	(r1), n3
+	asr	3, n3			;; (#bytes in w1 / 4) as normal int.
+
+	move	s2, n2
+	asr	1, n2
+	subq	1, n2			;; s2 - 1 as normal int.
+	blt	bnds
+	movea	w2, r2
+	move	(r2), n4
+	asr	3, n4			;; (#bytes in w2 / 4) as normal int.
+
+	cmp	n3, n1			;; Bounds check s1.
+	bgt	bnds
+	cmp	n4, n2			;; Bounds check s2.
+	bgt	bnds
+
+	;; Enough words to move in source wvec? Fix len if not.
+	move	rr, n5
+	asr	1, n5			;; De-integerized length.
+	add	n1, n5			;; Length + s1 - 1.
+	ifgt	cmp	n3, n5		;; Check length.
+	then	movea	n3, rr
+		suba	n1, rr		;; Use rest of w1.
+		lea	1(rr, rr), rr	;; Integerize length.
+		end
+	;; Enough words for move in destination wvec? Fix len if not.
+	move	rr, n5
+	asr	1, n5			;; De-integerize length.
+	add	n2, n5			;; Length + s2 - 1
+	ifgt	cmp	n4, n5		;; Check length.
+	then	movea	n4, rr
+		suba	n2, rr		;; Use rest of w2.
+		lea	1(rr, rr), rr	;; Integerize length.
+		end
+
+	;; Get start addresses.
+	asl	2, n1			;; Get start byte index for w1.
+	lea	4(r1, n1), r1		;; Start addr in w1.
+	asl	2, n2			;; Get start byte index for w2.
+	lea	4(r2, n2), r2		;; Start addr in w2.
+
+	move	rr, n3
+	asr	1, n3			;; Get length and de-integerize.
+	ifge	subq	1, n3		;; Get length - 1 (since dbra goes until -1).
+	then	loop	move	(r1)+, (r2)+
+			dbra	n3, this
+			swap	n3
+			subqw	1, n3
+			blt	next
+			swap	n3
+			end
+		end
+	movea	n0, r1
+	movea	n0, r2
+	return
+bnds:	signal	bounds
+negz:	signal	negative_size
+
+	end move_lr
+
+move_rl = qproc (w1: cvt, s1: int, w2: cvt, s2: int, len: int)
+						signals (negative_size, bounds)
+	; moves len words from w1 starting at s1 to w2 starting at s2
+	; last word is moved first
+	; 1 <= s1 <= size(w1) + 1
+	; 1 <= s2 <= size(w2) + 1
+	; len >= 0
+	cmpa	n0, rr			;; Check length.
+	blt	negz
+
+	move	s1, n1
+	asr	1, n1
+	subq	1, n1			;; s1 - 1 as normal int.
+	blt	bnds
+	movea	w1, r1
+	move	(r1), n3
+	asr	3, n3			;; (#bytes in w1 / 4) as normal int.
+
+	move	s2, n2
+	asr	1, n2
+	subq	1, n2			;; s2 - 1 as normal int.
+	blt	bnds
+	movea	w2, r2
+	move	(r2), n4
+	asr	3, n4			;; (#bytes in w2 / 4) as normal int.
+
+	cmp	n3, n1			;; Bounds check s1.
+	bgt	bnds
+	cmp	n4, n2			;; Bounds check s2.
+	bgt	bnds
+
+	;; Enough words to move in source wvec? Fix len if not.
+	move	rr, n5
+	asr	1, n5			;; De-integerized length.
+	add	n1, n5			;; Length + s1 - 1.
+	ifgt	cmp	n3, n5		;; Check length.
+	then	movea	n3, rr
+		suba	n1, rr		;; Use rest of w1.
+		lea	1(rr, rr), rr	;; Integerize length.
+		end
+	;; Enough words for move in destination wvec? Fix len if not.
+	move	rr, n5
+	asr	1, n5			;; De-integerize length.
+	add	n2, n5			;; Length + s2 - 1
+	ifgt	cmp	n4, n5		;; Check length.
+	then	movea	n4, rr
+		suba	n2, rr		;; Use rest of w2.
+		lea	1(rr, rr), rr	;; Integerize length.
+		end
+
+	;; Get start addresses.
+	move	rr, n3
+	asr	1, n3			;; Get length and de-integerize.
+	add	n3, n1			;; Lword index of end of source string.
+	asl	2, n1			;; Byte index of end of source string.
+	lea	4(r1, n1), r1		;; Start addr in w1.
+	add	n3, n2			;; Lword index of end of dest. string.
+	asl	2, n2			;; Byte index of end of dest. string.
+	lea	4(r2, n2), r2		;; Start addr in w2.
+
+	ifge	subq	1, n3		;; Get length - 1 (since dbra goes until -1).
+	then	loop	move	-(r1), -(r2)
+			dbra	n3, this
+			swap	n3
+			subqw	1, n3
+			blt	next
+			swap	n3
+			end
+		end
+	movea	n0, r1
+	movea	n0, r2
+	return
+bnds:	signal	bounds
+negz:	signal	negative_size
+	end move_rl
+
+get_byte = qproc (wv: cvt, wrd, bit, len: int) returns (int)
+				signals (bounds, overflow, illegal_size)
+	; get len bits ending at bit bit at index wrd
+	; most significant bit is 1
+	ifle	cmpa	n0, rr		;; Check bounds
+		ble	next
+		cmpa	65, rr		;; (65 = 32 as a CLU int).
+	then	ifge	move	wrd, n1
+			subqb	1, n1
+			asl	1, n1	;; Word index * 4 (de-Integerized).
+			ble	next
+			movea	wv, r1
+			move	(r1), n2
+			asr	1, n2	;; De-integerize size for comparison.
+			cmp	n2, n1
+			bgt	next
+			cmpa	bit, rr
+			bgt	next
+			move	bit, n4
+			asr	1, n4	;; De-integerize bit (in n4)
+			move	32, n2
+			sub	n4, n2	;; 32 - bit (in n2)
+		then	move	(r1, n1), n3;; Word from which to extract (in n3).
+			move	rr, n5
+			asr	1, n5	;; De-integerize length (in n5)
+			move	n4, n6
+			sub	n5, n6	;; bit - length (in n6)
+			lsl	n6, n3	;; Shift off top (bit-length) bits.
+			add	n2, n6	;; Backup (bit-length) bits and
+			lsr	n6, n3	;; shift off the bottom (32-bit) bits.
+			ifvc	add	n3, n3	;; Integerize result.
+			then	addqb	1, n3
+				return (n3)
+				end
+			signal	overflow
+			end
+		signal 	bounds
+		end
+	signal	illegal_size
+	end get_byte
+
+set_byte = qproc (wv: cvt, byte, wrd, bit, len: int)
+						signals (bounds, illegal_size)
+	; set len bits ending at bit bit at index wrd
+	; most significant bit is 1
+	ifle	cmpa	n0, rr		;; Check bounds
+		ble	next
+		cmpa	65, rr		;; (65 = 32 as a CLU int).
+	then	ifge	move	wrd, n1
+			subqb	1, n1
+			asl	1, n1	;; Word index * 4 (de-Integerized).
+			ble	next
+			movea	wv, r1
+			move	(r1), n2
+			asr	1, n2	;; De-integerize size for comparison.
+			cmp	n2, n1
+			bgt	next
+			cmpa	bit, rr
+			bgt	next
+			move	bit, n4
+			asr	1, n4	;; De-integerize bit (in n4)
+			move	32, n2
+			sub	n4, n2	;; 32 - bit (in n2)
+		then	move	(r1, n1), n3;; Word to be changed (in n3)
+			move	rr, n5
+			asr	1, n5	;; De-integerize length (in n5)
+
+			;; Create a mask with bottom len bits = 1 and other
+			;; bits = 0.
+			move	#ffff,,#ffff, n7;; Register full of ones.
+			lsl	n5, n7	;; Shift 1's over by length. Bottom len
+					;; bits will be 0.
+			not	n7	;; Complement so that bottom len bits
+ 					;; are 1 and rest of bits are 0.
+			lsl	n2, n7	;; Position the len 1's at the bit
+ 					;; field to be changed. (Shift left
+ 					;; 32 - len places).
+
+			;; Get the source and de-integerize.
+			move	byte, n6;; Get "byte" to store (in n6).
+			asr	1, n6	;; De-integerize it.
+			;; Shift source so that bits are in proper position.
+			lsl	n2, n6	;; Shift over (32-bit) places.
+			;; Make sure that the bits outside of the bit field
+ 			;; in the source are 0.
+			and	n7, n6	;; Mask off all bits not in the 
+ 					;; selected bit field.
+
+			;; Zero out bit field in dest. where "byte" is to go.
+			not	n7	;; Reverse mask used for source.
+			and	n7, n3	;; Mask off bit field in the word to
+					;; be changed.
+
+		 	or	n6, n3	;; OR new bits into place in n3.
+			move	n3, (r1, n1)	;; And store back into wvec. 
+			return
+			end
+		signal 	bounds
+		end
+	signal	illegal_size
+	
+	end set_byte
+
+word_size = qproc () returns (int)
+	; returns 32 on M68000
+	return (32)
+	end word_size
+
+byte_size = qproc () returns (int)
+	; returns 8 on M68000
+	return (8)
+	end byte_size
+
+bytes_per_word = qproc () returns (int)
+	; returns 4 on M68000
+	return (4)
+	end bytes_per_word
+
+move_b2w = qproc (b: _bytevec, bpos: int, w: cvt, wpos: int, n: int)
+							signals (bounds)
+	; moves n bytes from b starting at bpos to w starting at wpos
+
+	;; This code is similar to that for move_lr().
+	move	bpos, n1
+	asr	1, n1
+	subq	1, n1			;; bpos - 1 as normal int.
+	blt	bnds
+	movea	b, r1
+	move	(r1), n3
+	asr	1, n3			;; #bytes in b as normal int.
+
+	move	wpos, n2
+	asr	1, n2
+	subq	1, n2			;; wpos - 1 as normal int.
+	blt	bnds
+	movea	w, r2
+	move	(r2), n4
+	asr	1, n4			;; #bytes in w as normal int.
+
+	ifle	cmp	n3, n1
+		bgt	next
+		cmp	n4, n2
+	then	ifgt	cmpa	n0, rr
+		then	move	rr, n5
+			asr	1, n5	;; De-integerize length
+			add	n1, n5	;; Length + bpos - 1
+			ifgt	cmp	n3, n5	;; Check length
+			then	movea	n3, rr
+				suba	n1, rr	;; Use rest of b.
+				lea	1(rr, rr), rr	;; Integerize length
+				end
+			move	rr, n5
+			asr	1, n5	;; De-integerize length.
+			add	n2, n5	;; Length + wpos - 1
+			ifgt	cmp	n4, n5
+			then	movea	n4, rr
+				suba	n2, rr	;; Use rest of w.
+				lea	1(rr, rr), rr	;; Integerize length.
+				end
+			;; Get start addresses.
+			lea	4(r1, n1), r1	;; Get start addr in b.
+			lea	4(r2, n2), r2	;; Get start addr in w.
+
+			move	rr, n3
+			asr	1, n3	;; Get length and de-integerize.
+			ifge	subq	1, n3	;; Get len - 1 (for dbra)
+			then	loop	moveb	(r1)+, (r2)+
+					dbra	n3, this
+					swap	n3
+					subqw	1, n3
+					blt	next
+					swap	n3
+					end
+				end
+			movea	n0, r1
+			movea	n0, r2
+			end
+		return
+		end
+bnds:	signal	bounds
+	end move_b2w
+
+move_w2b = qproc (w: cvt, wpos: int, b: _bytevec, bpos: int, n: int)
+							signals (bounds)
+	; moves n bytes from w starting at wpos to b starting at bpos
+	;; This code is similar to that for move_lr() and move_b2w.
+	move	bpos, n1
+	asr	1, n1
+	subq	1, n1			;; bpos - 1 as normal int.
+	blt	bnds
+	movea	b, r1
+	move	(r1), n3
+	asr	1, n3			;; #bytes in b as normal int.
+
+	move	wpos, n2
+	asr	1, n2
+	subq	1, n2			;; wpos - 1 as normal int.
+	blt	bnds
+	movea	w, r2
+	move	(r2), n4
+	asr	1, n4			;; #bytes in w as normal int.
+
+	ifle	cmp	n3, n1
+		bgt	next
+		cmp	n4, n2
+	then	ifgt	cmpa	n0, rr
+		then	move	rr, n5
+			asr	1, n5	;; De-integerize length
+			add	n1, n5	;; Length + bpos - 1
+			ifgt	cmp	n3, n5	;; Check length
+			then	movea	n3, rr
+				suba	n1, rr	;; Use rest of b.
+				lea	1(rr, rr), rr	;; Integerize length
+				end
+			move	rr, n5
+			asr	1, n5	;; De-integerize length.
+			add	n2, n5	;; Length + wpos - 1
+			ifgt	cmp	n4, n5
+			then	movea	n4, rr
+				suba	n2, rr	;; Use rest of w.
+				lea	1(rr, rr), rr	;; Integerize length.
+				end
+			;; Get start addresses.
+			lea	4(r1, n1), r1	;; Get start addr in b.
+			lea	4(r2, n2), r2	;; Get start addr in w.
+
+			move	rr, n3
+			asr	1, n3	;; Get length and de-integerize.
+			ifge	subq	1, n3	;; Get len - 1 (for dbra)
+			then	loop	moveb	(r2)+, (r1)+	;; Note: this is the only difference from move_b2w!
+					dbra	n3, this
+					swap	n3
+					subqw	1, n3
+					blt	next
+					swap	n3
+					end
+				end
+			movea	n0, r1
+			movea	n0, r2
+			end
+		return
+		end
+bnds:	signal	bounds
+	end move_w2b
+
+size = qproc (w: cvt) returns (int)
+	; number of words
+	move	(rr), n1
+	asr	3, n1			;; De-integerize size and divide by 4.
+	add	n1, n1
+	addqb	1, n1			;; Re-integerize result.
+	return (n1)
+	end size
+
+equal = qproc (w1, w2: cvt) returns (bool)
+	; object identity
+	ifeq	cmpa	w1, rr
+	then	return (true)
+		end
+	return (false)
+	end equal
+
+copy = qproc (w: cvt) returns (cvt)
+	; really copies
+	movea	rr, r1
+	move	(r1), n2		;; Byte count as CLU int.
+	add	n2, n2
+	addq	2, n2			;; (Byte count * 4) + 4
+	movea	heaphi, rr
+	iflt	sub	n2, freecnt
+	then	jsr	memout		;; Alloc memory for the new wvec.
+		end
+	add	n2, heaphi
+	movea	rr, r2
+	move	(r1)+, n1		;; Get back byte count as CLU int.
+	move	n1, (r2)+		;; Store header.
+	asr	1, n1			;; De-integerize byte count.
+	ifge	subq	1, n1		;; Get byte count - 1
+	then	loop	move	(r1)+, (r2)+
+			dbra	n1, this
+			swap	n3
+			subqw	1, n3
+			blt	next
+			swap	n3
+			end
+		end
+	movea	n0, r1
+	movea	n0, r2
+	return (rr)
+	end copy
+
+_gcd = qproc (w: cvt, tab: gcd_tab) returns (int)
+	move	rr,-(sp)
+	movea	w,rr
+	move	(rr),n2
+	addq	8, n2			;; size of wvec object (#bytes in wvec
+ 					;;  + 4) as a CLU int.
+	gcd_tab$%insert(*, n2, <1: 0>, rr)
+	return(rr)
+	end _gcd
+
+end _wordvec

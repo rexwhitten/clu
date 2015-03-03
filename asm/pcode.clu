@@ -1,0 +1,168 @@
+%	PCODE CLU
+% Copyright Massachusetts Institute of Technology 1980, 1989
+%	MC68000 Assembler: opcode setup
+
+p_opcode = proc (e: p_env)
+	gens = sequence[igentype]$[g_form_01,
+				   g_form_02,
+				   g_form_03,
+				   g_form_04,
+				   g_form_05,
+				   g_form_06,
+				   g_form_07,
+				   g_form_08,
+				   g_form_09,
+				   g_form_10,
+				   g_form_11,
+				   g_form_12,
+				   g_form_13,
+				   g_form_14,
+				   g_form_15,
+				   g_form_16,
+				   g_form_17,
+				   g_form_18,
+				   g_form_19,
+				   g_form_20,
+				   g_form_21,
+				   g_form_22,
+				   g_form_23]
+	fn: fname := fname$create(masm_dir(), "opcode", "defs", "")
+	st: stream := stream$open(fn, "read")
+	p_env$reset(e, st, stream$create_output())
+	while true do
+		tagcase e.peek1
+		   tag eof:
+			break
+		   others:
+		   end
+		opcode: name := p_name(e)
+		tagcase e.peek1
+		   tag equal:
+			p_env$next_token(e)
+		   others:
+			p_env$assume(e, "=")
+		   end
+		val: int := 0
+		tagcase e.peek1
+		   tag expr (x: expr):
+			tagcase x.abs
+			   tag int_ (i: int):
+				val := i
+				if val < 0
+				   then val := val + 65536 end
+				p_env$next_token(e)
+			   others:
+				p_env$assume(e, "int")
+			   end
+		   others:
+			p_env$assume(e, "int")
+		   end
+		form: int := 1
+		tagcase e.peek1
+		   tag expr (x: expr):
+			tagcase x.abs
+			   tag int_ (i: int):
+				form := i
+				p_env$next_token(e)
+			   others:
+				p_env$assume(e, "int")
+			   end
+		   others:
+			p_env$assume(e, "int")
+		   end
+		p_env$def_opcode(e, opcodeform${opcode: val,
+						opgen:  gens[form],
+						str:    opcode})
+		    except when bounds:
+				 p_env$err(e, "illegal format number")
+				 p_env$def_opcode(e,
+						  opcodeform${opcode: val,
+							      opgen:  g_form_01,
+							      str:    opcode})
+			   end
+		end
+	stream$close(st)
+	end p_opcode
+
+p_perm = proc (e: p_env)
+	fn: fname := fname$create(masm_dir(), "perm", "defs", "")
+	st: stream := stream$open(fn, "read")
+	stream$gets(st, "#")
+	stream$getl(st)
+	p_env$reset(e, st, stream$create_output())
+	while true do
+		tagcase e.peek1
+		   tag eof:
+			break
+		   others:
+		   end
+		id: name := p_name(e)
+		tagcase e.peek1
+		   tag equal:
+			p_env$next_token(e)
+		   others:
+			p_env$assume(e, "=")
+		   end
+		tagcase e.peek1
+		   tag expr (x: expr):
+			p_env$def_idn(e, id, idnkind$make_perm(x))
+		   others:
+			p_env$assume(e, "literal")
+		   end
+		p_env$next_token(e)
+		end
+	stream$close(st)
+	end p_perm
+
+p_addr = proc (e: p_env)
+	fn: fname := fname$create(masm_dir(), "addr", "defs", "")
+	st: stream := stream$open(fn, "read")
+	stream$gets(st, "#")
+	stream$getl(st)
+	p_env$reset(e, st, stream$create_output())
+	prev: int := 0
+	switch: bool := false
+	while true do
+		tagcase e.peek1
+		   tag eof:
+			break
+		   others:
+		   end
+		id: name := p_name(e)
+		tagcase e.peek1
+		   tag equal:
+			p_env$next_token(e)
+		   others:
+			p_env$assume(e, "=")
+		   end
+		val: int := p_icode(e, true)
+		if val < prev
+		   then switch := true end
+		prev := val
+		if switch
+		   then p_env$def_idn(e, id, idnkind$make_data(val))
+		   else p_env$def_idn(e, id, idnkind$make_text(val))
+		   end
+		end
+	stream$close(st)
+	end p_addr
+
+p_icode = proc (e: p_env, need: bool) returns (int) signals (none)
+	tagcase e.peek1
+	   tag expr (x: expr):
+		tagcase x.abs
+		   tag int_ (i: int):
+			p_env$next_token(e)
+			return(i // 65536)
+		   others:
+		   end
+	   tag minus:
+		p_env$next_token(e)
+		return(-1)
+	   others:
+	   end
+	if ~need
+	   then signal none end
+	p_env$assume(e, "int")
+	return(1)
+	end p_icode

@@ -1,0 +1,43 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+_buffered_read = proc (e: env, chan: _chan) returns (ast, string)
+    len: int := chan.length / 4
+       except when not_possible (*): len := 0 end
+    if len > _free_space()
+       then _gc$gc()
+	    if len > _free_space()
+	       then return(ast$new(), "insufficient room!") end
+       end
+    as: ast := ast$predict(1, len / 8)
+    bvec: _bytevec := _io_buf()
+    msg: string := "Done."
+    index: int := 1
+    max: int := 0
+    chars: string := ""
+    while true do
+	s: string
+	s, index, max := _chan$get(chan, bvec, index, max, "\n", false)
+	ast$addh(as, s)
+	if index > max
+	   then break end
+	index := index + 1
+	if ast$size(as) < 1024  cor  ast$size(as) // 256 ~= 0
+	   then continue end
+	if ast$size(as) = 1024
+	   then chars := _flush_macro_chars() end
+	if ~check_for_interrupt()  cor
+	   ~mconfirm(e, "Stop reading file", true)
+	   then continue
+	   end except when errmsg (*): end
+	_push_macro_chars(chars)
+	return(ast$new(), "Quit!")
+	end
+       except when not_possible, failure (why: string):
+		   msg := why
+	      when end_of_file:
+		   if ~ast$empty(as)
+		      then ast$addh(as, "") end
+	      end
+    _push_macro_chars(chars)
+    _cvt[ast, _adv[string]](as).predict := 0
+    return(as, msg)
+    end _buffered_read

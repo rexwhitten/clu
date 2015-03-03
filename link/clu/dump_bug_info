@@ -1,0 +1,10 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+%%%%% Needs to be modified for VAX version!!
+
+Dump_Bug_Info = proc (Why: string);
+    %    _Dump_Frames_to_File("ss:<subsys>bad_tlink.frames",
+    %			 User_Name() || ": " || Why);
+    %    _Dump_Self("ss:<subsys>bad_tlink.dump.0");
+    Bug_Note(Why);		%% Do at least this!
+    end Dump_Bug_Info;

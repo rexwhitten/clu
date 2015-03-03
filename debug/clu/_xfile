@@ -1,0 +1,27 @@
+%% Copyright Massachusetts Institute of Technology 1981, 1989
+
+%%% Read commands from file whose name is fs and execute them as if they were
+%%% typed interactively. There may be only 1 load command in the file and if
+%%% must be the last command if it is there. [user-interface routine]
+%%% (SEP/Nov  7 1984)
+
+_xfile = proc (fs: string) signals (bad_format, not_possible(string))
+    flag: bool := _enter_system()
+    fn: file_name := file_name$parse(fs)
+       except when bad_format:
+		   _exit_system(flag)
+		   signal bad_format
+	      end
+    st: stream := stream$open(fn, "read")
+       except when not_possible (*):
+		   st := stream$open(file_name_fill(fn, "xfile"), "read")
+		      except when not_possible (s: string):
+				  _exit_system(flag)
+				  signal not_possible(s)
+			     end
+	      end
+    s: string := stream$gets(st, "")
+    stream$close(st)
+    _listen(stream$create_input(s))
+    _exit_system(flag)
+    end _xfile

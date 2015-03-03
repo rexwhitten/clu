@@ -1,0 +1,12 @@
+%% Copyright Massachusetts Institute of Technology 1985, 1989
+
+Finish_Address_Update = proc (Env: lnk_env);
+    if (~ Env.Options.Output_to_File)
+       then %% Excepts low address is used as we don't yet know how
+	    %% big the excepts tables will be.  That is only found out after
+	    %% the code area is output.
+	    Advance_Last_Address(Env, address$Fix_Address(
+					  Env.Locates.Excepts.Low_Address,
+					  Env.Locates));
+       end;
+    end Finish_Address_Update;

@@ -1,0 +1,55 @@
+%% Copyright Massachusetts Institute of Technology 1981, 1989
+
+%%% A _signal_table stores _signal_blocks so that they may be looked up by the
+%%% name of the exception that they handle. The Lookup routine is an iterator
+%%% rather than a procedure because many signal blocks may exist for a named
+%%% exception. The caller must determine which _signal_block is applicable in a
+%%% given case.
+%%% (SEP/Nov  7 1984)
+
+_signal_table = cluster is create, lookup, elements, flush;
+
+    rep = table[string, sbs];
+    sbs = sequence[_signal_block];
+
+    Create = proc (Num: int) returns (cvt);
+	return (rep$Create(Num, Hash, string$Equal));
+	end Create;
+
+    Lookup = iter (Tb: cvt, Sig_Nm: string) yields (_signal_block)
+	       signals (not_found);
+	vNo_Sigs = sbs$New();
+	SBlks: sbs;
+	SBlks := rep$Lookup(Tb, Sig_Nm);
+	   except when Not_Found:
+		       SBlks := vNo_Sigs;
+		       for Sig_Area: _signal_area in _All_Signal_Areas() do
+			   for Sg_Blk: _signal_block in _signal_area$Elements(Sig_Area) do
+			       if (Sig_Nm = Sg_Blk.Name)
+				  then SBlks := sbs$AddH(SBlks, Sg_Blk);
+				  end;
+			       end;
+			   end;
+		  end;
+	if (SBlks = vNo_Sigs)
+	   then signal Not_Found;
+	   end
+	rep$Alter(Tb, Sig_Nm, SBlks);
+	for Sg_Blk: _signal_block in sbs$Elements(SBlks) do
+	    yield (Sg_Blk);
+	    end;
+	end Lookup;
+
+    Elements = iter (Tb: cvt) yields (_signal_block);
+	for Nm: string, Blks: sbs in rep$Elements(Tb) do
+	    for Sg_Blk: _signal_block in sbs$Elements(Blks) do
+		yield (Sg_Blk);
+		end;
+	    end;
+	end Elements;
+
+    Flush = proc (Tb: cvt);
+	rep$Flush(Tb);
+	end Flush;
+
+    end _signal_table;

@@ -1,0 +1,1341 @@
+;; Copyright Massachusetts Institute of Technology 1984, 1989
+
+;; Indices into _break_info record
+
+
+;; Offsets in debug block.
+db%code_addr = 24
+db%instr_plist_diff = 14
+db%instr_rtn_diff = 18
+db%rinf = 8
+db%param_list = 20
+db%nlocals = 6
+
+ri%args = 24
+ri%vals = 32
+
+sg%num_res = 0
+sg%sig_name = 4
+
+
+%uninit_bits = #eeee,,#eeee
+
+BISlots		=  4		;; Slots from _rtn_trace_info.trace_range
+BIFlags		=  8		;; Tracing flags for this frame (all fit in byte)
+BIPP		=  12		;; Call's pp
+BIRtrn_Addr	=  16		;; Call's return address (to caller)
+BIOEP		=  20		;; Caller's ep
+BIYield_Addr	=  24		;; Call's yield address (to body of iteration)
+BIResume_Addr	=  28		;; Iterator's resume address
+BIResume_EP	=  32		;; Iterator's resume ep
+BINEP		=  36		;; Callee's ep (to this frame)
+BICallee_Code	=  40		;; Start of callee's entry code vector
+BICaller_Info	=  44		;; _rtn_info for caller
+BICallee_Info	=  48		;; _rtn_info for callee
+BIArgs		=  52		;; Call's arguments
+
+
+sz%trace_inst = 6
+
+
+;; Trace flags (as defn in _break_info. tfn = bit number. tfb = bit itself).
+tfn%check 	= 0
+tfn%break 	= 1
+tfn%sstep 	= 2
+tfn%ent_trc 	= 3
+tfn%lv_trc	= 4
+tfn%yld_brk	= 5
+tfn%myld	= 6
+
+_set_trace_to = qproc (rtn_addr: _obj)
+	;; Change the address of the trace instruction in the debug block for
+	;; the routine to be the actual beginning of _dbg_traced's code.
+        lea	_dbg_traced, r1
+	move	db%code_addr(r1), 2(rr)
+	return
+	end _set_trace_to
+
+_set_trace_ranged = qproc (rtn_addr: _obj)
+	;; Change the address of the trace instruction in the debug block for
+	;; the routine to be the actual beginning of _dbg_tracing's code.
+	lea	_dbg_tracing, r1
+	move	db%code_addr(r1), 2(rr)
+	return
+	end _set_trace_ranged
+
+_set_trace_normal = qproc (rtn_addr: _obj)
+	;; Change the address of the trace instruction in the debug block for
+	;; the routine to be the actual beginning of _dbg_maybe's code. This is
+	;; the usual state of affairs when the routine has not been traced.
+	lea	_dbg_maybe, r1
+	move	db%code_addr(r1), 2(rr)
+	return
+	end _set_trace_normal
+
+_set_trace_flag = qproc (flag: bool)
+	;; Set the trace flag, "trcflg", equal to the value of flag.
+	move	rr, trcflg
+	return
+	end _set_trace_flag
+
+_get_callee = proc (frm: _frame, rinf: _rtn_info) returns (_obj)
+	;; Return the address of the debug block for the routine whose frame is
+	;; frm and whose routine info is rinf.
+	ift	_rtn_info$uses_params(rinf)
+	then	movea	frm, r1
+		movea	-4(r1), rr	;; Get frame's pp into rr.
+		movea	-4(rr), rr	;; The address of the debug block for a
+					;; parameterized routine is stored in
+					;; the longword preceding the beginning
+					;; of the parameterized use list
+					;; (pointed to by pp).
+	else	_rtn_info$get_routine(rinf)
+		end
+	return 	(rr)
+	end _get_callee
+
+_trace_uninitialized = qproc ()
+	move	1, uninit
+	end _trace_uninitialized
+
+_untrace_uninitialized = qproc ()
+	clr	uninit
+	end _untrace_uninitialized
+
+
+
+;; By default, _dbg_maybe is called before every routine invocation. For
+;; routines that have various forms of tracing turned on _dbg_tracing or
+;; _dbg_traced may be called instead. _dbg_maybe performs the following tasks:
+;; 	sets up pp (for a non-parameterized routine, it will be 0)
+;; 	"un-initializes" a specified number of longwords on the stack
+;; 	checks for control-G interrupts if appropriate (intlck)
+;; 	checks for uninitialized arguments if appropriate (uninit)
+;; 	checks for trace supression (~ trcflg)
+;; 	checks for single stepping, indicating a break
+;; 	checks for callee being a trace ranged slot, indicating a break
+;; 	calls _dbg_trace to take a break if necessary. otherwise,
+;; 		invokes called routine.
+;;
+;; The stack upon entry looks like:
+;; 	:
+;; 	arg 1 (of callee)
+;; 	:
+;; 	arg n-1
+;; 	return address of caller
+;; 	addr. of debug block of callee + 6        <-- SP
+
+_dbg_maybe = qproc ()
+        ifeq	tst	intflg
+		beq	next
+		tst	defer		;; Interrupt? Yes if (intflg & ~defer).
+	then	jmp	do_int
+		end
+	ifeq	tst	trcflg		;; Tracing suppressed?
+	then	jmp	no_brk		;; Yes. Don't break.
+		end
+        ifgt    tst     uninit		;; Check for uninit. arguments?
+	then	jmp	chkarg		;; Yes. Go check them.
+		end	
+
+chkbrk:	movea	(ep), r1		;; Get whatever is stored in caller's
+					;; frame as the "old ep" into r1.
+	cmpa	heaphi, r1		;; Does caller have fake ep (heap obj.)?
+	bge	no_brk			;; No if r1 >= heaphi....
+	cmpa	heaplo, r1
+	blt	no_brk			;; or if r1 < heaplo.
+	moveb	BIflags(r1), n1		;; And is break needed?
+	btst	tfn%check, n1
+	beq	no_brk			;; No.
+
+
+	;; Break may be needed. Check for single stepping. Then check for
+	;; trace_range.
+	btst	tfn%sstep, n1		;; Single stepping?
+	bne	go_brk			;; Yes. Go break.
+	movea	BISlots(r1), r2		;; Get slots variant
+
+	;; Variants are implemented so that the bottom word in the first
+	;; longword is a tag and the pointer to the actual object is in
+	;; the second longword. The tags will be numbered from 1 in
+	;; alphabetical order.
+	cmpw	2(r2), n0		;; Look at second word, (bits 0-13
+ 					;; are tag, 14-15 are 0). tag=1 => All.
+	beq	go_brk			;; Traced from.
+
+	;; Now we're delving into the sequence rep to pick out the size of
+	;; the sequence which is in the first longword. Actually, it is
+	;; (SIZE*4 + 2) which is stored in the sequence header.
+	movea	4(r2), r2		;; Get ref to sequence of slots.
+	move	(r2), n1		;; size*4 + 2
+	ifgt	subq	2, n1		;; Get size*4 (= #bytes in sequence)
+	then	move 	4(sp), n2	;; Get return address to caller
+ 					;; (which is how call slots are identified).
+		;; Loop through sequence of slots to see if callee is among
+		;; them. If so, do the break.
+		qloop	cmp	(r2, n1), n2	;; Check next slot.
+			beq	go_brk	 	;; Found match.
+			subq	4, n1	 	;; Decrement index
+			bgt	this
+			end
+	else	bclr	tfn%check, BIFlags(r1)	;; No slots set. Clear check flag.
+		end
+
+	;; Not trace ranged and not single stepping. Jump to qproc to
+	;; set up PP and invoke callee.
+no_brk:	lea	_dbg_call_rtn, r1
+	movea	db%code_addr(r1), r1
+	jmp	(r1)
+
+	;; Check for uninitialized arguments
+chkarg: movea	(sp), r1
+	movea	2(r1), r1		;; Get callee _rtn_info in r1.
+	
+	;; Loop through args, checking to see if any are uninitialized. Start
+	;; with the one in rr then go through ones on the stack, if any.
+	ifgt	movea	ri%args(r1), r2
+		move	(r2), n1
+		asr	2, n1		;; Get number of args (size of 
+					;; sequence of arg names in _rtn_info).
+		beq	next		;; Done if none.
+		move	%uninit_bits, n3	;; Bit pattern for uninit. arg.
+		cmp	rr, n3		;; Check last argument
+		beq	go_brk
+		subq	1, n1		;; Any more arguments?
+	then	movea	sp, r2		;; Set r2 to point to arg n-1...
+		addq 	8, r2
+		iflt	tst	ri%vals(r1)	;; Iterator? (# returns < 0)
+		then	addq	4, r2	;; Yes - skip over the loop body 
+ 					;; address which will be on the stack
+ 					;; between the return addr and arg n-1.
+			end
+		qloop	cmp	(r2)+, n3	;; Check arguments
+			beq	go_brk
+			subq	1, n1
+			bgt	this
+			end
+		end
+	jmp	chkbrk			;; Args ok. Go back to check for break
+
+
+	;; Should break.
+go_brk:	moveq	0, n5			;; Set break flag to true
+	st	n5
+	lea	_dbg_trace, r1
+	movea	db%code_addr(r1), r1
+	jmp (r1)			;; Go do the break. Jump to the
+					;; real code for _dbg_trace (bypassing
+					;; its debug block).
+
+	;; Handle an  interrupt. Back up stack pointer so that the call
+	;; will be redone after the interrupt
+do_int:	adda	4, sp
+	lea	_quit_interrupt, r1
+	movea	db%code_addr(r1), r1
+	jmp	(r1)
+
+	end _dbg_maybe
+
+
+
+;; _dbg_tracing will be the debugger routine to gain control when
+;; the routine being called has been trace ranged or traced from. It is similar
+;; to _dbg_maybe in many ways. The major difference is that a fake EP will
+;; always be built for the callee, whether or not a break is to be taken.
+;; 
+;; First, _dbg_tracing checks for control-G interrupts. Then it checks for
+;; conditions which could cause a break before invoking the called routine:
+;; uninitialized arguments, single stepping, callee's slot being trace-ranged
+;; in the caller. If none of these hold, then a fake EP should be generated
+;; anyway (because the callee itself has slots being traced) but no break 
+;; should be taken. _dbg_trace is called to build the fake EP and do the
+;; actual call.
+
+_dbg_tracing = qproc ()
+        ifeq	tst	intflg
+		beq	next
+		tst	defer		;; Interrupt? Yes if (intflg & ~defer).
+	then	jmp	do_int
+		end
+	ifeq	tst	trcflg		;; Tracing suppressed?
+	then	jmp	no_trace	;; Yes. Don't break or set up fake ep.
+		end
+        ifgt    tst     uninit		;; Check for uninit. arguments?
+	then	jmp	chkarg		;; Yes. Go check them.
+		end	
+
+chkbrk:	movea	(ep), r1		;; Get whatever is stored in caller's
+					;; frame as the "old ep" into r1.
+	cmpa	heaphi, r1		;; Does caller have fake ep (heap obj.)?
+	bge	no_brk			;; No if r1 >= heaphi...
+	cmpa	heaplo, r1
+	blt	no_brk			;; or if r1 < heaplo.
+	moveb	BIflags(r1), n1		;; And is break needed?
+	btst	tfn%check, n1
+	beq	no_brk			;; No. (high bit set if yes?????)
+
+
+	;; Break may be needed. Check for single stepping. Then check for
+	;; trace_range.
+	btst	tfn%sstep, n1		;; Single stepping?
+	bne	go_brk			;; Yes. Go break.
+	movea	BISlots(r1), r2		;; Get slots variant
+
+	;; Variants are implemented so that the bottom word in the first
+	;; longword is a tag and the pointer to the actual object is in
+	;; the second longword. The tags will be numbered from 1 in
+	;; alphabetical order.
+	cmpw	2(r2), n0		;; Look at second word, (bits 0-13
+ 					;; are tag, 14-15 are 0). tag=1 => All.
+	beq	go_brk			;; Traced from.
+
+	;; Now we're delving into the sequence rep to pick out the size of
+	;; the sequence which is in the first longword. Actually, it is
+	;; (SIZE*4 + 2) which is stored in the sequence header.
+	movea	4(r2), r2		;; Get ref to sequence of slots.
+	move	(r2), n1		;; size*4 + 2
+	ifgt	subq	2, n1		;; Get size*4 (= #bytes in sequence)
+	then	move 	4(sp), n2	;; Get return address to caller
+ 					;; (which is how call slots are identified).
+		;; Loop through sequence of slots to see if callee is among
+		;; them. If so, do the break.
+		qloop	cmp	(r2, n1), n2	;; Check next slot.
+			beq	go_brk	 	;; Found match.
+			subq	4, n1	 	;; Decrement index
+			bgt	this
+			end
+	else	bclr	tfn%check, BIFlags(r1)	;; No slots set. Clear check flag.
+		end
+
+	;; Not trace ranged and not single stepping. We won't break but
+	;; we still have to set up a fake ep because the callee has
+	;; trace_ranged slots.
+no_brk:	clr	n5			;; Set break flag to false.
+	lea	_dbg_trace, r1
+	movea	db%code_addr(r1), r1
+	jmp (r1)			;; Go set up the fake ep.
+
+	;; Don't break and don't even set up fake ep. Just continue with
+	;; callee.
+no_trace:
+	lea	_dbg_call_rtn, r1
+	movea	db%code_addr(r1), r1
+	jmp	(r1)
+
+
+
+	;; Should break.
+go_brk:	moveq	0, n5			;; Set break flag to true
+	st	n5
+	lea	_dbg_trace, r1
+	movea	db%code_addr(r1), r1
+	jmp (r1)			;; Go do the break. Jump to the
+					;; real code for _dbg_trace (bypassing
+					;; its debug block).
+
+	;; Check for uninitialized arguments
+chkarg: movea	(sp), r1
+	movea	2(r1), r1		;; Get callee _rtn_info in r1.
+	
+	;; Loop through args, checking to see if any are uninitialized. Start
+	;; with the one in rr then go through ones on the stack, if any.
+	ifgt	movea	ri%args(r1), r2
+		move	(r2), n1
+		asr	2, n1		;; Get number of args (size of 
+					;; sequence of arg names in _rtn_info).
+		beq	next		;; Done if none.
+		move	%uninit_bits, n3	;; Bit pattern for uninit. arg.
+		cmp	rr, n3		;; Check last argument
+		beq	go_brk
+		subq	1, n1		;; Any more arguments?
+	then	movea	sp, r2		;; Set r2 to point to arg n-1...
+		addq 	8, r2
+		iflt	tst	ri%vals(r1)	;; Iterator? (# returns < 0)
+		then	addq	4, r2	;; Yes - skip over the loop body 
+ 					;; address which will be on the stack
+ 					;; between the return addr and arg n-1.
+			end
+		qloop	cmp	(r2)+, n3	;; Check arguments
+			beq	go_brk
+			subq	1, n1
+			bgt	this
+			end
+		end
+	jmp	chkbrk			;; Args ok. Go back to check for break
+
+	;; Handle an  interrupt. Back up stack pointer so that the call
+	;; will be redone after the interrupt
+do_int:	adda	4, sp
+	lea	_quit_interrupt, r1
+	movea	db%code_addr(r1), r1
+	jmp	(r1)
+end _dbg_tracing
+
+
+
+;; _dbg_traced gained control if the callee is traced to.  Must break and
+;; must set up fake EP (unless there was an interrupt or tracing was
+;; surpressed.)
+
+_dbg_traced = qproc ()
+	ifeq	tst	intflg
+		beq	next
+		tst	defer		;; Interrupt? Yes if (intflg & ~defer).
+	then	jmp	do_int
+		end
+
+	ifeq	tst	trcflg		;; Tracing suppressed?
+	then	jmp	no_trace	;; Yes. Don't break or set fake ep.
+		end
+
+	;; Do the break. Go to _dbg_trace to set up fake ep, etc.
+	moveq	0, n5
+	st	n5
+	lea	_dbg_trace, r1
+	movea	db%code_addr(r1), r1
+	jmp	(r1)			;; Go do the break. Jump to the
+					;; real code for _dbg_trace (bypassing
+ 					;; its debug block).
+
+	;; Don't break or even set up fake ep. Just continue with callee.
+no_trace:
+	lea	_dbg_call_rtn, r1
+	movea	db%code_addr(r1), r1
+	jmp	(r1)
+
+	;; Handle an  interrupt. Back up stack pointer so that the call
+	;; will be redone after the interrupt
+do_int:	adda	4, sp
+	lea	_quit_interrupt, r1
+	movea	db%code_addr(r1), r1
+	jmp	(r1)
+end _dbg_traced
+
+
+
+;; Uninitialize locals, set up pp, and call the routine. The stack is assumed 
+;; to be in the same state as it was at the entrance to _dbg_maybe, 
+;; _dbg_tracing or _dbg_traced.
+
+_dbg_call_rtn = qproc ()
+	movea	(sp), pp
+	movea	db%instr_plist_diff(pp), pp ;; Get the address of the parameterized
+ 					;; use list out of the debug block and
+					;; store it in pp.
+	movea	(sp)+, r1		;; Pop return addr to debug block.
+	ifgt	movew	(r1), n1	;; Find out how many locals to uninit.
+	then	movea	sp, r2
+		move	%uninit_bits, n2;; Bit pattern for uninit. arg
+		;; Note: this loop is executed <#locals + 1> times
+		;; intentionally, to account for the space on the stack that
+		;; the ep will occupy. (Room for a possible pp and last arg is
+		;; already figured in to the count of locals).
+		qloop	move 	n2, -(r2)
+			dbra	n1, this;; (This only looks at the low word of n1).
+			end
+		end
+	movea	db%instr_rtn_diff(r1), r1 	;; Use return addr to debug
+					;; block to find code addr of rtn.
+	jmp	(r1)			;; Invoke called routine.
+	end _dbg_call_rtn
+
+
+;; This routine is called if a fake EP should be generated, whether or not 
+;; we're going to take a break. First, the fake EP is created and put into
+;; the frame. Then if necessary a break is taken (by calling
+;; Proc_Call_Break()). Finally the callee is invoked. If the callee is
+;; an iterator _dbg_trace_yield will catch the yields. Otherwise
+;; _dbg_trace_return will catch the return from a procedure.
+;; The break flag is in N5. Args, etc. as on call of _dbg_maybe, etc.
+
+_dbg_trace = qproc ()
+	clr	trcflg			;; Now in trace routines
+	movea	(sp)+, r1
+	subq	sz%trace_inst, r1	;; Get addr of callee's debug block.
+
+	;; Set up a 'normal' frame.
+	move	ep, -(sp)		;; This is the original caller's ep.
+	movea	sp, ep
+	move	rr, -(sp)		;; Save vital registers.
+
+	move	n5, -(sp)
+	movea	db%rinf(r1), rr		;; Get callee _rtn_info.
+	move	rr, -(sp)		;; Save it.
+	move	r1, -(sp)		;; Save callee.
+
+	_rtn_info$get_num_args (rr)
+	move	rr, -(sp)  		;; Save number of args. (Need this to
+ 					;; figure out whether there is a
+ 					;; "last arg" leter).
+
+	;; at this point, the stack looks like:
+	;; 	:
+	;; 	arg 1 of callee
+	;; 	:
+	;; 	arg n-1
+	;; 	[loop body yield addr if callee is an iterator]
+	;; 	return addr to caller
+	;; 	old ep (of caller)			<-- EP
+	;; 	arg n
+	;; 	break flag
+	;; 	callee _rtn_info			
+	;;	addr. of callee debug block
+	;; 	# args of callee			<-- SP
+
+	;; Now we're going to get the stack set up properly for the call to
+	;; _break_info$create() which creates the fake EP. If the callee
+	;; is parameterized then the PP is fetched from the callee's debug
+	;; block and pushed on the stack (it will be 0 if the routine doesn't
+	;; use its parameters).
+
+	movea	8(sp), rr		;; Get _rtn_info in rr.
+
+	ift	_rtn_info$is_parameterized(rr)
+	then	move	(sp)+, n1	;; Get number of args in n1.
+		movea	(sp)+, r1	;; Get callee debug block in r1.
+		movea	db%param_list(r1), r1	;; Get pp from debug block.
+		movea	(sp)+, r2	;; Callee rtn_info in r2.
+		move	(sp)+, n5	;; Break flag in n5.
+		movea	(sp)+, rr	;; Last arg in rr.
+		move	r1, -(sp)	;; Push pp.
+		ifgt	cmp	n0, n1
+		then	move	rr, -(sp)	;; Push last arg (if there are
+					;; any args).
+			end
+	else	move	(sp)+, n1	;; Get number of args in n1.
+		tst	(sp)+		;; Discard debug block addr.
+		movea	(sp)+, r2	;; Callee rtn_info in r2.
+		move	(sp)+, n5	;; Break flag in n5.
+		ifeq	cmp	n0, n1
+		then	tst	(sp)+	;; No args, so pop what was pushed
+					;; as the last arg.
+			end
+		end
+
+	move	ep, -(sp)		;; Push our frame.
+	move	r2, -(sp)		;; Callee _rtn_info.
+	move	n5, -(sp)		;; Break flag.
+	movea	true, rr		;; is_entry call flag is true because
+ 					;; we are in the process of entering
+ 					;; a routine.
+
+	;; stack at this point looks like:
+	;; 	:
+	;; 	arg 1
+	;; 	:
+	;; 	arg n-1
+	;; 	return addr of original caller
+	;; 	ep of caller (old ep)			<-- EP for _dbg_trace
+	;; 	pp (only if callee is parameterized)
+	;; 	arg n (if there are any args)
+	;; 	ep for _dbg_trace			(last 3 stack entries
+	;; 	_rtn_info for callee			 are params for Create
+	;; 	break flag				 call. arg #4 is in rr)
+	;;
+	_break_info$Create(*,*,*,rr)	;; Get BI.  (It will be in frame as fake ep).
+
+	;; Now, EP points to the fake EP (_break_info struct) for the
+	;; callee. rr contains the new _break_info struct returned by
+	;; _break_info$create ().
+
+	ifne	btst	tfn%break, BIFlags(rr)	;; Check if break should occur.
+					;; True if break flag passed to create
+					;; was true.
+	then	;; Yes, break. Complete dummy frame for callee.
+		movea	BIcallee_info(rr), rr
+		_rtn_info$get_raw_routine (rr)
+		move	rr, -(sp)	;; Save actual code address of callee.
+		movea	(ep), rr	;; Retrieve pointer to _break_info.
+		movea	BIcallee_code(rr), rr	;; Get debug block
+		moveaw	db%nlocals(rr), rr	;; Number of locals to uninit.
+		lea	1(rr, rr), rr	;; Integerize.
+
+		;; Get back code address + 2. This will be the dummy return 
+		;; address for the dummy frame set up during the  break.
+		;; The real code address cannot be used because of the peculiar
+		;; way  _frm_table$lookup works. If the real  code address
+		;; were used, the lookup  routine would decide the address was
+		;; actually at the end of the routine  that precedes this
+		;; routine in  memory. We want the dummy address to  be
+		;; strictly inside the body of the  routine being called.
+		;; Also, we want  an even address so it doesn't look  like
+		;; an integer.
+		move	(sp)+, n1
+		addq	2, n1
+
+		lea	_dbg_setup_locals, r1
+		movea	db%code_addr(r1), r1
+		jsr	(r1)		;; Setup the locals (n1 preserved).
+		
+		;; Set up dummy frame for call of _dbg_trace
+		movea	(ep), rr	;; Get BI back.
+		move	n1, -(sp)	;; Dummy return address.
+		move	ep, -(sp)	;; Frame link.
+		movea	sp, ep
+
+		;; _proc_call_break (bi)
+		_proc_call_break (rr)	;; Do the break.
+		clr	trcflg		;; Back in trace routines.
+
+		;; Pop dummy frame.
+		movea	(sp)+, ep
+		tst	(sp)+
+
+		;; Get fake ep in rr.
+		movea	(ep), rr
+		end
+
+	;; Now, invoke the callee and catch its returns or yields. The
+	;; calls are effectively:
+	;; 
+	;; 	res: _vec[_obj] := _dbg_call_proc (bi)
+	;; or
+	;; 	for yields: _vec[_obj] in _dbg_call_iter (bi) do
+	;; 		handle yields
+	;; 		end
+	;; The fake ep is in rr.
+	_break_info$is_iter (rr)
+	move	rr, -(sp)		;; Save is_iter flag on stack.
+	movea	(ep), rr		;; Get BI back.
+	movea	BIcallee_info(rr), rr
+	_rtn_info$is_parameterized (rr)
+	move	rr, -(sp)		;; Save is_parameterized flag on stack.
+	
+	movea	(ep), rr		;; Get BI back.
+	_break_info$get_callee_rtrn (rr)
+	movea	rr, r2			;; Keep proceed address in r2 (that is,
+ 					;; the addr of the actual rtn code).
+	move	(sp)+, n2		;; Keep is_parameterized flag in n2.
+	move	(sp)+, n4		;; Keep is_iter flag in n4.
+	movea	(ep), rr		;; Get BI back.
+	movea	BIargs(rr), r1		;; Get vector of args in r1.
+	ifne	cmpi	2, (r1)		;; (SIZE * 4) + 2 is stored in first 
+ 					;; longword of vector.
+ 					;; If there are any args then SIZE ~= 2
+	then	ifne	tst	n2	;; Yes there are args. Check if pp on stack.
+		then	movea	-8(ep), rr	;; Get last arg (after pp).
+		else	movea	-4(ep), rr	;; Get last arg.
+			end
+		end
+	movea	ep, sp			;; Trim  frame back.
+	movea	(sp)+, ep		;; Get fake ep.
+	ifne	tst	n4		;; Is iter?
+	;; note: I think _break_info$create() already replaced the return
+	;; and yield addresses---but it doesn't particularly hurt to do it
+	;; again.
+	then	addq	8, sp		;; Pop old return and yield addresses.
+	else	addq	4, sp		;; Pop old return address.
+		end
+
+	;; Stack now has arg 1....arg n-1 on top.
+
+	;; pp <-- BI.pp
+	movea	BIPP(ep), pp		;; Set up pp from _break_info.
+
+	ifne	tst	n4		;; Check if iter.
+	then	lea	_dbg_trace_yield, r1
+		move	db%code_addr(r1), -(sp)	;; Yes. Yield routine. (Yield
+ 					;; address comes after arg n-1 on stack
+ 					;; for normal iterator invocation.)
+		end
+
+	ifne	btst	tfn%ent_trc, BIFlags(ep)	;; Set trace flag if required.
+	then	move	true, trcflg	;; Leaving trace routines.
+		end
+
+	;; Uninitialize locals on the stack.
+
+	movea	rr, r3			;; Save last arg.
+	movea	BIcallee_code(ep), rr
+	moveaw	db%nlocals(rr), rr
+	lea	5(rr, rr), rr		;; Integerize and add 2 (to leave
+ 					;; extra longwords for the saved ep
+ 					;; and the return address).
+	lea	_dbg_setup_locals, r1
+	movea	db%code_addr(r1), r1
+	jsr	(r1)			;; Setup the locals (rr, r2, r3, n3 preserved).
+	lea	-2(rr, rr), rr		;; Get (num locals + 2) * 4.
+	adda	rr, sp			;; Backup stack pointer (_dbg_setup_locals advanced it).
+	movea	r3, rr			;; Restore last arg.
+	jsr	(r2)			;; Actual procedure or iterator call.
+
+	lea	_dbg_trace_return, r1	;; Go to return rtn. (skipping trace
+	movea	db%code_addr(r1), r1	;; instruction).
+	jmp	(r1)
+
+	end _dbg_trace
+
+
+;; _dbg_trace_return  handles returns from procedure and iterator invocations
+;; where the callee has a fake EP (_break_info structure) in its stack frame.
+;; If _dbg_trace_return decides that no break should be taken before returning
+;; to the caller it simply restores the caller's EP and jumps to the return
+;; address in the caller (both of these items were saved in the _break_info
+;; structure). If it decides that a break should be taken, it goes through
+;; many contortions to set up the stack to look right during the break, invokes
+;; the appropriate break routine, cleans up the stack, and then restores the EP
+;; and returns to the caller.
+;;
+;; Upon entering this routine the top entries on the stack are the first N-1
+;; results and the Nth result is in rr. EP points to the callee's fake EP.
+
+_dbg_trace_return = qproc ()
+	clr	trcflg			;; Back in trace routines.
+
+	;; BI in ep.
+	moveb	BIFlags(ep), n1		;; Get flags.
+	if	btst	tfn%lv_trc, n1	;; Only check for break if lv_trc is set.
+		beq	next
+		btst	tfn%break, n1	;; Check if break should occur. 
+		bne	this		;; Yes if break or sstep flags set.
+		btst	tfn%sstep, n1
+		bne	this
+		movea	BIOEP(ep), r2
+		movea	(r2), r2	;; Check if caller is single stepping.
+		cmpa	heaphi, r2	;; Check for fake ep. If not, don't
+		bge	next		;; want to take a break.
+		cmpa	heaplo, r2
+		blt	next
+		btst	tfn%sstep, BIFlags(r2)
+		beq	next
+
+	;; We are going to break. Most of the mess that follows makes the stack
+	;; look pretty from the break routine and then restores it back to
+	;; normal. Further complications enter in if the callee returned any
+	;; results. At the end of this "then" clause the stack will be left
+	;; just as it was upon entering _dbg_trace_return and rr will
+	;; contain result N.
+
+	then	move	rr, -(sp)	;; Save last result.
+
+		;; Figure out how many results there should be. Collect the
+		;; results in a vector (popping them off the stack) and save
+		;; the vector on the stack.
+		movea	ep, rr
+		ift	_break_info$is_iter (rr) ;; Check if iter.
+		then	movea	n0, rr	;; No results.
+		else	;; Num_results: int := BI.callee_info.num_results
+			movea	BIcallee_info(ep), rr
+			_rtn_info$get_num_returns (rr)
+			end
+		;; (rr has number of results as a CLU int.)
+		ifeq	cmpa	n0, rr	;; If no results,
+		then	tst	(sp)+	;; then forget "last result".
+			end
+		move	rr, -(sp)	;; Save # of results on stack
+
+		;; Results: seq[_obj] := collect_results (num_results, rr)
+		_vec[_obj]$create (rr)	;; Get new _vec in rr for storing results.
+		if	move	(sp)+, n1	;; Get num results and check if any.
+			cmp	n0, n1
+			beq	next
+		then	move	n1, n2
+			asr	1, n1	;; Counter for # results
+			add	n2, n2
+			subq	2, n2	;; # as byte index
+			lea	4(rr, n2), r1	;; Get addr for last result (+4).
+			qloop	move	(sp)+, -(r1)	;; Move result in.
+				subq	1, n1
+				bgt	this	;; Loop for next.
+				end
+			movea	n0, r1	;; (Make sure r1 is a valid ref.)
+			end
+
+		move	rr, -(sp)
+		;; Get is_iter flag.
+		movea	ep, rr
+		_break_info$is_iter (rr)
+		move	rr, n4		;; Keep flag in n4.
+		movea	(sp)+, rr	;; Get results back.
+
+		;; Now put args back on stack with dummy frame.
+		movea	BIargs(ep), r1	;; Get args vector.
+		move	(r1)+, n2	;; Get size*4 + 2 of it
+		asr	2, n2
+		ifge	sub	n0, n2	;; Get size - 1.
+		then	if	beq 	next	;; Don't put in last arg yet.
+			;; push args 1 through N-1
+			then	qloop	move	(r1)+, -(sp)	;; Push arg.
+					subq	1, n2
+					bgt	this
+					end
+				end
+			end
+
+		;; If callee is an iterator then push yield address.
+		ifne	tst	n4	;; Check for iter.
+		then	lea	_dbg_trace_yield, r2
+			move	db%code_addr(r2), -(sp)	;; Push yield addr.
+			clr	BIresume_addr(ep)
+			end
+		;; Push return address (_dbg_trace_return code), fake
+		;; EP, and last arg (if any) on stack. Make EP point to
+		;; the fake EP just pushed.
+		lea	_dbg_trace_return, r2
+		move	db%code_addr(r2), -(sp)	;; Put in return addr.
+		movea	ep, r2	;; Keep BI around.
+		move	ep, -(sp)	;; Put in fake ep.
+		movea	sp, ep
+		ifeq	tst	n2	;; Handle last arg if any.
+		then	move	(r1), -(sp)
+			end
+
+		move	rr, -(sp)	;; Save results _vec on stack.
+		movea	n0, r1		;; (Make r1 a valid ref.)
+
+		;; At this point, the stack looks like:
+		;; 	:
+		;; 	arg 1 (of callee---saved version)
+		;; 	:
+		;; 	arg n-1
+		;; 	yield address if callee is an iter (_dbg_trace_yield)
+		;; 	return address (_dbg_trace_return + 20)
+		;; 	callee EP (fake EP)		<-- EP
+		;; 	arg n (if there were any args)
+		;; 	results vector
+		;; Complete dummy frame for callee. if callee was
+		;; parameterized then it is necessary to correct the
+		;; stack by inserting pp (from the BI) between the last
+		;; arg (if any) and the callee's EP.
+
+		movea	BIcallee_info(r2), rr
+		_rtn_info$is_parameterized (rr)
+		movea	(ep), r2 	;; Get back BI.
+		ift		;; Is parameterized?
+		then	movea	(sp)+, r3	;; Get results back.
+			movea	BIargs(r2), r4
+			ifne	cmpi	2, (r4)	;; Check if any args.
+			then	movea	(sp)+, r1	;; Get last arg.
+				move	BIPP(r2), -(sp)	;; Put in pp.
+				move	r1, -(sp)	;; Re-push last arg.
+			else	move	BIPP(r2), -(sp)	;; Just push pp.
+				end
+			move	r3, -(sp)	;; Save results.
+			end
+
+		;; Insert space for callee's locals on stack after arg n.
+		movea	BIcallee_code (r2), rr
+		moveaw	db%nlocals (rr), rr	;; Get number of locals.
+		lea	1(rr, rr), rr	 	;; Integerize.
+		movea	(sp)+, r3	;; Get results.
+		lea	_dbg_setup_locals, r1
+		movea	db%code_addr(r1), r1
+		jsr	(r1)	;; Setup the locals (r3 preserved).
+		move	r3, -(sp)	;; Save results again.
+
+		;; Get is_iter flag again.
+		movea	(ep), rr
+		_break_info$is_iter (rr)
+		move	rr, n4	;; Keep is_iter flag in n4.
+		movea	(sp)+, rr	;; Get results in rr.
+		;; Set up dummy frame for call of _dbg_trace.
+		movea	(ep), r3	;; Get BI in r3.
+		movea	BIcallee_code(r3), r2
+		ifeq	tst	n4	;; If proc return,
+
+		;; Callee was a procedure so there may be results. rr
+		;; contains the results vector and r2 contains the
+		;; address of the callee's code. The stack looks as
+		;; follows just before this call:
+		;; 	:
+		;; 	arg 1
+		;; 	:
+		;; 	arg n-1
+		;; 	return address
+		;; 	callee's fake EP
+		;; 	pp if callee is parameterized
+		;; 	arg n
+		;; 	local 1
+		;; 	:
+		;; 	local m
+
+		then	lea	_results, r1
+			movea	db%code_addr(r1), r1
+			jsr	(r1)	;; Call _results (bypassing dbg block).
+			;; And now the following entries have been appended to
+			;; the stack:
+			;; 	number of results
+			;; 	callee_code address
+			;; 	EP #2 (points to callee's fake EP)   <-- EP
+			;; 	results (will be nil if there are 0 results,
+			;; 		the result itself if # results = 1, or
+			;; 		the vector if # results > 1.)
+			;; The EP has changed as indicated and r2 now contains
+			;; the address at the label _res_ret in _results (where
+			;; we will return to pop this extra stuff off the
+			;; stack.)
+			end	;; Returns here with frame on stack.
+
+		move	r2, -(sp)	;; And return address in r2.
+		move	ep, -(sp)	;; Finish dummy frame for _dbg_trace_return.
+		movea	sp, ep
+
+		;; 	Res := _proc_return_break (BI, res)
+		;; or
+		;; 	Res := _iter_return_break (BI, res)
+		move	r3, -(sp)	;; BI still in r3.
+
+		;; At this point, the stack has all the stuff shown
+		;; above, plus:
+		;; 	_res_ret (address in _results)
+		;; 	EP #3 (points to EP #2)       <-- EP
+		;; 	callee's _break_info struct
+
+		ifne	tst	n4	;; Check for iter.
+		then	_iter_return_break (*, rr)
+			move	true, n4
+		else	_proc_return_break (*, rr)
+			clr	n4
+			end
+		clr	trcflg	;; Back in trace routines.
+
+		;; is_iter flag is still in n4.
+		;; Pop dummy frame.
+		movea	(sp)+, ep
+		movea	(sp)+, r1
+		ifeq	tst	n4
+		then	jsr	(r1)	;; Return through _results to 
+					;; pop its frame.
+			end
+
+		;; After coming through _results to trim back the stack
+		;; somewhat, we have:
+		;;	:
+		;; 	arg 1
+		;; 	:
+		;; 	arg n-1
+		;; 	yield address if iter
+		;; 	return address (_dbg_trace_return)
+		;; 	callee's fake EP
+		;; 	pp if routine is parameterized
+		;; 	arg n
+		;; 	local 1
+		;; 	:
+		;; 	local m
+		;;
+		;; Now we're going to finish cleaning up the stack.
+		;; Everything below the EP goes away. In addition, if
+		;; there are no arguments the stack gets trimmed back
+		;; by 2 longwords. Otherwise it gets trimmed by
+		;; (#args + 1) longwords.
+
+		movea	(ep), r2 	;; Get BI.
+
+		;; Adjust stack for return.
+		movea	BIargs(r2), r1
+		move	(r1), n1 	;; Get number of args * 4 + 2
+		ifeq	cmpi	2, n1	;; Any args?
+		then	addq	6, n1	;; No. Trim by 2 longs (8 bytes).
+		else	addq	2, n1	;; Yes. Trim by #args * 4 + 4 bytes.
+			end
+
+		;; Make EP and SP point to entry on stack just above arg1.
+		movea	BINEP(r2), ep
+		lea	(ep, n1), ep	;; Adjust frame pointer.
+		ifne	tst	n4	;; If is_iter,
+		then	addq	4, ep	;; then adjust one more.
+			end
+		movea	ep, sp
+
+		;; Setup results for return. Push results on stack and
+		;; put last result into rr (same state as when we
+		;; entered _dbg_trace_return).
+		movea	rr, r1
+		move	(r1)+, n1 	;; Get # results * 4 + 2.
+		asr	2, n1	;; Get # results.
+		ifge	subq	1, n1	;; # results - 1.
+		then	if	beq	next
+			then	qloop	move	(r1)+, -(sp)	;; Push result.
+					subq	1, n1
+					bgt	this
+					end
+				end
+			movea	(r1), rr	;; Get last arg.
+			end
+		movea	n0, r1	;; Make sure r1 is a valid ref.
+
+	;; This is the "else" for the huge "then". We're not taking
+	;; a break so we just get the BI into r2.
+	else	movea	ep, r2	;; Get BI.
+		end
+
+	;; Restore the caller's ep and return (old ep and return address are
+	;; in the BI).
+	movea	BIOEP(r2), ep		;; ep <-- BI.oep
+
+	ifne	btst	tfn%lv_trc, BIflags(r2)	;; Set trace flag if required.
+	then	move	true, trcflg	;; Leaving the trace routines.
+		end
+
+	movea	BIrtrn_addr(r2), r2	;; return_addr <-- BI.return_addr
+	jmp	(r2)
+
+	end _dbg_trace_return
+
+
+;; Routine to setup n locals on stack.
+;; n is in rr. Only n5, r4 and n7 are clobbered. rr will still contain n
+;; on return.
+;; Actually = qproc (n: int) returns (int);
+_dbg_setup_locals = qproc ()
+	movea	(sp)+, r4
+	ifgt	cmpa	n0, rr
+	then	move	rr, n7
+		asr	1, n7
+		qloop	move	%uninit_bits, -(sp)
+			subq	1, n7
+			bgt	this
+			end
+		end
+	jmp	(r4)
+	end _dbg_setup_locals
+
+
+_dbg_trace_yield = qproc ()
+	clr	trcflg			;; Back in trace routines.
+	move	pp, BIresume_ep(ep)	;; Save continuation ep.
+	move	rr, -(sp)		;; Save last yield value.
+	;; num_yields: int := BI.callee_info.num_results
+	movea	BIcallee_info(ep), rr
+	_rtn_info$get_num_returns (rr)
+	move	rr, n1			;; Number of results * 2 + 1
+	ifle	cmpi	3, n1		;; Check if none or one.
+	then	moveq	4, n1		;; Get number on stack * 4 (just pushed rr).
+	else	add	n1, n1		;; Get number of res. * 4
+		subq	2, n1
+		end
+	move	(sp, n1), BIresume_addr(ep)	;; Save continuation address.
+	lea	_dbg_trace_resume, r1
+	move	db%code_addr(r1), (sp, n1)	;; And replace it.
+	moveb	BIflags(ep), n1		;; Get flags.
+	;; Break should occur if tfn%yld_brk flag is set or caller is single
+	;; stepping.
+	if	btst	tfn%lv_trc, n1	;; Only check for break if lv_trc set.
+		beq	next
+		btst	tfn%yld_brk, n1	;; Break if yield break set or...
+		bne	this
+		btst	tfn%sstep, n1	;; ... if single stepping set.
+		bne	this
+		movea	BIOEP(ep), r2
+		movea	(r2), r2	;; Check if caller is single stepping.
+		cmpa	heaphi, r2	;; First check for fake ep
+		bge	next
+		cmpa	heaplo, r2
+		blt	next
+		btst	tfn%sstep, BIflags(r2)
+		beq	next
+	then	move	rr, -(sp)	;; Going to break.
+
+		;; Collect yields into a vector.
+		;; 	yields : seq[_obj] := collect_yields (num_yields, rr)
+	 	_vec[_obj]$create (rr)
+		move	(sp)+, n1	;; Get num yields * 2 + 1
+		ifgt	cmp	n0, n1	;; Any?
+		then	asl	1, n1	;; Yes. get number * 4.
+			subq	2, n1
+			lea	4(rr, n1), r1	;; Get addr for last yield + 4.
+			qloop	move	(sp)+, -(r1)	;; Move yield in.
+				subq	4, n1
+				bgt	this	;; Loop for next
+				end
+			movea	n0, r1	;; Make sure r1 is a valid ref.
+		else	tst	(sp)+	;; Pop what was pushed as "last yield".
+			end		;; Yields in rr.
+		move	ep, -(sp)	;; Save caller ep.
+
+		;; Call _iter_yield_break.
+		movea	ep, r3		;; Set up to call _results.
+		movea	BIresume_addr(r3), r2	;; Return address.
+		movea	BIresume_ep(r3), ep	;; Use iterator's ep.
+		ifne	cmpa	(ep), r3;; Optimized for loop?
+		then	movea	(ep), r4;; Yes, get the OEP stored at other iter's ep.
+			;; Chain back up calls until we find the ep for
+			;; the callee of the optimized loop. If the callee
+			;; was not optimized also then we already have it.
+			loop	;; Get old ep for other iter in r2.
+				iflt	cmpa	heaphi, r4	;; Fake?
+				then	movea	BIOEP(r4), r2
+				else	movea	r4, r2
+					end
+				cmpa	BINEP(r3), r2	;; Found callee yet?
+				beq	next
+				movea	r2, ep	;; No. Back up one frame
+				movea	(ep), r4;; and try again.
+				end
+			;; Compute pseudo return address in for loop (it
+			;; will be the start of the for loop). If
+			;; the other iter had a fake frame, get the
+			;; return address for the computation from the BI. If
+			;; it didn't, get the return address out of the stack
+			;; frame.
+			iflt	cmpa	heaphi, r4	;; Is it fake?
+			then	movea	BIrtrn_addr(r4), r2	;; Yes.
+			else	movea	4(ep), r2	;; Not fake.
+				end
+			lea	-8(r2), r2
+			movea	BINEP(r3), ep	;; Get iter's real ep.
+			end
+		lea	_results, r1
+		movea	db%code_addr(r1), r1
+		jsr	(r1)		;; Call _results.
+		move	r2, -(sp)	;; Dummy return address for
+		move	ep, -(sp)	;; _dbg_trace_yield's dummy frame.
+		movea	sp, ep
+
+		;; yields := _iter_yield_break (BI, yields)
+		move	r3, -(sp)	;; BI still in r3.
+		_iter_yield_break (*, rr)
+		clr	trcflg		;; Back in trace routines.
+
+		movea	(sp)+, ep	;; Pop dummy frame.
+		movea	(sp)+, r1
+		jsr	(r1)		;; Go return through _results.
+		movea	ep, pp		;; Save resume ep.
+		movea	(sp)+, ep	;; Pop fake ep.
+
+		movea	rr, r1		;; Setup to move yileds onto stack.
+		move	(r1)+, n1	;; Get number of yields * 4 + 2
+		ifge	subq	6, n1	;; Get (number of yields - 1) * 4
+		then	if 	beq 	next	;; Handle last yield specially.
+			then	qloop	move	(r1)+, -(sp)	;; Push a yield.
+					subq	4, n1
+					bgt	this	;; Loop for next.
+					end
+				end
+			movea	(r1)+, rr
+			movea	n0, r1	;; Make sure r1 is a valid ref.
+			end
+
+	;; No break.
+	else	movea	(sp)+, rr	;; Get last yield back in rr.
+		end
+
+	movea	ep, r1			;; Get BI.
+	movea	BIOEP(r1), ep		;; Get correct ep.
+	movea	BINEP(r1), pp		;; Get correct resume ep.
+
+	ifne	btst	tfn%lv_trc, BIflags(r1)	;; Set trace flag if required.
+	then	move	true, trcflg	;; Leaving the trace routines.
+		end
+	movea	BIyield_addr(r1), r1
+	jmp	(r1)			;; Yield back to caller.
+
+	end _dbg_trace_yield
+
+
+_dbg_trace_resume = qproc ()
+	;; Continuation code.
+	movea	(ep), r1
+	ifne	tst	trcflg		;; Check if tracing is off.
+	then	clr	trcflg		;; Back in trace routines.
+		moveb	BIflags(r1), n1
+		;; Break should occur if single stepping, tfn%yld_brk flag is
+		;; set, or caller is single stepping.
+		if	btst	tfn%yld_brk, n1	;; Yield break set?
+			bne	this
+			btst	tfn%sstep, n1	;; Or single stepping?
+			bne	this
+			movea	BIOEP(r1), r2	;; Caller single stepping?
+			movea	(r2), r2
+			cmpa	heaphi, r2	;; First check for fake ep.
+			bge	next
+			cmpa	heaplo, r2
+			blt	next
+			btst	tfn%sstep, BIflags(r2)
+			beq	next
+		then	;; Going to break. Set up dummy frame.
+			movea	BIresume_addr(r1), r2	;; Use resume addr.
+			ifne	cmpa	BIresume_ep(r1), ep ;; Optimized for loop?
+			then	movea	BIresume_ep(r1), r2	;; Yes.
+				movea	(r2), r3
+				;; Chain back up calls until we find the ep for
+				;; the callee of the optimized loop. If the callee
+				;; was not optimized also then we already have it.
+				loop	;; Get old ep for other iter in r2.
+					iflt	cmpa	heaphi, r3	;; Fake?
+					then	movea	BIOEP(r3), r4
+					else	movea	r3, r4
+						end
+					cmpa	ep, r4	;; Found callee yet?
+					beq	next
+					movea	r4, r2	;; No. Back up one frame
+					movea	(r2), r3;; and try again.
+					end
+				;; Compute pseudo return address in for loop (it
+				;; will be the start of the for loop). If
+				;; the other iter had a fake frame, get the
+				;; return address for the computation from the BI. If
+				;; it didn't, get the return address out of the stack
+				;; frame.
+				iflt	cmpa	heaphi, r3	;; Is it fake?
+				then	movea	BIrtrn_addr(r3), r2	;; Yes.
+				else	movea	4(r2), r2	;; Not fake.
+					end
+				lea	-8(r2), r2
+				end
+			move	r2, -(sp)
+			move	ep, -(sp)
+			movea	sp, ep
+			;; _iter_resume_break (bi)
+			movea	r1, rr
+			_iter_resume_break (rr)
+			clr	trcflg	;; Back in trace routines.
+			;; Pop dummy frame.
+			movea	(sp)+, ep
+			tst	(sp)+
+			movea	(ep), r1	;; Get BI.
+			end
+		ifne	btst	tfn%ent_trc, BIflags(r1)	;; Set trace flag if required.
+		then	move	true, trcflg	;; Leaving trace routines.
+			end
+	else	bclr	tfn%lv_trc, BIflags(r1)	;; Don't want to turn tracing
+					 	;; on when we eventually leave
+						;; here since it is off now.
+		end
+	ifne	btst	tfn%myld, BIflags(r1)	;; MYld in procress?
+	then	rts			;; Yes. Return to it.
+		end
+	movea	BIresume_ep(r1), ep	;; Get real continuation ep.
+	movea	BIresume_addr(r1), r1	;; Go to real continuation address.
+	jmp	(r1)
+
+	end _dbg_trace_resume
+
+
+;; Routine called by _siggy for signal break.  Trace test has already been
+;; made.
+;; Arguments are really (BI: _break_info, Sig_Info: _obj, Last_Arg_Addr: _obj)
+;; but are given as below for frame printing purposes.
+
+;; Really:      (BI:  _break_info, sig_info: _obj, last_res_addr: _obj)
+_signals = proc (Sig: string,      Num_Res:  int,  Res:           _obj)
+	var	BI, 
+		sig_info, 
+		last_res_addr
+	clr	trcflg			;; In trace routines.
+	move	rr, last_res_addr	;; Save results.
+	move	sig, BI
+	movea	num_res, r2
+	move	r2, sig_info
+	movea	sg%num_res(r2), rr	;; Number of results.
+	_vec[_obj]$create(rr)		;; Get vector for results.
+	ifgt	move	(rr), n1	;; Gather results, if any.
+		move	n1, n2		;; (Get number of results * 4) + 2
+		asr	2, n2		;; Get number of results.
+	then	lea	2(rr, n1), r2	;; Addr (+4) of last res slot.
+		movea	last_res_addr, r1	;; Addr of last res.
+		qloop	move	(r1)+, -(r2)	;; Move res in.
+			subq	1, n2
+			bgt	this	;; Loop through all results.
+			end
+		
+		end
+
+	;; Set up the frame similarly to the way that _results() sets it up
+	;; with the number of results 2 longwords above the ep and the
+	;; results (nil, single res. or vector) 1 longword below the ep.
+
+ 	movea	sig_info, r2
+	move	sg%sig_name(r2), sig	;; Get string name of signal.
+	iflt	move	(rr), n1
+		asr	2, n1
+		subq	1, n1
+	then	movea	nil, r1		;; No results. Use nil.
+	else	if	bgt	next
+		then	movea	4(rr), r1	;; 1 result. Use it directly.
+		else	movea	rr, r1		;; >1 result. Use the vector.
+			end
+		end
+	move	(rr), n1		;; Num results * 4 + 2.
+	asr	1, n1			;; Get num_res as a clu int.
+	move	n1, num_res		;; Put num_res and res in frame.
+	move	r1, res
+
+	movea	sig, r1
+	movea	BI, r2
+
+	;; We need this extra level of indirection because if
+	;; _get_new_results() is called, it expects to have to back up 2 eps
+	;; from _rtn_signal_break (its caller) to find the results vector and
+	;; count.
+
+	lea	_dbg_trace_signal, r3
+	movea	db%code_addr(r3), r3
+	jsr	(r3)			;; Call _dbg_trace_signal with results
+ 					;; in regs.
+	movea	sig_info, r2
+	ifgt	move	(rr), n1	;; Restore results, if any.
+		move	n1, n2
+		asr	2, n2
+	then	lea	2(rr, n1), r1	;; Addr (+4) of last res in vec.
+		movea	last_res_addr, r2	;; Addr of last res on stack.
+		qloop	move	-(r1), (r2)+	;; Move res in.
+			subq	1, n2
+			bgt	this	;; Loop through all results.
+			end
+		movea	n0, r2		;; Make sure r2 is a valid ref.
+		end
+
+	movea	BI, r1
+	ifne	btst	tfn%lv_trc, BIFlags(r1)	;; Set trace flag if required.
+	then	move	true, trcflg	;; Leaving the trace routines.
+		end
+
+	end _signals
+
+
+;; Called with BI in r2, Sig_Name in r1, and results in rr.
+
+_dbg_trace_signal = proc () returns (sequence[_obj])
+	_rtn_signal_break (r2, r1, rr)	;; Go break.
+	return (rr)			;; Only return results.
+
+	end _dbg_trace_signal
+
+
+
+;; Dummy routine for provide results for frame listing.
+;; Actually the Results are in rr, address of supposed caller is in r2,
+;; the actual call is "jsb @_results+20", and
+;; this routine is to set up dummy frame as if it had been called normally
+;; and to return to caller with that frame still on the stack, and the address
+;; to return to it in r2.
+;; Registers changed: n1, n2, r1, r2, sp, ep.
+;; All other registers are preserved.
+
+_results = qproc (Num_Res: int, Res: _obj)
+	move	(sp)+, n2		;; Save return addr.
+	move	(rr), n1		;; Get number of results * 4 + 2.
+	iflt	subq	6, n1		;; 4 * (Number of args - 1).
+	then	movea	nil, r1		;; 0 results. Use nil.
+	else	if	bgt	next
+		then	movea	4(rr), r1	;; 1 result. Use it directly.
+		else	movea	rr, r1	;; >1 result. Use the vector.
+			end
+		end
+	;; Set up dummy call of self.
+	move	(rr), n1
+	asr	1, n1			;; Get number of results as a CLU int.
+	move	n1, -(sp)		;; And save it.
+	move	r2, -(sp)		;; "Return" address.
+	move	ep, -(sp)		;; Frame link.
+	movea	sp, ep
+	move	r1, -(sp)		;; Push results.
+	lea	_res_ret, r2		;; Get return address to _results
+	movea	n2, r1
+	jmp	(r1)			;; "Return" to caller.
+
+	_results()			;; Very dummy call of _results to make
+					;; return address on stack look 
+ 					;; correct. (????????)
+
+	;; Caller will return here with "jsr ...".
+	;; Must remove fake frame and return.  Only r1, sp and ep modified.
+_res_ret:
+	movea	(sp)+, r1		;; Save return addr.
+	movea	4(sp), ep		;; Restore old ep.
+	adda	16, sp			;; Pop frame.
+	jmp	(r1)
+
+	end _results
+

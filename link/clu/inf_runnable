@@ -1,0 +1,5 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+Inferior_Runnable = proc (Env: lnk_env) returns (bool);
+    return (false);
+    end Inferior_Runnable;

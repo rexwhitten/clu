@@ -1,0 +1,127 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+r_v_desc = cluster is
+	similar, sel_bind, arg_bind, res_bind, sig_bind, unparse, print, _gcd;
+
+    a_rds   = array[rtn_desc]
+    r_descs = sequence[rtn_desc]
+
+    rep = record [
+	      a_Name:	 string,
+	      b_Args:	 int,
+	      c_Results: int
+		  ];
+
+    Similar = proc (R_V1, R_V2: cvt) returns (bool);
+	return ( rep$Similar(R_V1, R_V2) );
+	end Similar;
+
+    Sel_Bind = proc (R_V: cvt, R_D: rtn_desc, Env: lnk_env)
+	     returns (r_descs) signals (error(string));
+ 	own R_Ds: a_rds := a_rds$Predict(1, 20);
+	a_rds$Trim(R_Ds, 1, 0);
+	Rtn_Name: string := R_V.a_Name;
+	Arg_Count: int := R_V.b_Args;
+	Result_Count: int := R_V.c_Results;
+	TD: type_desc := R_D.Type_Desc;
+	for Field_Type: type_desc in type_desc$Selector_Types(TD) do
+	    New_R_D: rtn_desc := rtn_desc$Create(Field_Type, Rtn_Name,
+						 params$New(), Arg_Count,
+						 Result_Count);
+	    New_R_D := rtn_desc$Bind(New_R_D, R_D, Env);
+	       resignal Error;
+	    a_rds$AddH(R_Ds, New_R_D);
+	    end;
+	Rtns: r_descs := r_descs$A2S(R_Ds);
+	a_rds$Trim(R_Ds, 1, 0);
+	return (Rtns);
+	end Sel_Bind;
+
+    Arg_Bind = proc (R_V: cvt, R_D: rtn_desc, Env: lnk_env)
+	     returns (r_descs) signals (error(string));
+ 	own R_Ds: a_rds := a_rds$Predict(1, 20);
+	a_rds$Trim(R_Ds, 1, 0);
+	Rtn_Name: string := R_V.a_Name;
+	Arg_Count: int := R_V.b_Args;
+	Result_Count: int := R_V.c_Results;
+	TD: type_desc := R_D.Type_Desc;
+	for Field_Type: type_desc in types$Elements(
+					 TD.Routine_Type.Argument_List) do
+	    New_R_D: rtn_desc := rtn_desc$Create(Field_Type, Rtn_Name,
+						 params$New(), Arg_Count,
+						 Result_Count);
+	    New_R_D := rtn_desc$Bind(New_R_D, R_D, Env);
+	       resignal Error;
+	    a_rds$AddH(R_Ds, New_R_D);
+	    end;
+	Rtns: r_descs := r_descs$A2S(R_Ds);
+	a_rds$Trim(R_Ds, 1, 0);
+	return (Rtns);
+	end Arg_Bind;
+
+    Res_Bind = proc (R_V: cvt, R_D: rtn_desc, Env: lnk_env)
+	     returns (r_descs) signals (error(string));
+ 	own R_Ds: a_rds := a_rds$Predict(1, 20);
+	a_rds$Trim(R_Ds, 1, 0);
+	Rtn_Name: string := R_V.a_Name;
+	Arg_Count: int := R_V.b_Args;
+	Result_Count: int := R_V.c_Results;
+	TD: type_desc := R_D.Type_Desc;
+	for Field_Type: type_desc in types$Elements(
+					 TD.Routine_Type.Return_List) do
+	    New_R_D: rtn_desc := rtn_desc$Create(Field_Type, Rtn_Name,
+						 params$New(), Arg_Count,
+						 Result_Count);
+	    New_R_D := rtn_desc$Bind(New_R_D, R_D, Env);
+	       resignal Error;
+	    a_rds$AddH(R_Ds, New_R_D);
+	    end;
+	Rtns: r_descs := r_descs$A2S(R_Ds);
+	a_rds$Trim(R_Ds, 1, 0);
+	return (Rtns);
+	end Res_Bind;
+
+    Sig_Bind = proc (R_V: cvt, R_D: rtn_desc, Env: lnk_env)
+		 returns (sequence[r_descs]) signals (error(string));
+ 	own R_Ds: a_rds := a_rds$Predict(1, 20);
+	own Sigs: array[r_descs] := array[r_descs]$Predict(1, 20);
+	a_rds$Trim(R_Ds, 1, 0);
+	array[r_descs]$Trim(Sigs, 1, 0);
+	Rtn_Name: string := R_V.a_Name;
+	Arg_Count: int := R_V.b_Args;
+	Result_Count: int := R_V.c_Results;
+	TD: type_desc := R_D.Type_Desc;
+	for Sig_Type: x_desc in sequence[x_desc]$Elements(
+				    TD.Routine_Type.Signal_List) do
+	    for Field_Type: type_desc in types$Elements(Sig_Type.Type_List) do
+		New_R_D: rtn_desc := rtn_desc$Create(Field_Type, Rtn_Name,
+						     params$New(), Arg_Count,
+						     Result_Count);
+		New_R_D := rtn_desc$Bind(New_R_D, R_D, Env);
+		   resignal Error;
+		a_rds$AddH(R_Ds, New_R_D);
+		end;
+	    Rtns: r_descs := r_descs$A2S(R_Ds);
+	    a_rds$Trim(R_Ds, 1, 0);
+	    array[r_descs]$AddH(Sigs, Rtns);
+	    end;
+	Sig_List: sequence[r_descs] := sequence[r_descs]$A2S(Sigs);
+	array[r_descs]$Trim(Sigs, 1, 0);
+	return (Sig_List);
+	end Sig_Bind;
+
+    Unparse = proc (R: cvt) returns (string);
+	return ("Rtn_Vec: " || R.a_Name || "(" ||
+		int$Unparse(R.b_Args) || " args) (" ||
+		int$Unparse(R.c_Results) || ")");
+	end Unparse;
+
+    Print = proc (R: cvt, S: pstream);
+	rep$Print(R, S);
+	end Print;
+
+    _gcd = proc (RVD: cvt, Tab: gcd_tab) returns (int);
+	return (rep$_gcd(RVD, Tab));
+	end _gcd;
+
+    end r_v_desc;

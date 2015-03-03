@@ -1,0 +1,37 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+jobtab = cluster is fetch_job, create_job, flush_job
+
+    rep = table[string, _job]
+
+    own jobs: rep := rep$create(3, hash, string$equal)
+
+    fetch_job = proc (name: string) returns (_job) signals (not_found)
+	return(rep$lookup(jobs, name))
+	   resignal not_found
+	end fetch_job
+
+    create_job = proc (name: string, fn: fname, jcl: string, umask: int)
+		   returns (_job) signals (errmsg(string))
+	_umask(umask)
+	_job$set_group_mode(-1)
+	j: _job := _job$cons1(fn, jcl, sequence[_chan]$new())
+	   except when not_possible (why: string):
+		       _umask(0)
+		       signal errmsg(why)
+		  end
+	rep$alter(jobs, name, j)
+	_umask(0)
+	return(j)
+	end create_job
+
+    flush_job = proc (name: string, kill: bool)
+	begin
+	    j: _job := rep$remove(jobs, name)
+	    if kill
+	       then _job$sig_group(j, 9)
+		    _job$wait(j)
+	       end
+	    end except when not_found, not_possible (*): end
+	end flush_job
+
+    end jobtab

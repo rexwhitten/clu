@@ -1,0 +1,809 @@
+
+%	GOPT2B	CLU
+% Copyright Massachusetts Institute of Technology 1985, 1989
+%	CLU Compiler Version 3: test optimizations
+
+# extend
+
+%%% Generate code to test the given expression and produce a branch for the 
+%%% case where result=comp (i.e., branch will be for false case if comp=false).
+%%% Return gotos argument augmented with any new gotos from branch.
+g_test_expr = proc (e: g_env, gotos: qi, x: expr, comp: bool) returns (qi)
+	tagcase x.abs
+	   tag bool_ (b: bool):
+		if (b  cand  ~comp)  cor  (~b  cand  comp)
+		   then return(gotos) end
+	   tag invoke (inv: invoke):
+		tagcase inv.apply.abs
+		   tag op (cop: clusterop):
+			if cop.name = "not"  cand
+			   cop.type_ = e.tenv.bool_type
+			   then comp := ~comp
+				x := exprlist$bottom(inv.args)
+			   end
+		   others:
+		   end
+	   others:
+	   end
+	tagcase x.abs
+	   tag idn (id: idn):
+		me: g_menv := e.menv
+                bcode: int                
+		found: bool, reg: int := g_find_idn(me.state, id.val)
+		if comp
+		   then bcode := BNE
+		   else bcode := BEQ
+		   end
+		if ~found
+                   then % The identifier is not in a register. Test memory.
+                        xea, xstyle, xdisp: int := g_sea (e, x, id.val)
+		        if g_byte_ok (xstyle)
+			   then % can use byte instruction
+				% generate  tstb x
+				xea, xstyle, xdisp := 
+				                g_byte_ea (xea, xstyle, xdisp)
+			        xinst (me, TSTB, xea)
+			        g_disp (me, xstyle, xdisp)
+			   else % can't use byte instruction
+				% generate  tst x
+			        xinst (me, TST, xea)
+			        g_disp (me, xstyle, xdisp)
+                           end
+                elseif reg >= _addrd_RR
+                   then % The identifier is in an address register.
+		        % Move to N7 to set the condition codes.
+		        ainst (me, MOVEW, _N7, reg)
+		else    % The identifier is in a data register. Test it.
+                        xinst (me, TSTB, reg)
+		end
+                % generate branch and return gotos.
+		gotos := qi$addh(gotos, binst(me, bcode))
+	   tag cand_ (pair: condop):
+		gotos := g_test_cond(e, gotos, pair, comp, false)
+	   tag cor_ (pair: condop):
+		gotos := g_test_cond(e, gotos, pair, comp, true)
+	   tag invoke (inv: invoke):
+		lev: int
+		gotos, lev := g_test_invoke(e, gotos, inv, comp)
+		if lev >= _hard
+		   then gotos := g_texpr(e, gotos, x, comp)
+		elseif lev >= _medium
+		   then src: locate := g_smexpr(e, x, want_dreg)
+			me: g_menv := e.menv
+			tagcase src
+			    tag areg (reg: int):
+			        ainst (me, MOVEW, _N7, reg)
+                            tag dreg (reg: int):
+			        xinst (me, TSTB, reg)
+                            others:
+			        xea, xstyle, xdisp: int := g_sea (e, x, src)
+				if g_byte_ok (xstyle)
+				   then xea, xstyle, xdisp := 
+				                g_byte_ea (xea, xstyle, xdisp)
+				        xinst (me, TSTB, xea)
+				        g_disp (me, xstyle, xdisp)
+		                   else xinst (me, TST, xea)
+                                        g_disp (me, xstyle, xdisp)
+                                   end
+                            end
+                        bcode: int
+			if comp
+			   then bcode := BNE
+                           else bcode := BEQ
+			   end
+			gotos := qi$addh(gotos, binst(me, bcode))
+		end
+	   others:
+		gotos := g_texpr(e, gotos, x, comp)
+	   end
+	return(gotos)
+	end g_test_expr
+
+%%% Test a conditional 'and' or 'or'  expression. Returns the gotos argument
+%%% augmented with the gotos for the case where the result of the
+%%% test = comp. cor_ should be true if the operation is COR.
+g_test_cond = proc (e: g_env, gotos: qi, pair: condop, comp, cor_: bool)
+								returns (qi)
+	me: g_menv := e.menv
+	oregs: reglist := me.state
+	nregs: reglist
+	pickups: qi
+	if (comp  cand  ~cor_)  cor  (~comp  cand  cor_)
+	   then pickups := g_test_expr(e, qi$new(), pair.left, cor_)
+		nregs := g_menv$begin_state(me, false)
+		gotos := g_test_expr(e, gotos, pair.right, ~cor_)
+		for loc: int in qi$elements(pickups) do
+			g_menv$goto(me, loc)
+			end
+	   else gotos := g_test_expr(e, gotos, pair.left, cor_)
+		nregs := g_menv$begin_state(me, false)
+		gotos := g_test_expr(e, gotos, pair.right, cor_)
+	   end
+	g_merge_state(oregs, nregs, true)
+	g_menv$end_state(me)
+	return(gotos)
+	end g_test_cond
+
+%%% Test the given invocation and generate a branch for the case where the
+%%% result = comp. Return the gotos argument augmented with any new gotos.
+%%% If the given invocation can be optimized here _simple is also returned.
+%%% Otherwise _medium or _hard is also returned.
+g_test_invoke = proc (e: g_env, gotos: qi, inv: invoke, comp: bool)
+							returns (qi, int)
+	cop: clusterop
+	tagcase inv.apply.abs
+	   tag op (xcop: clusterop):
+		cop := xcop
+	   others:
+		return(gotos, _hard)
+	   end
+	lev: int := _hard
+	t: typespec := cop.type_
+	tagcase cop.type_.abs
+	   tag cluster_ (clut: clutype):
+		n: name := clut.gen.unique
+		if n = "int"
+		   then gotos := g_test_comp(e, gotos, cop.name, inv.args, 
+		                             comp, false)
+			lev := _simple
+		elseif n = "char"
+		   then gotos := g_char_comp(e, gotos, cop.name, inv.args,comp)
+			lev := _simple
+		elseif n = "real"
+		   then lev := _hard
+                        % gotos := g_real_comp(e, gotos, cop.name, inv.args, comp)
+			% lev := _simple
+		elseif n = "array"
+		   then op: str := cop.name
+			if op = "equal"
+			   then gotos := g_test_comp(e, gotos, op, inv.args, 
+			                             comp, false)
+				lev := _simple
+			elseif op = "empty"
+			   then gotos := g_array_empty(e, gotos, inv.args, comp)
+				lev := _simple
+			elseif op = "fetch"  cor  op = "bottom"  cor  op = "top"
+			   then lev := _medium end
+		elseif n = "string"
+		   then op: str := cop.name
+			if op = "empty"
+			   then gotos := g_str_empty(e, gotos, inv.args, comp)
+				lev := _simple
+			   end
+		elseif n = "sequence"
+		   then op: str := cop.name
+			if op = "empty"
+			   then gotos := g_seq_empty(e, gotos, inv.args, comp)
+				lev := _simple
+			elseif op = "fetch"  cor  op = "bottom"  cor  op = "top"
+			   then lev := _medium end
+		elseif n = "_obj"
+		   then op: str := cop.name
+		   	if op = "lt" cor op = "le" cor op = "ge" cor op = "gt"
+			   cor op = "equal" cor op = "similar"
+			   then	gotos := g_test_comp (e, gotos, op, inv.args,
+			   				comp, false)
+				lev := _simple
+			   end
+		elseif n = "bool"  cor  n = "_bytevec"  cor  n = "_vec"  cor
+		       n = "_adv"
+		   then op: str := cop.name
+			if op = "equal"  cor  op = "similar"
+			   then gotos := g_test_comp(e, gotos, op, inv.args, 
+			                             comp, n = "bool")
+				lev := _simple
+			elseif op = "fetch"  cand  n = "_vec"
+			   then lev := _medium end
+		end
+	   tag type_:
+		gotos := g_test_comp(e, gotos, cop.name, inv.args, comp, false)
+		lev := _simple
+	   tag apply (apt: appletype):
+		n: name := apt.gen.unique
+		if n = "proctype"  cor  n = "itertype"
+		   then gotos := g_test_comp(e, gotos, cop.name, inv.args, 
+		                             comp, false)
+			lev := _simple
+		   end
+	   tag select (selt: seltype):
+		n: name := selt.gen.unique
+		if n = "record"
+		   then op: str := cop.name
+			if op = "equal"
+			   then gotos := g_test_comp(e, gotos, op, inv.args, 
+                                                     comp, false)
+				lev := _simple
+			elseif str$indexs("get_", op) = 1
+			   then lev := _medium end
+		elseif n = "struct"
+		   then op: str := cop.name
+			if str$indexs("get_", op) = 1
+			   then lev := _medium end
+		elseif n = "variant"
+		   then op: str := cop.name
+			if op = "equal"
+			   then gotos := g_test_comp(e, gotos, op, inv.args,
+			                             comp, false)
+				lev := _simple
+			elseif str$indexs("is_", op) = 1
+			   then gotos := g_is_test(e, gotos, str$rest(op, 4),
+						   selt.parms, inv.args, comp)
+				lev := _simple
+			elseif (op = "similar"  cand
+				g_simple_vals(selt.parms, false))  cor
+			       (op = "similar1"  cand
+				g_simple_vals(selt.parms, true))
+			   then gotos := g_1of_comp(e, gotos, inv.args, comp)
+				lev := _simple
+			end
+		elseif n = "oneof"
+		   then op: str := cop.name
+		        if str$indexs("is_", op) = 1
+			   then gotos := g_c_is_test(e, gotos,
+				                     str$rest(op, 4),
+				                     selt.parms,
+						     inv.args, comp)
+                                lev := _simple
+                        elseif g_is_compact(selt.parms, false)  cand
+			       (op = "equal" cand
+				 g_simple_vals(selt.parms, true) cor
+				op = "similar" cand
+				 g_simple_vals(selt.parms, false))
+			   then gotos := g_test_comp(e, gotos, op,
+				                     inv.args, comp, false)
+				lev := _simple
+		        end
+		end
+	   others:
+	   end
+	return(gotos, lev)
+	end g_test_invoke
+
+%%% Generate the given expression into N7 and test it. Generate the branch for
+%%% the case where the result=comp.
+g_texpr = proc (e: g_env, gotos: qi, x: expr, comp: bool) returns (qi)
+	g_expr(e, x, locate$make_dreg(_N7))
+	op: int
+	if comp
+	   then op := BNE
+	   else op := BEQ
+	   end
+	return(qi$addh(gotos, binst(e.menv, op)))
+	end g_texpr
+
+%%% Returns true if all types in specs can be compared with a simple tests
+%%% or comparisons (as in test_comp, char_comp, etc.). Eq should be true if
+%%% the comparison is for "equal" and false if the comparison is
+%%% for "similar".
+g_simple_vals = proc (specs: fieldspeclist, eq: bool) returns (bool)
+	for spec: fieldspec in fieldspeclist$elements(specs) do
+		tagcase spec.type_.abs
+		   tag cluster_ (clut: clutype):
+			n: name := clut.gen.unique
+			if ~(n = "null"  cor  n = "bool"  cor  n = "int"  cor
+			     n = "real"  cor  n = "char"  cor
+			     (eq  cand  (n = "array"  cor  n = "_vec"  cor
+					 n = "_bytevec"  cor  n = "_adv"  cor
+					 n = "_tagcell")))
+			   then return(false) end
+		   tag type_, apply:
+		   tag select (selt: seltype):
+			n: name := selt.gen.unique
+			if ~(eq  cand  (n = "record"  cor  n = "variant"))
+			   then return(false) end
+		   others:
+			return(false)
+		   end
+		end
+	return(true)
+	end g_simple_vals
+
+%%% Generate the given ref comparison and a branch for the case where
+%%% the result=comp. If use_byte is true then byte comparisons will be done
+%%% if possible. Returns gotos argument augmented with any new gotos.
+g_test_comp = proc (e: g_env, gotos: qi, op: str, args: exprlist, 
+                    comp, use_byte: bool)  returns (qi)
+    etop = exprlist$top
+    ebot = exprlist$bottom
+    compn = 0400        % XOR mask for producing opposite branch instruction
+    flip = 3 * 0400     % XOR mask for producing flip branch instruction
+
+    me: g_menv := e.menv
+    code: int
+
+    % codes for comp=true
+    if op = "equal" cor op = "similar"
+       then code := BEQ
+    elseif op = "lt"
+       then code := BLT
+    elseif op = "le"
+       then code := BLE
+    elseif op = "gt"
+       then code := BGT
+    else    code := BGE
+    end
+
+    if ~g_is_literal(etop(args)) cand g_is_literal(ebot(args))
+       then args := exprlist$[etop(args), ebot(args)]
+            if code ~= BEQ then code := i_xor (code, flip) end
+       end
+    if ~comp then code := i_xor (code, compn) end
+
+    x: expr, xsrc: locate, y: expr, ysrc: locate := g_sspair(e,args,want_any)
+
+
+    if locate$is_a (ysrc) cand ~locate$is_areg(xsrc) cand ~locate$is_a(xsrc)
+       then tagcase y.abs
+                tag int_ (i: int):
+		    switch: bool := false
+   		    xea, xstyle, xdisp: int := g_sea (e, x, xsrc)
+		    % special case comparisons against 0 and -1
+                    if i = 0 cand (code = BLT cor code = BGE)
+		       cor  i = -1 cand (code = BGT cor code = BLE)
+		       then % generate  tst x
+		            xinst (me, TST, xea)
+		            switch := true
+		    elseif i = 0
+		       then % generate  cmp x, n0
+		            ainst (me, CMP, _N0, xea)
+		            switch := true
+	            else    % generate  cmpi y, x
+		            ystyle: int := _immed
+			    i := i * 2 + 1
+			        except when overflow: ystyle := _bigint end
+		            xinst (me, CMPI, xea)
+			    g_disp (me, ystyle, i)
+	            end
+		    g_disp (me, xstyle, xdisp)
+		    if switch
+		       then if i = 0 cand code = BGT cor i = -1 cand code = BLE
+		               then code := BLT
+                            elseif i = 0 cand code = BGE
+			       then code := BGT
+			    elseif i = 0 cand code = BLE
+			       then code := BGE
+                            end
+                       end
+
+                tag bool_ (b: bool):
+                    xea, xstyle, xdisp: int := g_sea (e, x, xsrc)
+                    if use_byte cand g_byte_ok (xstyle)
+		       then % can use byte instruction: tstb x
+                            xea, xstyle, xdisp := g_byte_ea(xea, xstyle, xdisp)
+		            xinst (me, TSTB, xea)
+			    g_disp (me, xstyle, xdisp)
+                       else % can't use byte instruction. use tst x
+		            xinst (me, TST, xea)
+			    g_disp (me, xstyle, xdisp)
+                       end
+                    % if comparing against FALSE, complement comparison.
+                    if ~b
+		       then code := i_xor (code, compn)
+		       end
+
+		tag char_ (c: char):
+		    xea, xstyle, xdisp: int := g_sea (e, x, xsrc)
+		    if c = '\000'
+                       then if use_byte cand code = BGE
+		               then % char >= 0 is always true
+			            code := BRA
+				    if locate$is_tos(xsrc)
+				       then xinst (me, TST, _pincr_SP)  end
+			    elseif use_byte cand code = BLT
+			       then % char < 0 is always false
+			            code := -1
+				    if locate$is_tos(xsrc)
+				       then xinst (me, TST, _pincr_SP)  end
+			    elseif use_byte cand g_byte_ok (xstyle)
+                               then % can use byte instruction
+				    % generate  tstb x
+				    xea, xstyle, xdisp := 
+				                g_byte_ea (xea, xstyle, xdisp)
+			            xinst (me, TSTB, xea)
+				    g_disp (me,xstyle,xdisp)
+			            if code = BLE
+				       then code := BEQ
+                                    elseif code = BGT
+				       then code := BHI
+                                    end 
+                            else    % can't use byte instruction.
+                                    % generate  tst x
+			            xinst (me, TST, xea)
+			            g_disp (me, xstyle, xdisp)
+                            end
+		    elseif use_byte cand g_byte_ok (xstyle)
+		       then xea, xstyle, xdisp := g_byte_ea(xea, xstyle, xdisp)
+		            if code = BLT cor code = BGE
+		               then % Reverse sense of comparison so we can
+				    % use unsigned tests.
+                                    % generate      moveq   y, n7
+				    %               cmpb    x, n7
+			            ainst (me, MOVEQ, _N7, char$c2i(c))
+                                    ainst (me, CMPB, _N7, xea)
+				    g_disp (me, xstyle, xdisp)
+                                    % change to flip, unsigned code
+				    if code = BLT
+				       then code := BHI
+				       else code := BLS
+				       end
+                               else % use straight comparison
+				    % generate  cmpib y, x
+			            xinst (me, CMPIB, xea)
+			            immed (me, char$c2i(c))
+				    g_disp (me, xstyle, xdisp)
+                                    if code = BLE 
+				       then code := BLS
+				    elseif code = BGT 
+				       then code := BHI
+				    end
+			       end
+                    else    % generate  cmpi y, x
+                            xinst (me, CMPI, xea)
+		            g_disp (me, _immed, char$c2i(c))
+			    g_disp (me, xstyle, xdisp)
+                    end
+
+		tag null_:
+		    % generate  tst x
+                    xea, xstyle, xdisp: int := g_sea (e, x, xsrc)
+		    xinst (me, TST, xea)
+		    g_disp (me, xstyle, xdisp)
+ 		others:
+                    % generate  xreg := src1
+	            %           cmp     ysrc, xreg
+                    xreg: int := g_regmove (e, x, xsrc, -1, g_get_reg(ysrc),
+		                            want_dreg)
+                    yea, ystyle, ydisp: int := g_sea (e, y, ysrc)
+                    ainst (me, CMP, xreg, yea)
+        	    g_disp (me, ystyle, ydisp)
+		end
+    elseif locate$is_areg (xsrc) cor locate$is_areg(ysrc)
+       then % generate  cmpa    y, x
+            if locate$is_areg(ysrc)
+	       then x, y := y, x
+	            xsrc, ysrc := ysrc, xsrc
+		    if code ~= BEQ cand code ~= BNE 
+		       then code := i_xor (code, flip)
+		       end
+               end
+            yea, ystyle, ydisp: int := g_sea (e, y, ysrc)
+            ainst (me, CMPA, locate$value_areg(xsrc), yea)
+	    g_disp (me, ystyle, ydisp)
+    else    % generate  xreg := src1
+	    %           cmp     ysrc, xreg
+            xreg: int
+	    if locate$is_dreg(ysrc)
+	       then x, y := y, x
+	            xsrc, ysrc := ysrc, xsrc
+                    if code ~= BEQ cand code ~= BNE
+		       then code := i_xor (code, flip)
+		       end
+                    xreg := g_get_reg (xsrc)
+	       else xreg := g_regmove(e,x,xsrc,-1,g_get_reg(ysrc),
+	                                   want_dreg)
+               end
+            yea, ystyle, ydisp: int := g_sea (e, y, ysrc)
+            ainst (me, CMP, xreg, yea)
+	    g_disp (me, ystyle, ydisp)
+    end
+
+    % generate     Bcc ...     if a branch instruction is needed.
+    if code ~= -1
+       then return (qi$addh (gotos, binst(me, code)))
+       else return (gotos)
+       end
+end g_test_comp
+
+%%% Generate code for the given character comparison with a branch on the case
+%%% where result=comp. Return gotos argument augmented with new gotos.
+g_char_comp = proc (e: g_env, gotos: qi, op: str, args: exprlist, comp: bool)
+                                                                returns (qi)
+    compn = 0400        % XOR mask to get the complement branch instruction.
+    flipn = 3 * 0400    % XOR mask to get the flip branch instruction.
+
+    x: expr := exprlist$bottom(args)
+    y: expr := exprlist$top(args)
+    flip: bool := false
+    ok: bool := false
+
+    if exprabs$is_char_(x.abs) cor exprabs$is_idn(x.abs)
+       then x, y := y, x
+            flip := true
+       end
+
+    tagcase y.abs
+        tag char_ (c: char):
+            ok := true
+        tag idn (id: idn):
+	    ok := locate$is_var(id.val)
+        others:
+        end
+
+    if ok
+       % Extra-optimize comparisons where the first operand is string$fetch()
+       % and the second is a constant or variable. For other kinds of 
+       % comparisons let g_test_comp do the work.
+       then inv: invoke := exprabs$value_invoke (x.abs)
+            cop: clusterop := exprabs$value_op (inv.apply.abs)
+            if cop.name ~= "fetch"
+               then exit toohard
+               end
+	    clut: clutype := typeabs$value_cluster_ (cop.type_.abs)
+	    if clut.gen.unique ~= "string"
+	       then exit toohard
+	       end
+
+            % codes for comp = true
+	    code: int
+	    if op = "equal"  cor  op = "similar"
+	       then code := BEQ
+	    elseif op = "lt"
+	       then code := BLT
+	    elseif op = "le"
+	       then code := BLE
+	    elseif op = "gt"
+	       then code := BGT
+	    else code := BGE
+	    end
+
+	    if flip  cand  code ~= BEQ
+	       then code := i_xor(code, flipn) end
+            if ~comp
+	       then code := i_xor(code, compn) end
+
+            me: g_menv := e.menv
+
+            % call g_str_fetch() to setup addr and index registers.
+            xreg, dreg, disp: int := g_str_fetch(e, inv.args)
+            iword: int := g_get_index_word (me, dreg, _long, disp)
+            ea: int  := xreg + (_index-_addrd)
+
+	    tagcase y.abs
+                tag char_ (c: char):
+	            if c = '\000'
+                       then % special case comparisons against 0.
+		            if code = BGE
+                               then % char >= 0 is always true
+			            code := BRA
+                            elseif code = BLT
+			       then % char < 0 is never true
+			            code := -1
+		            else    % generate  tstb disp(xreg, dreg)
+			            xinst (me, TSTB, ea)
+                                    immed (me, iword)
+                            end
+		       else % For LT and GE we do the flip comparisons and
+			    % change code accordingly because LT and GE don't
+			    % have unsigned versions.
+		            if code = BLT cor code = BGE
+		               then % do the flip comparison:
+			            % generate  moveq y, n7
+				    %           cmpb  x, n7
+			            ainst (me, MOVEQ, _N7, char$c2i(c))
+                                    ainst (me, CMPB, _N7, ea)
+                                    immed (me, iword)
+                                    % change to flip, unsigned code
+			            if code = BLT
+				       then code := BHI
+				       else code := BLS
+				       end
+                               else % do straight comparison
+				    % generate      cmpib y, x
+			            xinst (me, CMPIB, ea)
+                                    immed (me, char$c2i(c))
+                                    immed (me, iword)
+                               end
+                       end
+
+                tag idn (id: idn):
+		    if code = BLT cor code = BGE
+		       then % flip comparison to use unsigned codes.
+			    % generate  moveb   idn, n7
+			    %           cmpb    disp(xreg,dreg), n7
+		            ainst (me, MOVEB, _N7, _idisp_EP)
+                            immed (me, locate$value_var (id.val) + 3)
+			    ainst (me, CMPB, _N7, ea)
+			    immed (me, iword)
+		            if code = BLT
+                               then code := BHI
+			       else code := BLS
+			       end
+                       else % straight comparison
+			    % generate      moveb   disp(xreg,dreg), n7
+			    %               cmpb    idn, n7
+		            ainst (me, MOVEB, _N7, ea)
+                            immed (me, iword)
+			    ainst (me, CMPB, _N7, _idisp_EP)
+			    immed (me, locate$value_var(id.val) + 3)
+		       end
+		others:
+		end
+            % generate branch instruction
+            if code ~= -1
+	       then if code = BGT 
+	               then code := BHI
+	            elseif code = BLE 
+		       then code := BLS  end
+	            return (qi$addh (gotos, binst (me, code)))
+	       else return (gotos)
+	       end
+        end
+            except when wrong_tag, toohard:     end
+        % Let g_test_comp do the optimization.
+    return (g_test_comp (e, gotos, op, args, comp, true))
+end g_char_comp
+
+g_real_comp = proc (e: g_env, gotos: qi, op: str, args: exprlist, comp: bool)
+                                                                returns (qi)
+    return (g_test_comp (e, gotos, op, args, comp, false))
+end g_real_comp
+
+%%% Generate code to test whether the array argument is empty with a branch
+%%% on the case where the result=comp. Return new gotos.
+g_array_empty = proc (e: g_env, gotos: qi, args: exprlist, comp: bool) 
+                                                                returns (qi)
+    me: g_menv := e.menv
+    code: int
+
+    % generate  areg := src
+    %           tstb    _dv_max(areg)
+    %           blt     ...             (bgt if comp = false)
+    areg: int := g_rexpr (e, exprlist$bottom(args), want_areg)
+    xinst (me, TSTB, areg + (_idisp-_addrd))
+    immed (me, _dv_max)
+    if ~comp
+       then code := BGE
+       else code := BLT
+       end
+    return (qi$addh (gotos, binst (me, code)))
+end g_array_empty
+
+%%% Generate code to test whether the string argument is empty with a branch
+%%% on the case where the result=comp. Return new gotos.
+g_str_empty = proc (e: g_env, gotos: qi, args: exprlist, comp: bool) 
+                                                                returns (qi)
+    me: g_menv := e.menv
+    code: int
+
+    % generate  areg := src
+    %           cmp (areg), n0
+    %           beq ...             (bne if comp = false)
+    areg: int := g_rexpr (e, exprlist$bottom(args), want_areg)
+    ainst (me, CMP, _N0, areg + (_indir-_addrd))
+    if ~comp
+       then code := BNE
+       else code := BEQ
+       end
+    return (qi$addh (gotos, binst (me, code)))
+end g_str_empty
+
+%%% Generate code to test whether the sequence argument is empty with a branch
+%%% on the case where the result=comp. Return new gotos.
+g_seq_empty = proc (e: g_env, gotos: qi, args: exprlist, comp: bool) 
+                                                                returns (qi)
+    me: g_menv := e.menv
+    code: int
+
+    % generate  areg := src
+    %           moveq   2, n7
+    %           cmp     (areg), n7
+    %           beq     ...             (bne if comp = false)
+    areg: int := g_rexpr (e, exprlist$bottom(args), want_areg)
+    ainst (me, MOVEQ, _N7, 2)
+    ainst (me, CMP, _N7, areg + (_indir-_addrd))
+    if ~comp
+       then code := BNE
+       else code := BEQ
+       end
+    return (qi$addh (gotos, binst (me, code)))
+end g_seq_empty
+
+%%% Generate code to test for a particular tag in a variant
+%%% oneof and branch in the case where the result=comp.
+g_is_test = proc (e: g_env, gotos: qi, tagn: str, specs: fieldspeclist, 
+                  args: exprlist, comp: bool)   returns (qi)
+    me: g_menv := e.menv
+    code: int
+    % generate  areg := src
+    %           moveq   k, n7         % k = variant tag
+    %           cmpb    3(areg), n7
+    %           beq     ...             (bne if comp = false)
+    areg: int := g_rexpr (e, exprlist$bottom(args), want_areg)
+    ainst (me, MOVEQ, _N7, g_sel(tagn, specs))
+    ainst (me, CMPB, _N7, areg + (_idisp-_addrd))
+    immed (me, 3)
+    if ~comp
+       then code := BNE
+       else code := BEQ
+       end
+    return (qi$addh (gotos, binst (me, code)))
+end g_is_test
+
+%%% Generate comparison of two  variants and branch on
+%%% case where result=comp. Returns new gotos.
+g_1of_comp = proc (e: g_env, gotos: qi, args: exprlist, comp: bool)
+                                                                returns (qi)
+    code : int
+    me: g_menv := e.menv
+
+    % generate  a1reg := src1
+    %           a2reg := src2
+    %           move    (a1reg), n7
+    %           cmpw    2(a2reg), n7
+    %           bne     neq
+    %           move    4(a2reg), n7
+    %           cmp     4(a2reg), n7
+    % if comp = true then
+    %           beq     ...
+    %      neq:
+    % else
+    %           bne     neq     (and add this and other 'bne' to gotos)
+    a1reg, a2reg: int := g_rrpair (e, args, want_areg, want_areg)
+    ainst (me, MOVE, _N7, a2reg + (_indir-_addrd))
+    ainst (me, CMPW, _N7, a1reg + (_idisp-_addrd))
+    immed (me, 2)
+    neq: int := binst (me, BNE)
+    ainst (me, MOVE, _N7, a2reg + (_idisp-_addrd))
+    immed (me, 4)
+    ainst (me, CMP, _N7, a1reg + (_idisp-_addrd))
+    immed (me, 4)
+    if ~comp
+       then code := BNE
+            gotos := qi$addh (gotos, neq)
+       else code := BEQ
+            g_menv$goto (me, neq)
+       end 
+    return (qi$addh (gotos, binst (me, code)))
+end g_1of_comp
+
+%%% Generate code to test for a particular tag in a
+%%% oneof and branch in the case where the result=comp.
+g_c_is_test = proc (e: g_env, gotos: qi, tagn: str, specs: fieldspeclist, 
+                  args: exprlist, comp: bool)   returns (qi)
+    me: g_menv := e.menv
+    code: int
+    % generate  areg := src
+    %           move    areg, -(sp)
+    %           moveq   0, n7
+    %           moveb   (sp), n7
+    %           bne     compact
+    %           moveb   3(areg), n7
+    %  compact: addq    4, sp
+    %           cmpib   k, n7               (cmpb n0, n7 for k = 1)
+    %           beq     ....                (bne if comp = false)
+    % (check for src = tos and remove push op if so; if oneof is 
+    %   known to be compact, can eliminate code to test for and
+    %   handle non-compact oneofs).
+    is_compact: bool := g_is_compact (specs, false)
+    areg: int
+    if is_compact
+       then g_expr (e, exprlist$bottom(args), locate$make_tos(nil))
+       else x: expr, xsrc: locate := g_sexpr(e,exprlist$bottom(args),want_areg)
+            if locate$is_tos(xsrc)
+               then areg := g_select_reg (me.state, -1, -1, want_areg)
+                    ainst (me, MOVEA, areg//_addrd, _indir_SP)
+               else areg := g_regmove (e, x, xsrc, -1, -1, want_areg)
+	            minst (me, MOVE, pdecr_SP_, areg)
+               end
+       end
+    ainst (me, MOVEQ, _N7, 0)
+    ainst (me, MOVEB, _N7, _indir_SP)
+    if ~is_compact
+       then loc: int := binst (me, BNE)
+            ainst (me, MOVEB, _N7, areg + (_idisp-_addrd))
+            immed (me, 3)
+            g_menv$goto (me, loc)
+       end
+    ainst (me, ADDQ, 4, _addrd_SP)
+    tagnum: int := g_sel (tagn, specs)
+    if tagnum = 1
+       then ainst (me, CMPB, _N7, _datad_N0)
+       else xinst (me, CMPIB, _N7)
+            immed (me, tagnum)
+       end
+    if ~comp
+       then code := BNE
+       else code := BEQ
+       end
+    return (qi$addh (gotos, binst (me, code)))
+end g_c_is_test

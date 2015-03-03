@@ -1,0 +1,47 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+file_versions = proc (fs: string) returns (afnt, string)
+    ai = array[int]
+    fns: afnt := afnt$new()
+    vers: ai := ai$new()
+    idx: int := string$size(fs) - _last_indexc('/', fs) + 2
+    for fn: fname in _all_file_names_(fs || ".*") do
+	vfs: string := fn.name
+	if ~string$empty(fn.suffix)  cor  ~string$empty(fn.other)
+	   then vfs := string$append(vfs, '.') || fn.suffix end
+	if ~string$empty(fn.other)
+	   then vfs := string$append(vfs, '.') || fn.other end
+	ver: int := int$parse(string$rest(vfs, idx))
+	   except when bounds, overflow, bad_format: continue end
+	i: int := 0
+	while true do
+	    i := i + 1
+	    vv: int  := vers[i]
+	    if vv < ver
+	       then continue end
+	    vers[i] := ver
+	    ver := vv
+	    ff: fname := fns[i]
+	    fns[i] := fn
+	    fn := ff
+	    end except when bounds: end
+	ai$addh(vers, ver)
+	afnt$addh(fns, fn)
+	end
+    ver: int := ai$top(vers)
+       except when bounds: ver := 0 end
+    return(fns, "." || int$unparse(ver + 1))
+    end file_versions
+
+keep_versions = proc (vers: afnt, keep: int)
+    if keep < 0
+       then afnt$addh(vers, afnt$reml(vers))
+	       except when bounds: return end
+	    keep := -keep
+       end
+    afnt$trim(vers, afnt$low(vers), afnt$size(vers) - keep)
+       except when negative_size: return end
+    for fn: fname in afnt$elements(vers) do
+	delete_file(fn)
+	   except when not_possible (*): end
+	end
+    end keep_versions

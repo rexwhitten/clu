@@ -1,0 +1,17 @@
+%% Copyright Massachusetts Institute of Technology 1985, 1989
+
+Pass_2_Base = proc (Input: in_chan, F: file) returns (int)
+		signals (not_valid);
+    in_chan$Position(Input, vUID_Position);
+       except when Not_Possible:
+		   signal Not_Valid;
+	      end;
+    Id_Obj: _obj := in_chan$Read_Obj(Input);
+       except Others:
+		   signal Not_Valid;
+	      end;
+    if (Id_Obj ~= _cvt[int, _obj](F.UId))
+       then signal Not_Valid;
+       end;
+    return ( in_chan$Size(Input) - F.P2_Size );
+    end Pass_2_Base;

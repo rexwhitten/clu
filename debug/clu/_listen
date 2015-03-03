@@ -1,0 +1,1324 @@
+% Copyright Massachusetts Institute of Technology 1981, 1989
+
+#extend
+
+% Listen Loop for the VAX CLU implementation
+% Nov. 30, 1981
+
+aobj		= array[_obj]
+sobj		= sequence[_obj]
+ac		= array[char]
+id_table	= table[string, _obj]
+constlist	= sequence[const]
+rdesc		= record[a_type:  _tdesc,
+			 b_name:  string,
+			 c_parms: constlist,
+			 d_args:  int,
+			 e_vals:  int]
+pdesclist	= sequence[pdesc]
+pdesc		= record[a_name: string,
+			 b_type: _tdesc]
+const		= variant[a_nix:    null,
+			  b_nix:    bool,
+			  c_int:    int,
+			  d_nix:    real,
+			  e_nix:    char,
+			  f_string: string,
+			  g_nix,
+			  h_nix,
+			  i_nix,
+			  j_nix,
+			  k_nix:    null,
+			  l_type:   _tdesc]
+
+% Scan is a dummy cluster intended to perform some primitive scanning
+% of CLU-like expressions. It is used by _Listen.
+
+_scan = cluster is
+	expr,         % parse & eval an expr
+	mexpr,        % parse & eval a multi-expr
+	id,           % parse an identifier
+	modid,        % parse an identifier
+	number,       % parse off a number
+	deblank,      % parse off blanks
+	str,          % parse & eval a string or char
+	exprlist,     % parse & eval a list of exprs
+	demand_empty, % demand that no more is on line
+	skip          % skip over some chars, return as string
+    
+    rep = null;
+    
+    as = array[string]
+    getc = stream$getc
+    rubout = 0177
+
+    % Demand_Empty(Cs)  demands  that  char$Deblank(Cs)  return  a
+    % blank. Otherwise it signals a syntax error.
+    
+    Demand_Empty = proc (Cs: ac) signals (syntax(string, bool));
+	C: char := Deblank(Cs);
+	if ((C = ' ') cor
+	    (C = '%'))
+	   then return;
+	   end;
+	signal Syntax(("Illegal char: '" || string$C2S(C) || "'"), true);
+	end Demand_Empty;
+    
+    % Sort_Parms sorts the sequence given as if the odd items were
+    % string selectors and the even ones were _objs. It returns a new
+    % sequence which is the sorted elements.
+    % (Straight Insertion Sort).
+
+    Sort_Parms = proc (Vs: sobj) returns (sobj);
+	AVs: aobj := sobj$S2A(Vs);
+    	aobj$Set_Low(AVs, 1);
+    	for Top: int in int$From_To_By(3, (aobj$Size(AVs) - 1), 2) do
+    	    XSel: string := _Cvt[_obj, string](AVs[Top]);
+    	    X:    _obj   := AVs[Top+1];
+    	    Hole:  int := Top;
+    	    Trial: int := Top - 2;
+    	    while ( (Trial >= 1) cand
+    		    (XSel < _Cvt[_obj, string](AVs[Trial]))
+    		   ) do
+		AVs[Hole]   := AVs[Trial];
+		AVs[Hole+1] := AVs[Trial+1];
+		Hole  := Trial;
+		Trial := Trial - 2;
+		end;
+	    AVs[Hole]   := _Cvt[string, _obj](XSel);
+	    AVs[Hole+1] := X;
+	    end;
+	return (sobj$A2S(AVs));
+    	end Sort_Parms
+
+    % PDescs creates a parameter list for a selector type descriptor.
+
+    PDescs = proc (Parms: sobj) returns (pdesclist)
+	       signals (syntax(string, bool));
+	PDs: pdesclist := pdesclist$New();
+	for I: int in int$From_To_By(1, sobj$Size(Parms), 2) do
+	    T: _obj := Parms[I + 1];
+	    if (~ _obj$Is_Anyize(T))
+	       then signal Syntax("Illegal type!", true);
+	       end;
+	    PDs := pdesclist$AddH(PDs,
+				  pdesc${a_name: _Cvt[_obj, string](Parms[I]),
+					 b_type: Force[_tdesc](_Cvt[_obj, any](T))});
+	    end;
+	return(PDs);
+	end PDescs;
+
+    % Consts creates a parameter list for a cluster type descriptor.
+
+    Consts = proc (Parms: sobj) returns (constlist)
+	       signals (syntax(string, bool));
+	CL: constlist := constlist$New();
+	for CO: _obj in sobj$Elements(Parms) do
+	    CC: const
+	    tagcase CO
+	       tag int_:
+		   CC := const$Make_C_Int(_Cvt[_obj, int](CO));
+	       tag bvec:
+		   CC := const$Make_F_String(_Cvt[_obj, string](CO));
+	       tag anyize:
+		   CC := const$Make_L_Type(Force[_tdesc](_Cvt[_obj, any](CO)));
+	       others:
+		   exit Wrong_Type;
+	       end
+	    CL := constlist$AddH(CL, CC);
+	    end;
+	   except when Wrong_Type:
+		       signal Syntax("Illegal parameter!", true);
+		  end;
+	return(CL);
+	end Consts;
+
+    
+    % given the type descriptor and name of a parameterized routine and
+    % a sequence of parameters, compute and return the specified instantiation.
+    Instantiate = proc (TD: _tdesc, Idn: string, Parms: sobj) returns (_obj)
+		    signals (syntax(string, bool));
+	return(_Instantiate(rdesc${A_Type:  TD,
+				   B_Name:  Idn,
+				   C_Parms: Consts(Parms),
+				   D_Args:  -1,
+				   E_Vals:  -1}));
+	   except when Not_Possible (Why: string):
+		       if (string$Empty(TD.Name))
+			  then signal Syntax(Why || ": " || Idn, false);
+			  else signal Syntax(Why || ": " || TD.Name || "$" || Idn, false);
+			  end;
+		  end;
+	end Instantiate;
+
+    
+    % Deblank removes leading spaces and  blanks from an array  of
+    % characters and returns the first non-blank and non-tab  char
+    % it finds (which is left in the array). If it can't find one it
+    % returns a space.
+    
+    Deblank = proc (Cs: ac) returns (char);
+	while ~ac$Empty(Cs) do
+	    C: char := ac$Bottom(Cs);
+	    if (C > ' ')
+	       then return (C);
+	       end;
+	    ac$RemL(Cs);
+	    end
+	return (' ');
+	end Deblank;
+    
+    % Force_One checks to see  that the array  given has only  one
+    % element, returns that element if it is alone, and signals if
+    % the array size is not 1.
+    
+    Force_One = proc (Vs: sobj) returns (_obj) signals (syntax(string, bool));
+	if (sobj$Size(Vs) > 1)
+	   then signal Syntax("Multiple objects returned where one required.", true);
+	   end;
+	if (sobj$Size(Vs) < 1)
+	   then signal Syntax("No objects returned where one required.", true);
+	   end;
+	return (sobj$Bottom(Vs));
+	end Force_One;
+    
+    % Expr parses and  evaluates an expression  given an array  of
+    % characters. The expression must be single-valued.
+    
+    Expr = proc (Cs: ac, Id_Tab: id_table, Rtn_Tab: _rtn_table) returns (_obj)
+	     signals (syntax(string, bool), error(string, sobj));
+	return (Force_One(MExpr(Cs, Id_Tab, Rtn_Tab, false)));
+	   resignal Syntax, Error;
+	end Expr;
+
+    
+    % MExpr parses and evaluates an  expression given an array  of
+    % characters and returns an  array with the results,  allowing
+    % for multi-valued, single-valued,  and no-valued  expressions
+    % all at once.
+    %
+    % (SEP/Sep 26 1984)
+    % Id_Tab and Rtn_Tab are the identifier symbol table and
+    % routine tables, respectively. 
+    %
+    % MExpr passes its Iter_OK argument to Invocations()
+    % to indicate whether an application of an iterator is acceptable
+    % in the expression being parsed. If an iterator is encountered and is
+    % ok in the context (Iter_OK = true) then Applied_Iter is signalled.
+    % Otherwise Syntax is signalled.
+    % 
+    % The array of characters representing the input to be parsed (Cs) may
+    % be modified.
+    %
+    % MExpr is not directly recursive, however it calls a number of routines
+    % which may in turn call MExpr. Specifically, MExpr calls:
+    %   Expr, ExprList and Multi_Assign which call MExpr    and
+    %   Invocations, Rec_Struct_Cons and Ar_Seq_Cons which call ExprList
+    
+    MExpr = proc (Cs: ac, Id_Tab: id_table, Rtn_Tab: _rtn_table, Iter_OK: bool)
+	      returns (sobj)
+	      signals (syntax(string, bool),
+		       error(string, sobj),
+		       applied_iter(_obj, sobj, int));
+
+	Item: _obj
+        TopLevel: bool := (ac$Low(Cs) = 1);	% top-level indicator
+	C: char := Deblank(Cs);
+
+        % figure out what the expression is by looking at the first "thing"
+	% on the line.
+	if (string$IndexC(C, "+-.0123456789") > 0)
+
+            % integer or real constant - break up into whole number 
+            % and fractional parts.
+            then Whole: string := Skip(Cs, "+-0123456789");
+		Rest:  string := Skip(Cs, ".0123456789+-eE");
+		if string$Empty(Rest)
+                   % integer
+		   then Item := _Cvt[int, _obj](int$Parse(Whole));
+			   except when Bad_Format:
+				       signal Syntax("Bad integer: bad format", true);
+				  when Overflow:
+				       signal Syntax("Bad integer: overflow", true);
+				  end;  % except
+                   % real
+		   else Item := _Cvt[real, _obj](real$Parse(Whole || Rest));
+			   except when Bad_Format:
+				       signal Syntax("Bad real number: bad format", true);
+				  when Overflow:
+				       signal Syntax("Bad real number: overflow", true);
+				  when Underflow:
+				       signal Syntax("Bad real number: underflow", true);
+				  end; % except
+		   end; % if string$Empty
+
+        % Argument
+	 elseif (C = '?')
+	   then ac$RemL(Cs);
+		Item := Arg_Var_Own_Expr(Cs, "argument",
+					 _Arg_Fetch, _Arg_Store,
+					 Id_Tab, Rtn_Tab);
+
+        % Variable
+	 elseif (C = '@')
+	   then ac$RemL(Cs);
+		Item := Arg_Var_Own_Expr(Cs, "local",
+					 _Var_Fetch, _Var_Store,
+					 Id_Tab, Rtn_Tab);
+
+        % Own
+	 elseif (C = '&')
+	   then ac$RemL(Cs);
+		Item := Arg_Var_Own_Expr(Cs, "own",
+					 _Own_Fetch, _Own_Store,
+					 Id_Tab, Rtn_Tab);
+
+        % Empty expression
+	 elseif (C = ' ')
+	   then return (sobj$[]);
+
+        % Character constant
+	 elseif (C = '\'')
+	   then S: string := Str(Cs);
+		if (string$Size(S) = 1)
+		   then Item := _Cvt[char, _obj](S[1]);
+		   else signal Syntax("Bad char", true);
+		   end;
+
+        % String constant
+	 elseif (C = '\"')
+	   then Item := _Cvt[string, _obj](Str(Cs));
+
+        % Identifier or assignment or call
+	 else
+              % pick off the identifier name and store it in Idn
+	      Idn: string := ModId(Cs, "", Rtn_Tab);
+
+	      if (string$Empty(Idn))
+		 then return (sobj$[]);
+		 end;
+
+              % look at the next meaningful character following the
+	      % identifier name to determine whether this is an assignment
+	      % or a call or just an identifier.
+	      C := Deblank(Cs)
+
+              % make sure that if the thing needs parameters it is getting them
+	      if (string$IndexC(C, ",=($[") = 0)
+		 then V: _obj, Has_Params, Needs_Params: bool
+			  := Lookup(Idn, Id_Tab, Rtn_Tab);
+		      if (Needs_Params)
+			 then signal Syntax(("Routine needs params: " ||
+					     Idn), false);
+			 end;
+		      return (sobj$[V]);
+		 end;
+
+	      % Multiple assignment? (Only at top level)
+	      if (C = ',')
+		 then if (~ TopLevel)
+                         % Do not treat this as a multiple assignment since
+		         % we are not at top level now. Just lookup the object
+			 % corresponding to the identifier and return it
+			 % (provided it does not need arguments). Presumably
+		         % we are in the middle of an expression list. The
+                         % "," is left in place in the input array.
+			 then V: _obj, Has_Params, Needs_Params: bool
+				  := Lookup(Idn, Id_Tab, Rtn_Tab);
+			      if (Needs_Params)
+				 then signal Syntax(("Routine needs params: " ||
+						     Idn), false);
+				 end;
+			      return (sobj$[V]);
+			 end;
+                      % at top level so this is a multiple assignment
+		      return (Multi_Assign(Cs, C, Idn, Id_Tab, Rtn_Tab));
+
+
+	      % Assignment to simple id?
+              elseif (C = '=')
+		 then ac$RemL(Cs)
+		      C := Deblank(Cs)
+                      % if nothing following '=' sign then delete identifier
+		      % else assign new value to it.
+		      if (C = ' ')
+			 then id_table$Delete(Id_Tab, Idn);
+			      return (sobj$[]);
+			 else V: _obj := Expr(Cs, Id_Tab, Rtn_Tab);
+		      	      id_table$Alter(Id_Tab, Idn, V);
+			      return (sobj$[V]);
+			 end;
+
+	       end;
+
+              % if we've gotten here then the thing is not an assignment
+              % Get info about it into Item.
+	      Has_Params, Needs_Params: bool
+	      Item, Has_Params, Needs_Params := Lookup(Idn, Id_Tab, Rtn_Tab);
+	      NoTD: _tdesc := _tdesc$None(); % null type
+	      TD: _tdesc := NoTD;   % if Item is a type object then this will
+	                            % be the corresponding type descriptor
+	      Sel: bool := false;   % Sel will be true if Item is a selector
+				    % (oneof, variant, struct or record)
+
+              % is Item an anyize? 
+	      if (_obj$Is_Anyize(Item))
+		 then TD := Force[_tdesc](_Cvt[_obj, any](Item));
+		      Idn := TD.Name;
+		      Sel := (Idn = "oneof") cor (Idn = "variant") cor
+			     (Idn = "struct") cor (Idn = "record");
+		 end;
+		 except when Wrong_Type:
+			end;
+
+              % if Item was an anyize (a type) and there are
+	      % cluster parameters provided, get them. build a new type
+	      % descriptor.
+	      if (C = '[') cand (TD ~= NoTD)
+
+                 % parse parameters and save them in Parms. Construct
+                 % a new type descriptor which includes the Parms and
+		 % save it in TD
+		 then Parms: sobj := ExprList(Cs, Id_Tab, Rtn_Tab, Sel);
+		      if (sobj$Empty(Parms))
+			 then signal Syntax("No parameters", true);
+			 end;
+		      if (Sel)
+                         % create a selector type descriptor with Parms
+			 then TD := _tdesc$Sel(Idn, PDescs(Parms));
+			 % create a cluster type descriptor with Parms
+			 else TD := _tdesc$Clu(Idn, Consts(Parms));
+			 end;
+	              
+		      Item := _Cvt[any, _obj](_Anyize[_tdesc](TD));
+		      C := Deblank(Cs);
+		 end;
+
+              % is Item being used as an operation name or constructor ?
+	      % if so and it turns out to be a constructor, return the
+	      % constructed record, struct, array or sequence.
+	      % else, figure out what operation is being referred to
+	      % and reset Item to be the routine object. set Has_Params and
+	      % Needs_Params for the routine.
+	      if (C = '$')
+                 % then Item should have been a type with TD set accordingly
+		 then if (TD = NoTD)
+			 then signal Syntax("Illegal type: " || Idn, false);
+			 end;
+		      ac$RemL(Cs);             % remove '$'
+		      C := Deblank(Cs);        % get past blanks
+		      if (C = '{')             % Record or struct constructor.
+			 then return (Rec_Struct_Cons(Cs, TD, Id_Tab, Rtn_Tab));
+		       elseif (C = '[')        % Array or sequence constructor
+			 then return (Ar_Seq_Cons(Cs, C, TD, Id_Tab, Rtn_Tab));
+		       end;
+			
+		      % once here we should have an operation name following.
+                      % call ModId to get the operation name into Idn.
+		      OpName: string := Idn;
+		      Idn := ModId(Cs, Idn, Rtn_Tab);
+		      if (string$Empty(Idn))
+			 then signal Syntax(("Missing operation name for: " ||
+					     OpName), false);
+			 end;
+
+		      % try to find the operation in the routine table. if
+                      % this succeeds, store the routine info in RInf.
+		      OpName := (OpName || "$" || Idn);
+		      RInf: _rtn_info := _rtn_table$Lookup(Rtn_Tab, OpName);
+			 except when Not_Found:
+				     I: int := string$Indexc('_', OpName);
+				     if (~ Sel) cor (I = 0)
+					then exit Not_Found;
+					end
+				     RInf := _rtn_table$Lookup(Rtn_Tab,
+							       string$Substr(OpName, 1, I - 1));
+				end;
+			 except when Not_Found:
+				     signal Syntax(("Could not find routine: "
+						      || OpName), false);
+				end;
+		      Has_Params := _rtn_info$Is_Parameterized(RInf);
+		      Needs_Params := _rtn_info$Uses_Params(RInf);
+		      Item := RInf.Routine;
+		      C := Deblank(Cs);
+
+                      % end of "if (C = '$')"
+
+               elseif (TD ~= NoTD)
+		 then Idn := "";
+	       end;
+
+              % if Item is a routine that is supposed to have parameters
+	      % and they have been provided then parse them. If the 
+              % routine uses its parameters, call Instantiate to get
+	      % the routine object instantiated with the given parameters.
+	      if (Has_Params) cand (C = '[') cand (~ string$Empty(Idn))
+		 then Parms: sobj := ExprList(Cs, Id_Tab, Rtn_Tab, false);
+		      if (Needs_Params)
+			 then Item := Instantiate(TD, Idn, Parms);
+			 end;
+		      C := Deblank(Cs);
+
+               % (SEP/Sep 27 1984)
+               % if the routine is supposed to have parameters this trys
+	       % to somehow get the parameters for the routine from the
+	       % cluster parameters that were picked up previously and saved in
+	       % the type descriptor. The instantiated routine computed 
+               % and stored in Item.
+	       elseif (Needs_Params)
+		 then if (_tdesc$Has_Parms(TD))
+			 then Item := Instantiate(TD, Idn, sobj$New());
+			 else signal Syntax(("Routine needs params: " || Idn),
+					    false);
+			 end;
+	       end;
+
+	 end;   % else (identifier, argument or call)
+	   resignal Syntax, Error;
+
+	% allow any number of invocations to follow
+	return (Invocations(Cs, Item, Id_Tab, Rtn_Tab, Iter_OK));
+	   resignal Syntax, Error, Applied_Iter;
+
+	end MExpr;
+
+
+    % Parse and evaluate a multiple assignment.
+    %
+    % (SEP/Sep 27 1984)
+    % Multi_Assign picks up parsing after its caller has parsed the first
+    % identifier in the multiple assignment but has left the separating
+    % comma (,) in place in the input string. Idn is the first identifier---
+    % the one already parsed. Id_Tab and Rtn_Tab are symbol tables and Cs
+    % is the input string. Multi_Assign returns the sequence of objects
+    % that were assigned.
+
+    Multi_Assign = proc (Cs: ac, C: char, Idn: string,
+			 Id_Tab: id_table, Rtn_Tab: _rtn_table) returns (sobj)
+		     signals (syntax(string, bool), error(string, sobj));
+        % create a list of identifiers starting with Idn.
+	IdList: as := as$[Idn];
+
+        % while there are more identifiers on the left side of the
+	% assignment, pick them off the input string and add them to the
+	% list.
+	while (C = ',') do        % add to identifier list
+	    ac$RemL(Cs);
+	    Deblank(Cs);
+	    Idn := Id(Cs, false);
+	    if (~ string$Empty(Idn))
+	       then as$AddH(IdList, Idn);
+	       end;
+	    C := Deblank(Cs);
+	    end;
+
+        % identifier list should be followed by an equal sign (=)
+	if (C ~= '=')
+	   then signal Syntax("Illegal multiple assignment.", true);
+	   end;
+	ac$RemL(Cs);              % flush the '='
+
+        % call MExpr to parse the right hand side to obtain the objects
+	% to be assigned.
+	MRtns: sobj := MExpr(Cs, Id_Tab, Rtn_Tab, false);
+	   resignal Syntax, Error;
+
+        % make sure the number of identifiers matches the number of
+	% objects.
+	if (as$Size(IdList) ~= sobj$Size(MRtns))
+	   then signal Syntax(("Number of returned objects = " ||
+			       int$UnParse(sobj$Size(MRtns)) ||
+			       ", number expected = " ||
+			       int$UnParse(as$Size(IdList))),
+			      true);
+	   end;
+
+        % do the assignments
+	for Item: _obj in sobj$Elements(MRtns) do
+	    id_table$Alter(Id_Tab, as$RemL(IdList), Item);
+	    end;
+
+        % return the sequence of objects that were assigned.
+	return (MRtns);
+	end Multi_Assign;
+
+    % Parse and evalutate record/struct like constructors.
+    Rec_Struct_Cons = proc (Cs: ac, TD: _tdesc,
+			    Id_Tab: id_table, Rtn_Tab: _rtn_table)
+			returns (sobj)
+			signals (syntax(string, bool), error(string, sobj));
+	Idn: string := TD.Name;
+	if ((Idn = "record") cor
+	    (Idn = "struct"))
+	   then Things: sobj := ExprList(Cs, Id_Tab, Rtn_Tab, true);
+		Parms: pdesclist := TD.PDescs
+		   except when None: Parms := pdesclist$New();
+			  end;
+		if (~ pdesclist$Empty(Parms)) cand
+		   (pdesclist$Size(Parms) ~= (sobj$Size(Things) / 2))
+		   then signal Syntax("Wrong number of components", true);
+		   end;
+		AVs: aobj := aobj$New();
+		for I: int in int$From_To_By(2, sobj$Size(Things), 2) do
+		    if (Parms[I/2].A_Name ~= _Cvt[_obj, string](Things[I-1]))
+		       then signal Syntax("Bad component name: "
+					    || _Cvt[_obj, string](Things[I-1]),
+					  false);
+		       end;
+		       except when Bounds:
+			      end;
+		    aobj$AddH(AVs, Things[I]);
+		    end;
+		return (sobj$[_Cvt[sobj, _obj](sobj$A2S(AVs))]);
+	   else Rtn_Inf: _rtn_info := _rtn_table$Lookup(Rtn_Tab,
+							(Idn || "$create"));
+		   except when Not_Found:
+			       signal Syntax(("Bad constructor type: " || Idn),
+					     false);
+			  end;
+		Rtn: _obj := Rtn_Inf.Routine;
+		if (_rtn_info$Uses_Params(Rtn_Inf))
+		   then if (_tdesc$Has_Parms(TD))
+			   then Rtn := Instantiate(TD, "create", sobj$New());
+			   else signal Syntax(("Routine needs params: " ||
+					       Idn || "$create"), false);
+			   end;
+		   end;
+		if ((~ _obj$Is_Proc_(Rtn)) cor
+		    (Rtn_Inf.Num_Args ~= 1) cor
+		    (Rtn_Inf.Num_Returns ~= 1))
+		   then signal Syntax(("Bad constructor type: " || Idn), false);
+		   end;
+		Things: sobj := ExprList(Cs, Id_Tab, Rtn_Tab, true);
+		AVs: aobj := aobj$New();
+		for I: int in int$From_To_By(2, sobj$Size(Things), 2) do
+		    aobj$AddH(AVs, Things[I]);
+		    end;
+		return (Apply_Proc(Rtn, sobj$[_Cvt[sobj, _obj](sobj$A2S(AVs))], 1));
+	   end;
+	   resignal Syntax, Error;
+	end Rec_Struct_Cons;
+
+    % Parse and evaluate array/sequence like contructors.
+
+    Ar_Seq_Cons = proc (Cs: ac, C: char, TD: _tdesc,
+			Id_Tab: id_table, Rtn_Tab: _rtn_table)
+		    returns (sobj)
+		    signals (syntax(string, bool), error(string, sobj));
+	Idn: string := TD.Name;
+	if (Idn = "sequence")
+	   then return (sobj$[_Cvt[sobj, _obj](ExprList(Cs, Id_Tab,
+							Rtn_Tab, false))]);
+	   end;
+	   resignal Syntax, Error;
+	Name: string;
+	Is_Array: bool := (Idn = "array");
+	ac$RemL(Cs);
+	C := Deblank(Cs);
+	Args: sobj;
+	First: _obj;
+	Has_Low: bool := false;
+	if ((C = ']') cor (C = ' '))
+	   then if (C = ']')
+		   then ac$RemL(Cs);
+		   end;
+		Name := "$new";
+		Args := sobj$New();
+	   else First := Expr(Cs, Id_Tab, Rtn_Tab);
+		C := Deblank(Cs);
+		% check for ':'
+		if (C = ':')
+		   then ac$RemL(Cs);    % remove it
+			Has_Low := true;
+			if (Is_Array) cand (~ _obj$Is_Int_(First))
+			   then signal Syntax("Low bound not an int!", true);
+			   end;
+		 elseif (C = ',')
+		   then ac$RemL(Cs);
+		 end;
+		      	
+		ac$AddL(Cs,'[');           % add open bracket
+		Args := ExprList(Cs, Id_Tab, Rtn_Tab, false); % get args
+		if (Has_Low)
+		   then if (sobj$Empty(Args))
+			   then Name := "create";
+			   else Name := "cons2";
+			   end
+		   else Args := sobj$AddL(Args,
+					  First);  % restore first arg.
+			Name := "cons";
+		   end;
+	   end;
+	   resignal Syntax, Error;
+	if (Is_Array)
+	   then AObs: aobj;
+		if (Has_Low)
+		   then AObs := aobj$Cons2(
+				    _Cvt[_obj, int](First),
+				    Args);
+		   else AObs := aobj$Cons(Args);
+		   end;
+		return (sobj$[_Cvt[aobj, _obj](AObs)]);
+	   else if (Has_Low)
+		   then if (sobj$Empty(Args))
+			   then Args := sobj$[First];
+			   else Args := sobj$[First,
+					      _Cvt[sobj, _obj](Args)];
+			   end;
+		 elseif (~ sobj$Empty(Args))
+		   then Args := sobj$[_Cvt[sobj, _obj](Args)];
+		 end;
+		Rtn_Inf: _rtn_info :=
+		    _rtn_table$Lookup(Rtn_Tab, Idn || "$" || Name);
+		   except when Not_Found:
+			       signal Syntax(("Bad constructor type: " || Idn),
+					     false);
+			  end;
+		Rtn: _obj := Rtn_Inf.Routine;
+		if (_rtn_info$Uses_Params(Rtn_Inf))
+		   then if (_tdesc$Has_Parms(TD))
+			   then Rtn := Instantiate(TD, Name, sobj$New());
+			   else signal Syntax(("Routine needs params: " ||
+					       Idn || "$" || Name), false);
+			   end;
+		   end;
+		if ((~ _obj$Is_Proc_(Rtn)) cor
+		    (Rtn_Inf.Num_Args ~= sobj$Size(Args)) cor
+		    (Rtn_Inf.Num_Returns ~= 1))
+		   then signal Syntax(("Bad constructor type: " || Idn), false);
+		   end;
+		return (Apply_Proc(Rtn, Args, 1));
+	   end;
+	   resignal Syntax, Error;
+	end Ar_Seq_Cons;
+
+    % Parse and evaluate any number of invocations. 
+    %
+    % (SEP/Sep 27 1984)
+    %
+    % Invocations picks up parsing after its caller has found
+    % a routine object, collection object or simply an identifier whose
+    % value is to be returned. Any number of procedure
+    % invocations or vector indexing operations or a single iterator
+    % application may follow. The results of the final invocation are returned.
+    %
+    % Cs is the current input string; Item is the routine or vec or adv
+    % or bvec that was parsed by MExpr and will be invoked;
+    % Id_Tab and Rtn_Tab are the identifier and routine tables,
+    % respectively and Iter_OK is a flag indicating whether
+    % detection of an applied iterator should be signalled as a syntax error or
+    % signalled as an Applied_Iter (which is a non-error signal).
+
+    Invocations = proc (Cs: ac, Item: _obj,
+			Id_Tab: id_table, Rtn_Tab: _rtn_table, Iter_OK: bool)
+		    returns (sobj)
+		    signals (syntax(string, bool),
+			     error(string, sobj),
+			     applied_iter(_obj, sobj, int));
+	C: char := Deblank(Cs);
+
+        % is the next input a parameter list or array index?
+	while (C = '(')  cor  (C = '[') do
+
+	    if (C = '(')
+               % An argument list is starting. Make sure that Item is a 
+               % routine object, that it has all of the parameters it needs,
+	       % etc. If everything is okay, call ExprList to parse the
+	       % arguments. If Item is a procedure call Apply_Proc to apply it.
+               % If it is an iterator then signal Applied_Iter.
+	       then Rtn_Inf: _rtn_info := _Get_Rtn_Info(Item);
+		       except when Not_Found:
+				   signal Syntax("Illegal procedure object!",
+						 true);
+			      end;
+		    if (_rtn_info$Uses_Params(Rtn_Inf) cand
+			~ _obj$Is_Entry_Vector(Item))   % OK if entry vector.
+		       then signal Syntax(("Routine needs params: " ||
+					   Rtn_Inf.Name), false);
+		       end;
+
+                    % call ExprList to parse and return the argument objects
+		    Args: sobj := ExprList(Cs, Id_Tab, Rtn_Tab, false);
+		    if (Rtn_Inf.Num_Args ~= sobj$Size(Args))
+		       then signal Syntax(("Number of args = " ||
+					   int$UnParse(sobj$Size(Args)) ||
+					   ", number expected = " ||
+					   int$UnParse(Rtn_Inf.Num_Args)),
+					  true);
+		       end;
+
+                    % is the routine a procedure?
+		    if (_rtn_info$Is_Proc(Rtn_Inf))
+		       then Items: sobj := Apply_Proc(Item, Args, Rtn_Inf.Num_Returns);
+			    C := Deblank(Cs);
+
+                            % if there are any further invocations, Items must
+			    % only be a single object which will be invoked
+			    % the next time through the loop. Otherwise, Items
+			    % may be any number of objects and is returned
+			    % immediately.
+			    if (C = '(') cor (C = '[')
+			       then Item := Force_One(Items);
+			       else return (Items);
+			       end;
+
+                     % must be an iterator. is it ok in this context?
+		     elseif (Iter_OK)
+		       then signal Applied_Iter(Item, Args, Rtn_Inf.Num_Returns);
+		     else signal Syntax("Applied an iterator!", true);
+		     end;
+                     % end "if (C = '(')"
+
+             % must be array indexing. Make sure Item is a collection
+	     % object (vec, adv or bvec).
+	     elseif (_obj$Is_Vec(Item) cor _obj$Is_ADV(Item) cor
+		     _obj$Is_BVec(Item))
+
+               % call ExprList to parse the index and store results in Idxs
+               % make sure the index is a single integer.
+	       then Idxs: sobj := ExprList(Cs, Id_Tab, Rtn_Tab, false);
+		    if (~_obj$Is_Int_(Force_One(Idxs)))
+		       then signal Syntax("Index not an int!", true);
+		       end;
+		    Idx: int := _Cvt[_obj, int](sobj$Bottom(Idxs));
+		    C := Deblank(Cs);
+
+                    % if an assignment follows then parse the assigned
+                    % expressions and do the assignment. otherwise store
+		    % the result of the indexing operation in Item to be
+		    % returned to the caller.
+		    if (C = '=')
+		       then ac$RemL(Cs);
+			    Val: _obj := Item;
+			    Item := Expr(Cs, Id_Tab, Rtn_Tab);
+			    C := Deblank(Cs);
+			    if (_obj$Is_Vec(Val))
+			       then _Cvt[_obj, _vec[_obj]](Val)[Idx] := Item;
+			     elseif (_obj$Is_ADV(Val))
+			       then _Cvt[_obj, array[_obj]](Val)[Idx] := Item;
+			     elseif (~_obj$Is_Int_(Item))
+			       then signal Syntax("Illegal store value!", true);
+			     else _Cvt[_obj, _bytevec](Val)[Idx]
+				      := _Cvt[_obj, char](Item);
+			     end;
+		     elseif (_obj$Is_Vec(Item))
+		       then Item := _Cvt[_obj, _vec[_obj]](Item)[Idx];
+		     elseif (_obj$Is_ADV(Item))
+		       then Item := _Cvt[_obj, array[_obj]](Item)[Idx];
+		     else Item := _Cvt[char, _obj](
+				      _Cvt[_obj, _bytevec](Item)[Idx]);
+		     end;
+	     else signal Syntax("Illegal collection object!", true);
+	     end;
+	    end;
+	   except when Bounds:
+		       signal Error("bounds", sobj$[]);
+		  when Overflow:
+		       signal Error("overflow", sobj$[]);
+		  end;
+	   resignal Syntax, Error;
+
+        % return the single object that we're left with
+	return (sobj$[Item]);
+	end Invocations;
+    
+
+    % Lookup looks up an identifier in each of two symbol tables. Three values
+    % are returned: The object, a flag indicating whether it has parameters and
+    % a flag indicating whether it uses its parameters.
+
+    Lookup = proc (Idn: string, Id_Tab: id_table, Rtn_Tab: _rtn_table)
+	       returns (_obj, bool, bool)
+	       signals (syntax(string, bool));
+	% default item value to local value
+	return (id_table$Lookup(Id_Tab, Idn), false, false);
+	   except when Not_Found:
+		  end;
+	RInf: _rtn_info := _rtn_table$Find(Rtn_Tab, Idn);
+	   except when Not_Found:
+		       signal Syntax(("No value for: " || Idn),
+				     false);
+		  when Is_Type:
+		       return (_Cvt[any, _obj](
+				   _Anyize[_tdesc](
+				       _tdesc$Clu(Idn, constlist$New()))),
+			       false,
+			       false);
+		  end;
+	return (RInf.Routine,
+		_rtn_info$Is_Parameterized(RInf),
+		_rtn_info$Uses_Params(RInf));
+	end Lookup;
+
+    % Id  returns  a   string  consisting   of  the   leading
+    % identifier in the array of characters given. If IsOp is
+    % true, a leading '%' is legal. It returns  the empty string
+    % if there is none. No deblanking is performed.
+    
+    Id = proc (Cs: ac, IsOp: bool) returns (string);
+	own Id_AC: ac := ac$Predict(1, 20);
+	ac$Trim(Id_AC, 1, 0);
+	while (true) do
+	    C: char := ac$Bottom(Cs);
+	    if ((C >= 'A') cand (C <= 'Z'))
+	       then ac$AddH(Id_AC, char$I2C(char$C2I(C) + 32));
+	     elseif ( ((C >= 'a') cand (C <= 'z')) cor
+		      ((C >= '0') cand (C <= '9')) cor
+		      ( C = '_') cor
+		      ((C = '%') cand
+		       (IsOp) cand
+		       (ac$Empty(Id_AC) cor (ac$Bottom(Id_AC) = '%'))) )
+	       then ac$AddH(Id_AC, C);
+	     else break;
+	     end;
+	    ac$RemL(Cs);
+	    end;
+	   except when Bounds:
+		  end;
+	return (string$AC2S(Id_AC));
+	end Id;
+    
+    % ModId  returns  a   string  consisting   of  the   leading
+    % identifier in the array of characters given.  A trailing
+    % asterisk will force an attempt to complete a module name.
+    % It returns  the empty string if there is none. No deblanking
+    % is performed. If Clust is non-empty, then a leading '%' is legal.
+    
+    ModId = proc (Cs: ac, Clust: string, Rtn_Tab: _rtn_table) returns (string)
+	      signals (syntax(string, bool));
+	Head: string := Id(Cs, ~string$Empty(Clust));
+	if (ac$Bottom(Cs) = '*')
+	   then ac$RemL(Cs);
+		Tail: string := Id(Cs, false);
+		if (~ string$Empty(Clust))
+		   then Head := Clust || "$" || Head;
+		   end;
+		Head := _rtn_table$Match(Rtn_Tab, Head, Tail);
+		   except when Not_Found:
+			       signal Syntax("Could not match: " || Head || "*" || Tail, false);
+			  when Ambiguous:
+			       signal Syntax("Ambiguous: " || Head || "*" || Tail, false);
+			  end;
+		if (~ string$Empty(Clust))
+		   then Head := string$Rest(Head, string$Size(Clust) + 2);
+		   end;
+	   end;
+	   except when Bounds:
+		  end;
+	return(Head);
+	end ModId;
+    
+    % Return the leading number string in the given array of
+    % characters. No deblanking is performed.
+
+    Number = proc (Cs: ac) returns (string);
+	own Num_AC: ac := ac$Predict(1, 10);
+	ac$Trim(Num_AC, 1, 0);
+	while (~ac$Empty(Cs)) do
+	    C : char := ac$Bottom(Cs);
+	    if ((C < '0') cor (C > '9'))
+	       then return (string$AC2S(Num_AC));
+	       end;
+	    ac$AddH(Num_AC, C);
+	    ac$RemL(Cs);
+	    end;
+	return (string$AC2S(Num_AC));
+	end Number;
+
+    
+    % Parse and evaluate an expression list, i.e., a list of arguments for an
+    % invocation, a list of cluster or procedure parameters, a list of
+    % structure or record field initializations, etc. The expression list in Cs
+    % should still contain its delimiters ("()", "[]" or "{}"). Id_Tab and
+    % Rtn_Tab are symbol tables, and Selected is a flag indicating whether a
+    % selector style syntax should be expected ("field: expr").
+    % ExprList returns the sequence of objects which were found. If the
+    % list was for a selector, then the entries in the sequence will alternate
+    % between identifiers and objects and will be sorted (by Sort_Parms).
+
+    ExprList = proc (Cs: ac, Id_Tab: id_table, Rtn_Tab: _rtn_table,
+		     Selected: bool) returns (sobj)
+		 signals (syntax(string, bool), error(string, sobj));
+
+	% figure out what the terminating delimiter will be; store in Term_C.
+	Term_C: char := Deblank(Cs);
+	Vs: sobj := sobj$New();
+	Index: int := string$IndexC(Term_C, "([{");
+	if (Index = 0)
+	   then return (Vs);
+	   end;
+	Term_C := string$Fetch(")]}", Index);
+
+	ac$RemL(Cs);                % swallow the starting character
+	while (true) do
+	    C: char := Deblank(Cs);
+
+            % have we encountered the terminating delimiter?
+	    if ((C = Term_C) cor
+		(C = ' '))
+	       then if (C = Term_C)
+		       then ac$RemL(Cs);
+		       end;
+                    % if this was a selector expression list, sort it.
+		    if (Selected)
+		       then Vs := Sort_Parms(Vs);
+		       end;
+		    return (Vs);               % and exit this level
+	       end;
+
+            % if this is a selector list, remove the field identifier and colon
+	    % saving the identifier in the sequence of return values.
+	    if (Selected)
+	       then Sel: string := Id(Cs, false);
+		    C := Deblank(Cs);
+		    if (string$Empty(Sel) cor
+			(c ~= ':'))
+		       then signal Syntax("Invalid selector syntax.", true);
+		       end;
+		    Vs := sobj$AddH(Vs, _Cvt[string, _obj](Sel));
+		    ac$RemL(Cs);
+		    C := Deblank(Cs);
+	       end;
+
+            % remember where we are in the input array. call MExpr to
+	    % parse the next expression. if the input array hasn't changed
+	    % after the call then there was a syntax error in the expression.
+	    % otherwise, make sure that the expression yielded only one value.
+	    % save the single object in the sequence of return values, remove
+	    % a comma if there is one, and continue through the loop.
+
+	    I: int := ac$Low(Cs);
+	    Items: sobj := MExpr(Cs, Id_Tab, Rtn_Tab, false);
+	       resignal Syntax, Error;
+	    if (I = ac$Low(Cs))
+	       then signal Syntax((string$Append("Illegal character: '", c) || "'"),
+				  true);
+	       end;
+	    Num_Items: int := sobj$size(Items);
+	    if      (Num_Items = 0)
+	       then signal Syntax("Undefined expression in list.", true);
+	     elseif (Num_Items > 1)
+	       then signal Syntax("Multiple-valued expression in list.", true);
+	     end;
+	    C := Deblank(Cs);
+	    Item: _obj := sobj$Bottom(Items);
+	    if (_obj$Is_UnInit(Item))
+	       then signal Syntax("Uninitialized expression value in list.", true);
+	       end;
+	    Vs := sobj$AddH(Vs, Item);
+	    if (C = ',')
+	       then ac$RemL(Cs);
+	       end;
+
+	    end;  % while (true)
+	end ExprList;
+
+
+    % Parse and obtain an argument, variable, or own object.
+
+    Arg_Var_Own_Expr = proc (Cs: ac, What: string,
+			     Fetch: f_proc, Store: s_proc,
+			     Id_Tab: id_table, Rtn_Tab: _rtn_table)
+			 returns (_obj)
+			 signals (syntax(string, bool), error(string, sobj));
+
+	f_proc = proctype (string, int) returns (_obj) signals (none);
+	s_proc = proctype (string, int, _obj) signals (none);
+
+	C: char := Deblank(Cs);
+	Level: int := 0;                % Default level.
+	if ((C >= '0') cand (C <= '9'))
+	   then Level := int$Parse(Number(Cs));
+		   except Others:
+			       signal Syntax("Bad level", true);
+			  end;
+		C := Deblank(Cs);
+	   end;
+	Idn: string := Id(Cs, false);
+	C := Deblank(Cs);
+	if (C = '=')            % Assignment to argument.
+	   then ac$RemL(Cs);
+		C := Deblank(Cs);
+		if (C = ' ')
+		   then signal Syntax("Bad assignment", true);
+		   else V: _obj := Expr(Cs, Id_Tab, Rtn_Tab);
+			Store(Idn, Level, V);
+			return (V);
+		   end;
+	   else return (Fetch(Idn, Level));
+	   end;
+	   except when None:
+		       signal Syntax(("No such " || What || ": " || Idn), false);
+		  end;
+	   resignal Syntax, Error;
+	end Arg_Var_Own_Expr;
+
+    
+    % (SEP/Sep 27 1984)
+    % Parse and return a literal string. The string terminates at
+    % a character which matches the first character in Cs. Both of
+    % these delimiters are excluded from the returned string.
+    % Recognized escape chars are:
+    %   \' \" \\ \n \t \p \b \r \v
+
+    Str = proc (Cs: ac) returns (string) signals (syntax(string, bool));
+	own Str_AC: ac := ac$Predict(1, 30);
+	ac$Trim(Str_AC, 1, 0);
+	C: char := ac$RemL(Cs);
+	while (~ ac$Empty(Cs)) do
+	    CC: char := ac$RemL(Cs);
+	    if (C = CC)
+	       then return (string$AC2S(Str_AC));
+	       end;
+	    if (CC = '\\')
+	       then if (ac$Empty(Cs))
+		       then signal Syntax("Bad char", true);
+		       end;
+		    CC := ac$RemL(Cs);
+		    Indx: int := string$IndexC(CC, "\'\"\\ntpbrv");
+		    if (Indx ~= 0)
+		       then CC := string$Fetch("\'\"\\\n\t\p\b\r\v", Indx);
+		     elseif ((CC >= '0') cor (CC <= '7'))
+		       then C_Int: int := (char$C2I(CC) - 060);
+			    for I: int in int$From_To(1, 2) do
+				CC := ac$RemL(Cs);
+				if ((CC < '0') cor (CC > '7'))
+				   then signal Syntax("Bad char", true);
+				   end;
+				C_Int := ((C_Int * 8) + (char$C2I(CC) - 060));
+				end;
+			    CC := char$I2C(C_Int);
+		     else signal Syntax("Bad char", true);
+		     end;
+	       end;
+	       except Others:
+			   signal Syntax("Bad char", true);
+		      end;
+	    ac$AddH(Str_AC, CC);
+	    end;
+	return (string$AC2S(Str_AC));
+	end Str;
+    
+    % Skip over all leading chars in Cs which are also in match. The
+    % skipped chars are deleted from Cs and returned as a string.
+
+    Skip = proc (Cs: ac, match: string) returns (string)
+	own s_ac: ac := ac$predict(1, 20)
+	ac$trim(s_ac, 1, 0)
+	while true do
+	    c: char := ac$bottom(Cs)
+	    if string$indexc(c, match) = 0 then break end
+	    ac$addh(s_ac, ac$RemL(Cs))
+	    end except when bounds: end;
+	return (string$ac2s(s_ac))
+	end Skip
+
+    end _scan
+
+
+%%% (SEP/Sep 26 1984)
+%%% _Listen is the primary control routine for the parser. It
+%%% continuously performs the following steps:
+%%%     - prompt for user input, 
+%%%     - obtain the next input line,
+%%%     - do repeatedly until the current input line is empty:
+%%%         - call _scan$MExpr() to parse an expression
+%%%         - print out the results that MExpr returns, or
+%%%           if MExpr detects an invocation of an iterator and
+%%%             signals Applied_Iter then call _Print_Iter to apply
+%%%             and print the iterator, or
+%%%           if MExpr detects an error and signals Error then print
+%%%             the signal.
+%%%         - remove a semicolon on the current line (if there is one)
+%
+_Listen = proc (TYI: stream);
+
+    Flag: bool := _Enter_System();
+    P_Out:   pstream    := pstream$Primary_Output();
+    S_Out:   stream     := stream$Primary_Output();
+    Id_Tab:  id_table   := _Get_Identifer_Table();  % symbol table
+    Rtn_Tab: _rtn_table := _Get_Rtn_Table();        % routine info table
+    Is_Term: bool := stream$Is_Terminal(TYI);
+    stream$PutC(S_Out, '\n');
+
+    while (true) do
+	L_Chars: ac;
+	Line: string := "";
+	begin	% Start scope for error handler.
+
+            % disallow typing of control-Gs while getting input line
+	    _event$Defer();
+
+            % prompt for input
+            stream$PutS(S_Out, "\n: ");
+
+            % get next input string into Line, paying attention to whether
+            % the input source is a terminal for purposes of detecting
+            % end of file (?)
+	    if (Is_Term)
+	       then EOF_Flag: bool := TYI.EOF_Flag;
+		    TYI.EOF_Flag := false;
+		    Line := stream$GetL(TYI);
+		    TYI.EOF_Flag := EOF_Flag;
+		    _Ignore_Quit();
+	       else Line := stream$GetL(TYI);
+		    stream$PutL(S_Out, Line);
+	       end; except when End_of_File:
+				_event$UnDefer();
+				_Exit_System(Flag);
+				return;
+			   end;
+
+            % allow typing of control-G
+            _event$UnDefer();
+
+            % quick check for <ESC><CR> which causes return
+	    if (Line = "\033")
+	       then _Exit_System(Flag);
+		    return;
+	       end;
+	    pstream$Reset(P_Out);
+
+	    % convert the input string to an array of characters, L_Chars,
+            % which will be used hereafter for parsing.
+            L_Chars := string$S2AC(Line);
+
+	    % repeatedly call MExpr to parse commands from L_Chars until it is
+	    % empty. MExpr will modify L_Chars, removing characters that it
+	    % uses.
+	    while (true) do
+
+		Sec0, mSec0, uSec0: int := _Get_RunTime();
+		Vals: sobj := sobj$New();
+		Vals := _scan$MExpr(L_Chars, Id_Tab, Rtn_Tab, true);
+                   % invocations of iters are handled separately
+		   except when Applied_Iter (Itr: _obj, Args: sobj,
+					     Num_Yields: int):
+			       _Print_Iter(P_Out, Itr, Args, Num_Yields);
+			  end;
+		   except when Error (SigS: string, SigVals: sobj):
+			       _Print_Signal(P_Out, SigS, SigVals);
+			  end;
+
+		Sec1, mSec1, uSec1: int := _Get_RunTime();
+		Sec2, mSec2, uSec2: int := _LongSub(Sec1, mSec1, uSec1,
+						    Sec0, mSec0, uSec0);
+
+		% Print the results.
+		for V: _obj in sobj$Elements(Vals) do
+		    pstream$Pause(P_Out, "");
+		    pstream$Text(P_Out, " => ");
+		    _obj$Print(V, P_Out);
+		    end;
+
+		% Possibly print the time.
+		if (id_table$Exists(Id_Tab, "_time"))
+		   then pstream$Pause(P_Out, "");
+			pstream$Pause(P_Out, _Time_Format(Sec2, mSec2, uSec2));
+		   end;
+
+                % see if there are additional commands on the input line. if
+		% so, remain in loop to process them. else break to read in
+		% another line.
+		if (_scan$DeBlank(L_Chars) ~= ';')
+		   then break;
+		   end;
+		ac$RemL(L_Chars);
+		pstream$Pause(P_Out, "");
+		end;
+
+	    % Minor syntax checking.
+	    _scan$Demand_Empty(L_Chars);
+
+	    end;	% of error scope.
+	   except when Syntax (S: string, Mark_It: bool):
+		       pstream$Pause(P_Out, "");
+		       pstream$Pause(P_Out, S);
+		       if (Mark_It)
+			  then pstream$Pause(P_Out, Line);
+			       pstream$PutRight(P_Out, "#",
+						(ac$Low(L_Chars) - 1));
+			       pstream$Pause(P_Out, "");
+			  end;
+		  when Failure (S: string):
+		       pstream$Pause(P_Out, "");
+		       pstream$Pause(P_Out, "Failure: " || S);
+		  end;	% of exceptions.
+	end;		% of while loop.
+
+    end _Listen;
+
+
+%%% (SEP/Sep 27 1984)
+%%% Print (on stream P_Out) the series of values returned when iterator
+%%% Itr is applied to arguments Args. Num_Yields is the number of values
+%%% yielded at each iteration.
+
+_Print_Iter = proc (P_Out: pstream, Itr: _obj, Args: sobj, Num_Yields: int)
+		signals (error(string, sobj));
+    Count: int := 0;
+    for I_Vals: sobj in Apply_Iter(Itr, Args, Num_Yields) do
+	Count := Count + 1;
+	Prefix: string := (int$Unparse(Count) || ": ");
+	for V: _obj in sobj$Elements(I_Vals) do
+	    pstream$Pause(P_Out, "");
+	    pstream$PutRight(P_Out, Prefix, 8);
+	    Prefix := "";
+	    _obj$Print(V, P_Out);
+	    end;
+	end;
+       resignal Error;
+    end _Print_Iter;
+
+%%% Report the reception of a signal on pstream P_Out. The name of the
+%%% signal (SigS) and the values it returns (SigVals) are shown.
+
+_Print_Signal = proc (P_Out: pstream, SigS: string, SigVals: sobj);
+    pstream$Pause(P_Out, "");
+    pstream$Text(P_Out, "Signals: ");
+    pstream$Text(P_Out, SigS);
+    if (sobj$Size(SigVals) = 1)
+       then pstream$Text(P_Out, " ");
+	    _obj$Print(sobj$Bottom(SigVals), P_Out);
+	    pstream$Pause(P_Out, "");
+       else pstream$Pause(P_Out, "");
+	    Index: int := 0;
+	    for V: _obj in sobj$Elements(SigVals) do
+		Index := Index + 1;
+		pstream$PutRight(P_Out,
+				 int$UnParse(Index), 4);
+		pstream$Text(P_Out, ": ");
+		_obj$Print(V, P_Out);
+		pstream$Pause(P_Out, "");
+		end;
+       end;
+    end _Print_Signal;
+
+
+%%% Return the current identifier symbol table (or create it the first
+%%% time _Get_Identifer_Table is called.)
+
+_Get_Identifer_Table = proc () returns (id_table);
+    own Id_Tab: id_table := _Init_Id_Table();
+    return (Id_Tab);
+    end _Get_Identifer_Table;
+
+%%% Initialize the identifier symbol table to contain the ids:
+%%%     pi, po, ps, true, false, and nil.
+_Init_Id_Table = proc () returns (id_table);
+    Id_Tab: id_table := id_table$Create(100, Hash, string$Equal);
+    id_table$Alter(Id_Tab, "pi",
+		   _Cvt[stream, _obj](stream$Primary_Input()));
+    id_table$Alter(Id_Tab, "po",
+		   _Cvt[stream, _obj](stream$Primary_Output()));
+    id_table$Alter(Id_Tab, "ps",
+		   _Cvt[pstream, _obj](pstream$Primary_Output()));
+    id_table$Alter(Id_Tab, "true",
+		   _Cvt[bool, _obj](true));
+    id_table$Alter(Id_Tab, "false",
+		   _Cvt[bool, _obj](false));
+    id_table$Alter(Id_Tab, "nil",
+		   _Cvt[null, _obj](nil));
+    return (Id_Tab);
+    end _Init_Id_Table;

@@ -1,0 +1,34 @@
+%% Copyright Massachusetts Institute of Technology 1980, 1989
+
+Type_Routine_Address = proc (R: r_template, Type_Name: string, Out: stream);
+    S: string;
+    N: string := R.Name;
+    A: address := R.Code_Address;
+    if (Type_Name = "")
+       then S := N;
+       else S := Type_Name || "$" || N;
+       end;
+    stream$PutL(Out, S);
+    S := "  Address: " || address$OUnparse(A)
+    stream$PutL(Out, S);
+    if (~ r_template$Is_Parameterized(R))
+       then if (R.Own_Count > 0)
+	       then RI: rtn_inst := rtn_insts$Bottom(R.Instantiations);
+		    OA: address := RI.Owns_Address;
+		    S := "    Owns @ " || Address$Unparse(OA);
+		    stream$PutL(Out, S);
+	       end;
+       else Insts: rtn_insts := R.Instantiations;
+	    for RI: rtn_inst in rtn_insts$Elements(Insts) do
+		EA: address := RI.Entry_Address;
+		OA: address := RI.Owns_Address;
+		UA: address := RI.Uses_Address;
+		stream$PutS(Out, "    Entry: ");
+		stream$PutS(Out, address$OUnparse(EA));
+		S := "  Uses @ " || address$OUnparse(UA);
+		stream$PutS(Out, S);
+		S := "  Owns @ " || address$OUnparse(OA);
+		stream$PutL(Out, S);
+		end;
+       end;
+    end Type_Routine_Address;

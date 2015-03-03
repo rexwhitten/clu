@@ -1,0 +1,140 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+Update_Rtn_Addresses = proc (R: r_template, Env: lnk_env);
+    vEntry_Size    = (vEnt_Head_Size / vCode_Unit)
+    vUse_Factor    = (vRef_Size / vCode_Unit)
+    own Zero_Address: address := address$Make_Specific(0);
+    Rtn_Inf: rtn_info;
+    if (r_template$Used(R) cor
+	(Env.Options.Init_Debug cand
+	 ((~ r_template$Is_Renamed(R)) cand
+	  (r_template$Is_Clust_Rtn(R) cor
+	   (rtn_tab$Lookup(Env.Routines, R.Name) = R))
+	  )))
+       then Output_Rtn: bool := ~ R.Was_Output;
+	    Insts: rtn_insts := R.Instantiations;
+	    Locs:   locates := Env.Locates;
+	    Cd_Loc: locate  := Locs.Code;
+	    Debugging: bool := Env.Options.Debugging;
+	    Parameterized: bool := r_template$Is_Parameterized(R);
+	    All_Symbols: bool := (Env.Options.Output_to_File cand
+				  Env.Options.Symbols_Wanted);
+	    if (Output_Rtn)
+	       then if (R.Code_Address = Zero_Address)
+		       then R.Code_Address := locate$Address_Advance(Cd_Loc,
+								     (((R.Code_Size + 3) / 4) * 4));
+		       end;
+		    if (All_Symbols)
+		       then a_symbols$AddH(
+				Env.Mach_Dependent.A_Symbols,
+				a_symbol$Create_Text(
+				    constant$Get_String(R.Name_Constant),
+				    R.Code_Address,
+				    Env.Mach_Dependent.A_Strings)
+					   );
+		       end;
+	       end;
+	    if (~ Parameterized)
+	       then if (Output_Rtn)
+		       then RI: rtn_inst := rtn_insts$Bottom(Insts);
+			    if (Debugging)
+			       then Dbg_Blk: dbg_block := dbg_block$Create(
+							      R,
+							      RI);
+				    dbg_blk_array$AddH(Env.Debug_Blocks,
+						    Dbg_Blk);
+				    rtn_inst$Add_Dbg_Block(RI, Dbg_Blk);
+				    RI.Entry_Address :=	%% Get its final address
+					locate$Address_Advance(
+					    Locs.Debug_Blocks,
+					    dbg_block$Size(Dbg_Blk));
+				    Rtn_Inf := Create_Rtn_Info(R, RI.Entry_Address, Env);
+				    name_sym_tab$Insert(Env.Name_Sym_Table, Rtn_Inf);
+				    if (r_template$Is_Parameterized(R))
+				       then rtn_inf_tab$Alter(Env.Parmd_Rtn_Infos,
+							      R.Code_Address,
+							      Rtn_Inf);
+				       end;
+				    Dbg_Blk.Rtn_Info := Rtn_Inf;
+				    if (All_Symbols)
+				       then a_symbols$AddH(
+						Env.Mach_Dependent.A_Symbols,
+						a_symbol$Create_Text(
+						    "%" || constant$Get_String(
+							       R.Name_Constant),
+						    RI.Entry_Address,
+						    Env.Mach_Dependent.A_Strings)
+							   );
+				       end;	%% Add routine to symbol table.
+			       else RI.Entry_Address := R.Code_Address;
+			       end;
+		       end;
+	       else if (Output_Rtn cand Debugging)
+		       then Rtn_Inf := Create_Rtn_Info(R, R.Code_Address, Env);
+			    name_sym_tab$Insert(Env.Name_Sym_Table, Rtn_Inf);
+			    if (r_template$Is_Parameterized(R))
+			       then rtn_inf_tab$Alter(Env.Parmd_Rtn_Infos,
+						      R.Code_Address,
+						      Rtn_Inf);
+			       end;
+		       end;                     %% Add routine to symbol table.
+		    Nm: string;
+		    Syms: a_symbols;
+		    Strs: a_strings;
+		    if (All_Symbols)
+		       then Nm := ("%" || constant$Get_String(R.Name_Constant));
+			    Syms := Env.Mach_Dependent.A_Symbols;
+			    Strs := Env.Mach_Dependent.A_Strings;
+		       end;
+		    for RI: rtn_inst in rtn_insts$Elements(Insts) do
+			if (~ (RI.Was_Output cor RI.Is_Dummy))
+			   then if (Debugging)
+				   then Dbg_Blk: dbg_block := dbg_block$Create(
+								  R,
+								  RI);
+					if (Output_Rtn)
+					   then Dbg_Blk.Rtn_Info := Rtn_Inf;
+					   else Dbg_Blk.Rtn_Info :=
+						    rtn_inf_tab$Lookup(Env.Parmd_Rtn_Infos,
+								       R.Code_Address);
+						   except when Not_Found:
+							       Should_Never_Happen[r_template](
+								   "No rtn_info found for " || r_template$Unparse(R),
+								   R
+											       );
+							  end;
+					   end;
+					dbg_blk_array$AddH(Env.Debug_Blocks,
+							Dbg_Blk);
+				        rtn_inst$Add_Dbg_Block(RI, Dbg_Blk);
+					RI.Entry_Address := %% Get its final address
+					    locate$Address_Advance(
+						Locs.Debug_Blocks,
+						dbg_block$Size(Dbg_Blk));
+					if (All_Symbols)
+					   then a_symbols$AddH(
+						    Syms,
+						    a_symbol$Create_Text(
+							Nm,
+							RI.Entry_Address,
+							Strs)
+							       );
+					   end;
+				   else RI.Entry_Address := locate$Address_Advance(
+								Locs.Entries, vEntry_Size);
+				   end;
+				if (use_list$Size(RI.Uses) ~= 0)
+				   then if (Debugging)
+					   then locate$Advance(Locs.Uses,   %% Room for dbg_block ref.
+							       vRef_Size);
+					   end;
+					RI.Uses_Address := locate$Address_Advance(
+							       Locs.Uses,
+							       (use_list$Size(RI.Uses) *
+								vUse_Factor));
+				   end;
+			   end;
+			end;
+	       end;
+       end;
+    end Update_Rtn_Addresses;

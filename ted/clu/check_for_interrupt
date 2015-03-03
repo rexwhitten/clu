@@ -1,0 +1,9 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+check_for_interrupt = proc () returns (bool)
+    if _pending_chars()  cand  ctrlg = _peek()
+     then _getc()
+	  _bell()
+	  return(true)
+     else return(false)
+     end
+    end check_for_interrupt

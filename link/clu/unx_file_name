@@ -1,0 +1,16 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+%% Truncates Name (if necessary) so that "name.ext" is max number of
+%% chars or less.
+
+UNIX_File_Name = proc (Dir: string, Name: string, Ext: string)
+		   returns (file_name) signals (bad_format);
+    own FN_Len: int := _Dir_Ent_Size();	    %% Max length of file name.
+    Ext_Len: int := string$Size(Ext) + 1;   %% Plus 1 for the period.
+    Nm_Len:  int := string$Size(Name);
+    if ((string$Size(Name) + Ext_Len) > FN_Len)
+       then Name := string$SubStr(Name, 1, (FN_Len - Ext_Len));
+       end;
+    return (file_name$Create(Dir, Name, Ext, ""));
+       resignal Bad_Format;
+    end UNIX_File_Name;

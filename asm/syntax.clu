@@ -1,0 +1,131 @@
+%	SYNTAX CLU
+% Copyright Massachusetts Institute of Technology 1980, 1989
+%	MC68000 Assembler: IDN, TYPESPEC, STMT, EXPR
+
+%	IDN
+
+idn = cluster is create, get_str, set_kind, get_kind, copy, equal, similar
+
+rep = record[str:  str,
+	     kind: idnkind]
+
+create = proc (s: str, k: idnkind) returns (cvt)
+	return(rep${str:  s,
+		    kind: k})
+	end create
+
+get_str = proc (i: cvt) returns (str)
+	return(i.str)
+	end get_str
+
+set_kind = proc (i: cvt, k: idnkind)
+	i.kind := k
+	end set_kind
+
+get_kind = proc (i: cvt) returns (idnkind)
+	return(i.kind)
+	end get_kind
+
+copy = proc (i: idn) returns (idn)
+	return(i)
+	end copy
+
+equal = proc (i1: cvt, i2: cvt) returns (bool)
+	return(i1 = i2)
+	end equal
+
+similar = proc (i1: cvt, i2: cvt) returns (bool)
+	return(i1 = i2)
+	end similar
+
+end idn
+
+%	TYPESPEC
+
+typespec = cluster is create, get_abs, copy, equal, similar
+
+rep = typeabs
+
+create = proc (ta: typeabs) returns (cvt)
+	return(ta)
+	end create
+
+get_abs = proc (t: cvt) returns (typeabs)
+	return(t)
+	end get_abs
+
+copy = proc (t: typespec) returns (typespec)
+	return(t)
+	end copy
+
+equal = proc (t1: cvt, t2: cvt) returns (bool)
+	return(rep$similar(t1, t2))
+	end equal
+
+similar = proc (t1: cvt, t2: cvt) returns (bool)
+	return(rep$similar(t1, t2))
+	end similar
+
+end typespec
+
+%	STMT
+
+stmt = cluster is create, get_abs, get_line, copy, equal, similar
+
+rep = struct[stmt: stmtabs,
+	     line: int]
+
+create = proc (s: stmtabs, l: int) returns (cvt)
+	return(rep${stmt: s,
+		    line: l})
+	end create
+
+get_abs = proc (s: cvt) returns (stmtabs)
+	return(s.stmt)
+	end get_abs
+
+get_line = proc (s: cvt) returns (int)
+	return(s.line)
+	end get_line
+
+copy = proc (s: stmt) returns (stmt)
+	return(s)
+	end copy
+
+equal = proc (s1: cvt, s2: cvt) returns (bool)
+	return(s1 = s2)
+	end equal
+
+similar = proc (s1: cvt, s2: cvt) returns (bool)
+	return(stmtabs$similar(s1.stmt, s2.stmt))
+	end similar
+
+end stmt
+
+%	EXPR
+
+expr = cluster is create, get_abs, copy, equal, similar
+
+rep = exprabs
+
+create = proc (x: exprabs) returns (cvt)
+	return(x)
+	end create
+
+get_abs = proc (x: cvt) returns (exprabs)
+	return(x)
+	end get_abs
+
+copy = proc (x: expr) returns (expr)
+	return(x)
+	end copy
+
+equal = proc (x1: cvt, x2: cvt) returns (bool)
+	return(rep$similar(x1, x2))
+	end equal
+
+similar = proc (x1: cvt, x2: cvt) returns (bool)
+	return(rep$similar(x1, x2))
+	end similar
+
+end expr

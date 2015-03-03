@@ -1,0 +1,21 @@
+%% Copyright Massachusetts Institute of Technology 1980, 1989
+
+%%% For each routine, R, in the routine table, the code addresses of
+%%% the routines which R invokes (its call slots) are yielded.
+%%% (SEP/Nov  6 1984)
+
+_All_Instantiations = iter (RI: _rtn_info) yields (_obj);
+    Rtn_Tab: _rtn_table := _Get_Rtn_Table();
+    Rtn_Name: string := RI.Name;
+    for Caller_RI: _rtn_info in _rtn_table$Elements(Rtn_Tab) do
+	for Callee, Slot: _obj in _Call_Slots(Caller_RI.Routine, Caller_RI) do
+	    Callee_RI: _rtn_info := _Get_Rtn_Info(Callee);
+	       except when Not_Found:
+			   continue;
+		      end;
+	    if (Callee_RI.Name = Rtn_Name)
+	       then yield (Callee);
+	       end;
+	    end;
+	end;
+    end _All_Instantiations;

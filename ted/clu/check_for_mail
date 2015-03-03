@@ -1,0 +1,20 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+check_for_mail = proc (e: env, c: char)
+		   signals (errmsg(string), stop(env, string))
+    w: _wordvec := _cvt[_bytevec, _wordvec](_io_buf())
+    dbox: string := "/usr/spool/mail/" || user_name()
+    box: string := env$fetch_str(e, "mail_box", dbox)
+    if string$empty(box)
+       then box := dbox end
+    begin
+    _stat(fname$parse(box), w)
+    if w[6] > 0  cand
+       (_wordvec$wfetch(w, 35) > _wordvec$wfetch(w, 27)  cor
+	(_wordvec$wfetch(w, 33) > _wordvec$wfetch(w, 25)  cand
+	 _wordvec$wfetch(w, 35) = _wordvec$wfetch(w, 27)))
+       then top_display(e, "You have new mail.")
+	    return
+       end
+    end except when bad_format, not_possible (*): end
+    top_display(e, "No new mail exists.")
+    end check_for_mail

@@ -1,0 +1,18 @@
+;; Copyright Massachusetts Institute of Technology 1984, 1989
+
+_all_signal_areas = iter () yields (_signal_area)
+	var 	nxtseg
+
+	movea	schain, rr		;; Get starting segment map.
+	qloop	move	nxtmap(rr), nxtseg
+		move	sigseg(rr), n1	;; Address
+		ifne	tst	sigcnt(rr)	;; Count (ignore if empty).
+		then	movea	sigcnt(rr), rr
+			_signal_area$create (n1, rr)	;; Address and size.
+			yield (rr)
+			end
+		movea	nxtseg, rr	;; Get next map.
+		move	rr, n1
+		bne	this
+		end
+	end _all_signal_areas

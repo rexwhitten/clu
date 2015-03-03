@@ -1,0 +1,7 @@
+; Copyright Massachusetts Institute of Technology 1985, 1989
+
+stream2chan = proc (str: stream) returns (_chan) signals (not_possible(string))
+	stream$%get_chan(rr)
+	   resignal not_possible
+	return(rr)
+	end stream2chan

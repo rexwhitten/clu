@@ -1,0 +1,65 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+% The following routine is run to either display or flush the editor or user
+% help, or to turn the buffer saving on/off. It is run by ^H.
+
+ed_help = proc (e: env, c: char) signals (errmsg(string), stop(env, string))
+    own have_ted: bool := false
+    own have_usr: bool := false
+    own ted_help, usr_help: buf
+    f: fname
+    arg: int := e.this_arg
+    if arg < 0
+       then % turn on saving if it is off
+	    lim: int := e.change_limit
+	    current: string := "on"
+	    new: string := "off"
+	    if lim <= 0 then new, current := current, new end
+	    if mconfirm (e, "Buffer saving is now " || current
+			      || ", do you want it " || new, true)
+	       then if lim = 0 then lim := -300 end
+		    e.change_limit := -lim
+	       end
+     elseif arg = 0
+       then % flush the help buffer
+	    ted_help := _cvt[null, buf](nil)
+	    usr_help := _cvt[null, buf](nil)
+	    have_ted := false
+	    have_usr := false
+	    top_display(e, "Help flushed.")
+     elseif env$fetch_num(e, "help_query", 0) ~= 0  cand
+	    ~mconfirm(e, "Need help", true)
+       then % do nothing
+     elseif arg = 1
+       then if ~have_ted
+	       then top_display(e, "Reading help")
+		    f, ted_help := read_from_file(e,
+						  fname$create(_system_root(),
+							       "ted", "hlp",
+							       ""),
+						  false,
+						  false)
+		    have_ted := true
+	       end
+	    buffer_help(e, ted_help)
+     else if ~have_usr
+	     then top_display(e, "Reading help")
+		  s: string := env$fetch_str(e, "help_file", "~/.ted_hlp")
+		  if string$empty(s)
+		     then s := "~/.ted_hlp"
+			  env$store_str(e, "help_file", s)
+		     end
+		  f, usr_help := read_from_file(e,
+						fname$parse(logical_name(e, s)),
+						false,
+						false)
+		  have_usr := true
+	     end
+	  buffer_help(e, usr_help)
+     end
+       resignal errmsg
+       except when bad_format:
+		   signal errmsg("Bad help name!")
+	      when not_possible (why: string):
+		   signal errmsg("No help - " || why)
+	      end
+    end ed_help

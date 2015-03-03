@@ -1,0 +1,143 @@
+% Copyright Massachusetts Institute of Technology 1981, 1989
+
+_tdesc = cluster is none, clu, sel, get_name, get_consts, get_pdescs,
+		    has_parms, equal, similar, print, _gcd
+
+    rep = variant[a_none: null,
+		  b_clu:  cdesc,
+		  c_sel:  sdesc]
+
+    cdesc = record[a_name:  string,
+		   b_parms: constlist]
+    sdesc = record[a_name: string,
+		   b_parms: pdesclist]
+    pdesclist = sequence[pdesc]
+    pdesc = record[a_name: string,
+		   b_type: _tdesc]
+    constlist = sequence[const]
+    const = variant[a_nix:    null,
+		    b_nix:    bool,
+		    c_int:    int,
+		    d_nix:    real,
+		    e_nix:    char,
+		    f_string: string,
+		    g_nix,
+		    h_nix,
+		    i_nix,
+		    j_nix,
+		    k_nix:    null,
+		    l_type:   _tdesc]
+
+    none = proc () returns (cvt)
+	own n: rep := rep$make_a_none(nil)
+	return(n)
+	end none
+
+    clu = proc (name: string, parms: constlist) returns (cvt)
+	return(rep$make_b_clu(cdesc${a_name:  name,
+				     b_parms: parms}))
+	end clu
+
+    sel = proc (name: string, parms: pdesclist) returns (cvt)
+	return(rep$make_c_sel(sdesc${a_name:  name,
+				     b_parms: parms}))
+	end sel
+
+    get_name = proc (t: cvt) returns (string)
+	tagcase t
+	   tag a_none:
+	       return("")
+	   tag b_clu (cd: cdesc):
+	       return(cd.a_name)
+	   tag c_sel (sd: sdesc):
+	       return(sd.a_name)
+	   end
+	end get_name
+
+    get_consts = proc (t: cvt) returns (constlist) signals (none)
+	tagcase t
+	   tag b_clu (cd: cdesc):
+	       return(cd.b_parms)
+	   others:
+	       signal none
+	   end
+	end get_consts
+
+    get_pdescs = proc (t: cvt) returns (pdesclist) signals (none)
+	tagcase t
+	   tag c_sel (sd: sdesc):
+	       return(sd.b_parms)
+	   others:
+	       signal none
+	   end
+	end get_pdescs
+
+    has_parms = proc (t: cvt) returns (bool)
+	tagcase t
+	   tag a_none:
+	       return(false)
+	   tag b_clu (cd: cdesc):
+	       return(~constlist$empty(cd.b_parms))
+	   tag c_sel:
+	       return(true)
+	   end
+	end has_parms
+
+    equal = proc (t1, t2: cvt) returns (bool)
+	return(rep$similar(t1, t2))
+	end equal
+
+    similar = proc (t1, t2: cvt) returns (bool)
+	return(rep$similar(t1, t2))
+	end similar
+
+    print = proc (t: cvt, ps: pstream)
+	tagcase t
+	   tag b_clu (cd: cdesc):
+	       pstream$text(ps, cd.a_name)
+	       if ~constlist$empty(cd.b_parms)
+		  then if pstream$start(ps, "[")
+			  then sep: string := ""
+			       for p: const in constlist$elements(cd.b_parms) do
+				   if string$empty(sep)
+				      then sep := ","
+				    elseif ~pstream$pause(ps, sep)
+				      then break end
+				   tagcase p
+				      tag c_int (i: int):
+					  int$print(i, ps)
+				      tag f_string (s: string):
+					  string$print(s, ps)
+				      tag l_type (tt: _tdesc):
+					  print(tt, ps)
+				      others:
+					  null$print(nil, ps)
+				      end
+				   end
+			  end
+		       pstream$stop(ps, "]")
+		  end
+	   tag c_sel (sd: sdesc):
+	       pstream$text(ps, sd.a_name)
+	       if pstream$start(ps, "[")
+		  then sep: string := ""
+		       for p: pdesc in pdesclist$elements(sd.b_parms) do
+			   if string$empty(sep)
+			      then sep := ","
+			    elseif ~pstream$pause(ps, sep)
+			      then break end
+			   pstream$text(ps, p.a_name)
+			   pstream$text(ps, ": ")
+			   print(p.b_type, ps)
+			   end
+		  end
+	       pstream$stop(ps, "]")
+	   others:
+	   end
+	end print
+
+    _gcd = proc (t: cvt, tab: gcd_tab) returns (int)
+	return(rep$_gcd(t, tab))
+	end _gcd
+
+    end _tdesc

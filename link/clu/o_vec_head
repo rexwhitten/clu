@@ -1,0 +1,9 @@
+%% Copyright Massachusetts Institute of Technology 1984, 1989
+
+Output_Vec_Head = proc (Size: int, Env: lnk_env);
+    %% Tag bits are zero.  Size (as int) * 2 is in head.
+    if (Size > vMax_Vec_Size)
+       then Should_Never_Happen[int]("Vec too big to be output.", Size);
+       end;
+    out_link_chan$Write_Long_Word(Env.Output, ((4 * Size) + 2));
+    end Output_Vec_Head;

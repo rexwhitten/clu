@@ -1,0 +1,14 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+_lnk_Exact_Name = proc (S: string) returns (file_name) signals (not_possible);
+    FN: file_name := File_Name_Fill(file_name$Parse(S), "");
+       except when Bad_Format:
+		   signal Not_Possible;
+	      end;
+    if (File_Exists(FN))
+       then return (_Fixup_File_Name(FN, false));
+       end;
+       except when Not_Possible(*):
+	      end;
+    signal Not_Possible;
+    end _lnk_Exact_Name;

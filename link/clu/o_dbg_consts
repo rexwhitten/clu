@@ -1,0 +1,17 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+Output_Debug_Constants = proc (Env: lnk_env)
+		      signals (cant_open(fname, string));
+    Svd_Out: out_link_chan := Env.Output;
+    OutFn:  fname := Env.Out_File_Name;
+    Dbg_Fn: fname := fname$Make_Temp(OutFn.Dir, "vlink", "vdbg");
+    Env.Output := out_link_chan$Temp_Open(Dbg_Fn, Env.Locates,
+					  Env.Locates.Consts.Cur_Address);
+       except when Not_Possible(ErrS: string):
+		   Env.Output := Svd_Out;
+		   signal Cant_Open(Dbg_Fn, ErrS);
+	      end;
+    Output_Constants(Env);
+    Env.Mach_Dependent.Dbg_Output := Env.Output;
+    Env.Output := Svd_Out;
+    end Output_Debug_Constants;

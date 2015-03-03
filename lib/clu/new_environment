@@ -1,0 +1,21 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+new_environment = proc(envs: array[string]) returns(_wordvec)
+    %- Calculate the total size of envs as
+    %-	(array[string]$size(envs)+1) * 4 + sum(string$size(envs[i])+1)
+    wv: int := (array[string]$size(envs) + 1) * 4
+    for s: string in array[string]$elements(envs) do
+	wv := wv + string$size(s) + 1
+	end
+    %- wv is the minimum size of vector need in bytes
+    res: _wordvec := _wordvec$create((wv + 3)/4)
+    st: int := (array[string]$size(envs)+1)*4+1
+    bres: _bytevec := _cvt[_wordvec,_bytevec](res)
+    for i: int in array[string]$indexes(envs) do
+	res[i] := st - 1
+	_bytevec$move_lr(_cvt[string,_bytevec](envs[i]), 1, bres, st, string$size(envs[i]))
+	st := st + string$size(envs[i])
+	bres[st] := '\000'
+	st := st + 1
+	end
+    return(res)
+    end new_environment

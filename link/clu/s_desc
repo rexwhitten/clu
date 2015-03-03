@@ -1,0 +1,72 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+s_desc = cluster is		%% Selector
+	get_name, similar, bind, instantiate, transform,
+	get_tagged_types, hasher, print, unparse, _gcd;
+
+    t_ts = sequence[tagged_type]
+
+    rep = record [
+	      a_Name:	 string,	 %% Kind of selector.
+	      b_Selects: t_ts
+		  ];
+
+    Get_Name = proc (S: cvt) returns (string);
+	return (S.a_Name);
+	end Get_Name;
+
+    Similar = proc (S1, S2: cvt) returns (bool);
+	return ( rep$Similar(S1, S2) );
+	end Similar;
+
+    Bind = proc (S: cvt, R_D: rtn_desc, Env: lnk_env) returns (cvt)
+	     signals (error(string));
+	return ( rep${
+		     a_Name:   S.a_Name,
+		     b_Selects: Bind_List[tagged_type](S.b_Selects, R_D, Env)
+		      } );
+	   resignal Error;
+	end Bind;
+
+    Instantiate = proc (S: cvt, Env: lnk_env) signals (error(string));
+	S.b_Selects := Instantiate_List[tagged_type](S.b_Selects, Env);
+	   resignal Error;
+	end Instantiate;
+
+    Transform = proc (Kind: string, SD: cvt) returns (cvt);
+	if (Kind = SD.a_Name)
+	   then return (SD);
+	   else return (rep${a_Name:	  Kind,
+			     b_Selects:   SD.b_Selects
+			     } );
+	   end;
+	end Transform;
+
+    Get_Tagged_Types = proc (SD: cvt) returns (t_ts);
+	return (SD.b_Selects);
+	end Get_Tagged_Types;
+
+    Hasher = proc (SD: cvt, Size: int) returns (int);
+	H: int := Hash(SD.a_Name, Size);
+	TTs: t_ts := SD.b_Selects;
+	H := (H + t_ts$Size(TTs) +
+	      Hash(t_ts$Bottom(TTs).Tag_Name, Size) +
+	      Hash(t_ts$Top(TTs).Tag_Name, Size) );
+	return (int$Mod(H, Size));
+	end Hasher;
+
+    Print = proc (SD: cvt, S: pstream);
+	rep$Print(SD, S);
+	end Print;
+
+    Unparse = proc (SD: cvt) returns (string);
+	return ( SD.a_Name || "[" ||
+		 Unparse_List[tagged_type](SD.b_Selects,
+					   vMax_List_Output_Length) || "]" );
+	end Unparse;
+
+    _gcd = proc (SD: cvt, Tab: gcd_tab) returns (int);
+	return (rep$_gcd(SD, Tab));
+	end _gcd;
+
+    end s_desc;

@@ -1,0 +1,9 @@
+%% Copyright Massachusetts Institute of Technology 1980, 1989
+
+Hash_Consts = proc (SC: consts, Size: int, Env: lnk_env) returns (int);
+    N: int := consts$Size(SC);
+    for Sub_C: constant in consts$Elements(SC) do
+	N := N + constant$Canon_Hasher(Sub_C, Size, Env);
+	end;
+    return (int$Mod(N, Size));
+    end Hash_Consts;

@@ -1,0 +1,6 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+#extend
+
+Output_End_of_Code = proc (Env: lnk_env);
+    end Output_End_of_Code;

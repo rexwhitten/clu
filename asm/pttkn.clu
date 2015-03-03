@@ -1,0 +1,254 @@
+%	PTTKN	CLU
+% Copyright Massachusetts Institute of Technology 1980, 1989
+%	MC68000 Assembler: print routines for tokens
+
+# extend
+
+qs	= sequence[str]
+ifs	= qs$["ifls", "ifhi", "ifcs", "ifcc", "ifeq", "ifne", "ifvs",
+	      "ifvc", "ifmi", "ifpl", "iflt", "ifge", "ifle", "ifgt"]
+elfs	= qs$["elfls", "elfhi", "elfcs", "elfcc", "elfeq", "elfne", "elfvs",
+	      "elfvc", "elfmi", "elfpl", "elflt", "elfge", "elfle", "elfgt"]
+
+pt_token = proc (t: token, st: stream)
+	s: str
+	tagcase t
+	   tag expr (x: expr):
+		tagcase x.abs
+		   tag star:
+			 s := "*"
+		   tag null_:
+			 s := "nil"
+		   tag bool_ (k: bool):
+			 if k
+			    then s := "true"
+			    else s := "false"
+			    end
+		   tag int_ (k: int):
+			 s := int$unparse(k)
+		   tag real_ (k: real):
+			 s := real$unparse(k)
+		   tag char_ (k: char):
+			 pt_char(k, st)
+			 return
+		   tag str (k: str):
+			 pt_str(k, st)
+			 return
+		   tag xstr (k: qi):
+			 pt_xstr(k, st)
+		   tag select (k: int):
+			 if k = _sel_tag
+			    then s := "seltag"
+			 elseif k = _sel_index
+			    then s := "selindex"
+			 elseif k = _sel_int
+			   then s := "selint"
+			 else s := "selhead" end
+		   tag selnames:
+			 s := "selnames"
+		   others:
+			 s := "???"
+		   end
+	   tag idn (i: idn):
+			 s := i.str
+	   tag equal:	 s := "="
+	   tag assn:	 s := ":="
+	   tag colon:	 s := ":"
+	   tag comma:	 s := ","
+	   tag comma2:   s := ",,"
+	   tag dollar:	 s := "$"
+	   tag plus:	 s := "+"
+	   tag minus:	 s := "-"
+	   tag slash:    s := "/"
+	   tag l_paren:	 s := "("
+	   tag l_bkt:	 s := "["
+	   tag l_curly:	 s := "{"
+	   tag l_angle:  s := "<"
+	   tag r_paren:	 s := ")"
+	   tag r_bkt:	 s := "]"
+	   tag r_curly:	 s := "}"
+	   tag r_angle:  s := ">"
+	   tag type_ (k: typespec):
+		tagcase k.abs
+		   tag any_:
+			 s := "any"
+		   tag cvt_:
+			 s := "cvt"
+		   tag seltype:
+			 s := "seltype"
+		   others:
+			 s := "???"
+		   end
+	   tag stmtkey (k: stmtkey):
+			 s := stmtkey_string(k)
+	   tag defnkey (k: defnkey):
+			 s := defnkey_string(k)
+	   tag elf_ (kind: int):
+		if kind = _if
+		   then	 s := "elf"
+		elseif kind = _if_false
+		   then  s := "elff"
+		elseif kind = _if_true
+		   then  s := "elft"
+		else     s := elfs[(kind - BSR) / 0400]
+		end
+	   tag do_:	 s := "do"
+	   tag end_:	 s := "end"
+	   tag then_:	 s := "then"
+	   tag else_:	 s := "else"
+	   tag in_:	 s := "in"
+	   tag others_:  s := "others"
+	   tag except_:	 s := "except"
+	   tag when_:	 s := "when"
+	   tag returns_: s := "returns"
+	   tag signals_: s := "signals"
+	   tag resignal_:s := "resignal"
+	   tag yields_:	 s := "yields"
+	   tag where_:	 s := "where"
+	   tag is_:	 s := "is"
+	   tag has_:	 s := "has"
+	   tag this_:	 s := "this"
+	   tag next_:	 s := "next"
+	   tag proctype_:s := "proctype"
+	   tag itertype_:s := "itertype"
+	   tag selops_:  s := "selops"
+	   tag eof:	 return
+	   end
+	stream$puts(st, s)
+	    except others: end
+	end pt_token
+
+stmtkey_string = proc (k: stmtkey) returns (str)
+	s: str
+	tagcase k
+	   tag wvec_:	  s := "wvec"
+	   tag own_:	  s := "own"
+	   tag var_:	  s := "var"
+	   tag stack_:    s := "stack"
+	   tag unstack_:  s := "unstack"
+	   tag loop_ (quick: bool):
+		if quick
+		   then   s := "qloop"
+		   else   s := "loop"
+		   end
+	   tag for_ (quick: bool):
+		if quick
+		   then   s := "qfor"
+		   else   s := "for"
+		   end
+	   tag if_ (kind: int):
+		if kind = _if
+		   then   s := "if"
+		elseif kind = _if_false
+		   then   s := "iff"
+		elseif kind = _if_true
+		   then   s := "ift"
+		else      s := ifs[(kind - BSR) / 0400]
+		end
+	   tag return_:	  s := "return"
+	   tag yield_:	  s := "yield"
+	   tag signal_:	  s := "signal"
+	   tag break_:	  s := "break"
+	   tag continue_: s := "continue"
+	   tag begin_:	  s := "begin"
+	   tag opcode (cd: opcodeform):
+			  s := cd.str
+	   end
+	return(s)
+	end stmtkey_string
+
+defnkey_string = proc (k: defnkey) returns (str)
+	s: str
+	tagcase k
+	   tag oper_ (kind: int):
+		if kind = _is_iter
+		   then s := "iter"
+		elseif kind = _is_qproc
+		   then s := "qproc"
+		elseif kind = _is_proc
+		   then s := "proc"
+		elseif kind = _is_qselproc
+		   then s := "qselproc"
+		elseif kind = _is_selproc
+		   then s := "selproc"
+		else    s := "???"
+		end
+	   tag cluster_ (select: bool):
+		if select
+		   then s := "selector"
+		   else s := "cluster"
+		   end
+	   end
+	return(s)
+	end defnkey_string
+
+pt_str = proc (s: str, st: stream)
+	begin
+	stream$putc(st, '"')
+	pt_charseq(s, true, st)
+	stream$putc(st, '"')
+	end except others: end
+	end pt_str
+
+pt_xstr = proc (q: qi, st: stream)
+	begin
+	stream$putc(st, '"')
+	for j: int in qi$elements(q) do
+		if j < 32
+		   then stream$puts(st, "\\^")
+			stream$putc(st, char$i2c(j + 64))
+		elseif j = 34
+		   then stream$puts(st, "\\\"")
+		elseif j = 92
+		   then stream$puts(st, "\\\\")
+		elseif j = 127
+		   then stream$puts(st, "\\^?")
+		elseif j > 127
+		   then stream$putc(st, '\\')
+			stream$putzero(st, i_ounparse(j), 3)
+		else stream$putc(st, char$i2c(j)) end
+		end
+	stream$putc(st, '"')
+	end except others: end
+	end pt_xstr
+
+pt_char = proc (c: char, st: stream)
+	begin
+	stream$puts(st, "'")
+	pt_charseq(str$c2s(c), false, st)
+	stream$puts(st, "'")
+	end except others: end
+	end pt_char
+
+pt_charseq = proc (s: str, is_str: bool, st: stream)
+	for c: char in str$chars(s) do
+		if c < ' '
+		   then stream$puts(st, "\\^")
+			stream$putc(st, char$i2c(char$c2i(c) + 64))
+		elseif c = '"'
+		   then if is_str
+			   then stream$puts(st, "\\\"")
+			   else stream$putc(st, '"')
+			   end
+		elseif c = '\''
+		   then if is_str
+			   then stream$putc(st, '\'')
+			   else stream$puts(st, "\\'")
+			   end
+		elseif c = '\\'
+		   then stream$puts(st, "\\\\")
+		elseif c < '\177'
+		   then stream$putc(st, c)
+		elseif c = '\177'
+		   then stream$puts(st, "\\^?")
+		else i: int := char$c2i(c)
+		     if i < 160  cor  i = 255
+			then i := (i - 64) // 128
+			     stream$puts(st, "\\!")
+			else i := i - 128
+			     stream$puts(st, "\\&")
+			end
+		     stream$putc(st, char$i2c(i))
+		end
+		end except others: end
+	end pt_charseq

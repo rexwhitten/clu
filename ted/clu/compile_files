@@ -1,0 +1,116 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+compile_files = proc (e: env, opt: char) returns (buf) signals (errmsg(string))
+    mode_msg = "C: compile\n" ||
+	       "E: compilation environment\n" ||
+	       "O: optimizing compile\n" ||
+	       "P: parse\n" ||
+	       "S: interface specifications\n" ||
+	       "T: type-check\n" ||
+	       "X: extend compilation environment"
+    file_msg = ".: current file\n" ||
+	       "A: all files in buffer\n" ||
+	       "C: all changed files in buffer\n" ||
+	       "L: all files in list without up-to-date binary files\n" ||
+	       "M: all files in buffer without up-to-date binary files"
+    cnt: int
+    mode, fopt: char
+    cnt, mode := get_option(e, "Compilation mode", "CEOPSTX", mode_msg, false)
+       resignal errmsg
+    cnt, fopt := get_option(e, "Files to use", ".ACLM", file_msg, false)
+       resignal errmsg
+    afn: afnt
+    if fopt = '.'
+       then if e.buffer.changed
+	       then curfn: fname := fname$parse(get_frame_name(e))
+		       except when bad_format: curfn := fname$parse("") end
+		    write_file(e, curfn, false, false)
+		    e.buffer.changed := false
+	       end
+	    afn := afnt$[fname$parse(get_frame_name(e))]
+     elseif fopt = 'L'
+       then fs: string
+	    fs, afn := get_file_list(e, "Files", false)
+     else afn := write_all_files(e)
+	     resignal errmsg
+	  if fopt ~= 'C'
+	     then afn := get_frame_list(e) end
+     end resignal errmsg
+    cnt := 0
+    cmds: string := rem_newlines(env$fetch_str(e, "prefix_commands", ""))
+    cmd: string
+    if mode = 'C' then cmd := "#co "
+     elseif mode = 'E' then cmd := "#ce "
+     elseif mode = 'O' then cmd := "#o#co " ; mode := 'C'
+     elseif mode = 'P' then cmd := "#p " ; mode := 'C'
+     elseif mode = 'S' then cmd := "#sp "
+     elseif mode = 'T' then cmd := "#ch " ; mode := 'C'
+     else cmd := "#xce " ; mode := 'E'
+     end
+    cmp: string := env$fetch_str(e, "compiler_name", "clu")
+    bsuf: string
+    if string$indexs("argus", cmp) > 0
+       then cmp := "arg"
+	    bsuf := "obj"
+     elseif string$indexs("oculus", cmp) > 0
+       then cmp := "eye"
+	    bsuf := "obj"
+     else cmp := "clu"
+	  bsuf := "bin"
+     end
+    cmds := cmds || cmd
+    msg: string := ""
+    bdir: string
+    brel: bool
+    namz: int
+    if fopt = 'M'  cor  fopt = 'L'
+       then if afnt$size(afn) > 10
+	       then top_display(e, "Looking for files") end
+	    dez: int := _dir_ent_size()
+	    bsuf := string$substr(env$mfetch_str(e, "binary_suffix"), 1, dez - 2)
+	       except when not_found: end
+	    if string$empty(bsuf)
+	       then namz := dez
+	       else namz := dez - 1 - string$size(bsuf)
+	       end
+	    bdir := logical_name(e, env$fetch_str(e, "binary_dir", ""))
+	    brel := string$empty(bdir)  cor
+		    (bdir[1] ~= '/'  cand  bdir[1] ~= '~')
+       end
+    for fn: fname in afnt$elements(afn) do
+	if fopt ~= '.'
+	   then if ~string$empty(fn.other)
+		   then continue end
+		suf: string := fn.suffix
+		if (mode = 'C'  cand  ~string$empty(suf)  cand
+		    suf ~= cmp)  cor
+		   (mode = 'S'  cand  ~string$empty(suf)  cand
+		    suf ~= cmp  cand  suf ~= "spc")  cor
+		   (mode = 'E'  cand  suf ~= "equ")
+		   then continue end
+		if fopt = 'M'  cor  fopt = 'L'
+		   then cdate: date := file_date(fn, false)
+			   except when not_possible (*): continue end
+			dir: string := bdir
+			if brel
+			   then dir := string$append(fn.dir, '/') || dir end
+			if cdate < file_date(fname$create(
+						 dir, string$substr(fn.name,
+								    1, namz),
+						 bsuf, ""),
+					     false)
+			   then continue end
+			   except when bad_format, not_possible (*): end
+		   end
+	   end
+	if cnt > 0 then cmds := string$append(cmds, ',') end
+	msg := fname$unparse(fn)
+	cmds := cmds || msg
+	cnt := cnt + 1
+	end
+    if cnt = 0
+       then signal errmsg("No files to compile!") end
+    if cnt > 1 then msg := int$unparse(cnt) || " files" end
+    top_display(e, "Working on " || msg)
+    return(run_compiler(e, cmds, false))
+       resignal errmsg
+    end compile_files

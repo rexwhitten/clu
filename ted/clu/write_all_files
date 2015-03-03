@@ -1,0 +1,66 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+write_all_files = proc (e: env) returns (afnt) signals (errmsg(string))
+    help_msg = "D: get new directory for all files\n" ||
+	       "N: get new name for each file\n" ||
+	       "S: get new suffix for all files\n" ||
+	       "V: create new version of each file\n"
+    prompt = "Write option"
+    valid = "DNSV"
+    afn: afnt := afnt$new()
+    b: buf := e.buffer
+    if ~buf$any_changed(b)
+       then top_display(e, "No changed files.")
+	    return(afn)
+       end
+    cnt: int, opt: char := get_option(e, prompt, valid, help_msg, false)
+       resignal errmsg
+    dirs: string
+    sufs: string
+    if opt = 'D'  cor  opt = 'S'
+       then s: string := "New directory"
+	    if opt = 'S'
+	       then s := "New suffix" end
+	    s := get_string_arg(e, s, "")
+	       resignal errmsg
+	    if opt = 'D'
+	       then dirs := fname$create(s, "", "", "").dir
+		       except when bad_format: signal errmsg("Bad directory!")
+			      end
+	       else sufs := fname$create("", "", s, "").suffix
+		       except when bad_format: signal errmsg("Bad suffix!") end
+	       end
+       end
+    oline, opos: int := buf$get_cursor(b)
+    buf$set_cursor(b, 1, 1)
+    line: int := 0
+    while true do
+	low, max: int := buf$get_frame(b)
+	if low <= line
+	   then buf$set_cursor(b, oline, opos)
+		if ~afnt$empty(afn)
+		   then top_display(e, int$unparse(afnt$size(afn)) ||
+				       " files written.")
+		   end
+		return(afn)
+	   end
+	line := low
+	if b.changed
+	   then fn: fname
+		if opt = 'N'
+		   then fn := get_file_name(e, "Write text to file")
+		   else fn := fname$parse(get_frame_name(e))
+			   except when bad_format: fn := fname$parse("") end
+			if opt = 'D'
+			   then fn := fname$create(dirs, fn.name,
+						   fn.suffix, fn.other)
+			 elseif opt = 'S'
+			   then fn := fname$create(fn.dir, fn.name,
+						   sufs, fn.other)
+			 end
+		   end
+		write_file(e, fn, false, true)
+		afnt$addh(afn, fname$parse(get_frame_name(e)))
+	   end except when errmsg (xx: string): top_display(e, xx) end
+	buf$new_frame(b, 1)
+	end
+    end write_all_files

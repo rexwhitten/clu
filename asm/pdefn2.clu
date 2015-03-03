@@ -1,0 +1,170 @@
+%	PDEFN2	CLU
+% Copyright Massachusetts Institute of Technology 1980, 1989
+%	MC68000 Assembler:  parsing routines for definitions
+
+% where => empty | WHERE restrictlist
+% restrictlist => restrict | restrict , restrictlist
+
+p_where = proc (e: p_env)
+	tagcase e.peek1
+	   tag where_: p_env$next_token(e)
+		p_clist[null](e, p_restrict, "restriction")
+	   others:
+	   end
+	end p_where
+
+% restrict => idn HAS operdecllist
+
+p_restrict = proc (e: p_env) returns (null) signals (none, bad)
+	id: idn := p_idn(e)
+	    resignal none
+	tagcase e.peek1
+	   tag has_:
+		p_env$next_token(e)
+		p_operdecllist(e)
+	   others:
+		p_env$assume(e, "HAS restriction after idn in WHERE clause")
+		signal bad
+	   end
+	return(nil)
+	end p_restrict
+
+% operdecllist => operdecl | operdecl , operdecllist
+% operdecl => opnamelist : type
+
+p_operdecllist = proc (e: p_env)
+	while true do
+		p_clist[null](e, p_opname, "opname")
+		tagcase e.peek1
+		   tag colon:
+			p_env$next_token(e)
+			p_type1(e)
+		   others:
+			p_env$assume(e,
+			  ": type of operation declaration in type restriction")
+		   end
+		tagcase e.peek1		% Don't gobble start of next restriction
+		   tag comma:
+			tagcase p_env$peek(e, 3)
+			   tag has_: return
+			   others:
+				p_env$next_token(e)
+			   end
+		   others:
+			return
+		   end
+		end
+	end p_operdecllist
+
+% opnamelist => opname | opname , opnamelist
+
+% opname => name constlist
+
+p_opname = proc (e: p_env) returns (null) signals (none, bad)
+	n: name := p_name(e)
+	    resignal none
+	p_blist[expr](e, p_expr, _none_ok, "constant")
+	return(nil)
+	end p_opname
+
+% Check for "END name", with name matching the definition name
+
+p_defn_end = proc (e: p_env, nm: name)
+	tagcase e.peek1
+	   tag end_: 
+	   others:   p_env$assume(e, "END and trailing name of module " || nm)
+		     return
+	   end
+	begin
+	s: str
+	tagcase p_env$peek(e, 2)
+	   tag idn (id: idn):
+		s := id.str
+	   tag stmtkey (key: stmtkey):
+		tagcase key
+		   tag opcode (code: opcodeform):
+			s := code.str
+		   others:
+			exit no_idn
+		   end
+	   tag is_:
+		s := "is"
+	   tag this_:
+		s := "this"
+	   tag next_:
+		s := "next"
+	   tag proctype_:
+		s := "proctype"
+	   tag itertype_:
+		s := "itertype"
+	   others:
+		exit no_idn
+	   end
+	if nm = s
+	   then	p_env$next_token(e)
+		p_env$next_token(e)
+	elseif s = e.clustr
+	   then	p_env$assume(e, "END and trailing name of module " || nm)
+	else p_env$next_token(e)
+	     tagcase p_env$peek(e, 2)		% handle nonmatching name
+		tag end_, idn, eof:
+		     p_env$next_token(e)
+		     p_env$err(e, "trailing name does not match " || nm)
+		others:
+		     p_env$assume(e, "trailing name of module " || nm)
+		end
+	end
+	end except when no_idn:
+			   p_env$next_token(e)
+			   p_env$assume(e, "trailing name of module " || nm)
+		   end
+	end p_defn_end
+
+% Flush until we find something of the form	name =
+% Stop at an END if looking for an operation.
+
+p_find_a_defn = proc (e: p_env, want_oper: bool) returns (bool)
+	flushed: bool := false
+	found: bool := false
+	while true do
+		tagcase e.peek1
+		   tag idn, is_, this_, next_, proctype_, itertype_:
+			tagcase p_env$peek(e, 2)
+			   tag equal:
+				found := true
+				break
+			   others:
+			   end
+		   tag stmtkey (key: stmtkey):
+			tagcase key
+			   tag opcode:
+				tagcase p_env$peek(e, 2)
+				   tag equal:
+					found := true
+					break
+				   others:
+				   end
+			   others:
+			   end
+		   tag end_:
+			if want_oper then break end
+		   tag eof:
+			break
+		   others:
+		   end
+		if ~flushed
+		   then	if want_oper
+			   then p_env$err(e, "looking for an operation")
+			   else p_env$err(e, "looking for a module")
+			   end
+			flushed := true
+		   end
+		line: int := e.peekline
+		while e.peekline = line do
+			p_env$next_token(e)
+			end
+		end
+	if flushed
+	   then p_env$err(e, "resuming parse at this point") end
+	return(found)
+	end p_find_a_defn

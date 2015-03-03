@@ -1,0 +1,8 @@
+#
+set flist = `cat mutlist`
+chdir ..
+foreach f ($flist)
+	set count = `grep -c Liskov $f`
+	if ($count != 0) echo $f
+end
+chdir maint

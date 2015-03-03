@@ -1,0 +1,13 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+Link_Done = proc (Env: lnk_env);
+    if (Env.Options.Init_Debug)
+       then if (~ Env.Options.Naive_Debug)
+	       then  Dump_Env(Env);
+	       end;
+     elseif (~ Env.Options.Output_to_File)
+       then Run_Inferior(Env);
+	    lnk_env$End_Use(Env);
+     else lnk_env$End_Use(Env);
+     end;
+    end Link_Done;

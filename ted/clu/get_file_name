@@ -1,0 +1,41 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+get_file_name = proc (e: env, prompt: string) returns (fname)
+		  signals (errmsg(string))
+    fn: fname := fname$parse(get_frame_name(e))
+       except when bad_format: fn := fname$create("", "", "", "") end
+    return(get_file_name1(e, prompt, fn))
+       resignal errmsg
+    end get_file_name
+
+get_file_name1 = proc (e: env, prompt: string, ofn: fname) returns (fname)
+		   signals (errmsg(string))
+    oname: string := fname$unparse(ofn)
+    s: string := get_string_arg(e, prompt, oname)
+       resignal errmsg
+    def: string := env$fetch_str(e, "default", "")
+    if def ~= oname then
+       oname := logical_name(e, def)
+       ofn := fname$parse(oname)
+	  except when bad_format: signal errmsg("Bad syntax for default!") end
+       end
+    if string$empty(s) then s := oname end
+    if string$empty(s) then signal errmsg("No file name given!") end
+    s := logical_name(e, s)
+    fn: fname := fname$parse(s)
+       except when bad_format: signal errmsg("Bad file name '" || s || "'")
+	      end
+    ddir: string := fn.dir
+    if (string$empty(ddir)  cor  (ddir[1] ~= '/'  cand  ddir[1] ~= '~'))  cand
+       ~string$empty(ofn.dir)
+       then ddir := string$append(ofn.dir, '/') || ddir end
+    dname: string := fn.name
+    if string$empty(dname) then dname := ofn.name end
+    dsuffix: string := fn.suffix
+    if string$empty(dsuffix) then dsuffix := ofn.suffix end
+    dother: string := fn.other
+    if string$empty(dother) then dother := ofn.other end
+    return(fname$create(ddir, dname, dsuffix, dother))
+       except when bad_format:
+		   signal errmsg("Bad file name '" || s || "'")
+	      end
+    end get_file_name1

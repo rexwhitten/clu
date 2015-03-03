@@ -1,0 +1,222 @@
+%	MC68000 EQUATE
+% Copyright Massachusetts Institute of Technology 1980, 1989
+%	CLU Compiler Version 3: machine definitions
+
+# extend
+
+max_int_ = 2**29 + (2**29 - 1)
+min_int_ = -max_int_ - 1
+
+_strtab         = 034           % table of single-character strings
+
+_typ_pcrel	= 0040000	% offset relative to current routine
+_typ_use	= 0100000	% index into use list
+
+_dv_hcnt	= 2		% free high + 1 (in long words mod 2**16)
+_dv_max		= 4		% 2 * (size - 1)
+_dv_low		= 8		% low bound (as CLU integer)
+_dv_rel		= 12		% ref + dv%lcnt
+_dv_lcnt	= 16		% 4 * free low + 3 (in long words)
+
+_cell           = 060000        % LH word of _tagcells
+
+% non-gc'd scratch registers
+
+_N0		= 0			% always contains integer 0!
+_N1		= 1			% uninterpreted bits
+_N2		= 2			% uninterpreted bits
+_N3		= 3			% uninterpreted bits
+_N4		= 4			% uninterpreted bits
+_N5		= 5			% uninterpreted bits
+_N6		= 6			% uninterpreted bits
+_N7		= 7			% uninterpreted bits
+
+% return/argument object
+
+_RR		= 0			% full word reference
+
+% gc'd scratch registers
+
+_R1		= 1			% full word reference
+_R2		= 2			% full word reference
+_R3		= 3			% full word reference
+_R4		= 4			% full word reference
+
+% parameter vector/parameter value/iterator environment
+
+_PP		= 5			% uninterpreted bits
+
+% environment pointer
+
+_EP		= 6			% uninterpreted bits
+
+% stack pointer
+
+_SP		= 7			% uninterpreted bits
+
+% addressing modes
+
+_datad		= 000			% data register direct
+_addrd		= 010			% address register direct
+_indir		= 020			% address register indirect
+_pincr		= 030			% indirect postincrement
+_pdecr		= 040			% indirect predecrement
+_idisp		= 050			% indirect with displacement
+_index		= 060			% indirect with index
+_short		= 070			% short absolute address
+_long		= 071			% long absolute address
+_pcdsp		= 072			% PC with displacement
+_pcidx		= 073			% PC with index
+_immed		= 074			% immediate data
+_sr		= 074			% status register
+_imuse		= -1			% immediate use
+_bigint		= -2			% large integer
+
+datad_		= 000			% data register direct
+addrd_		= 001			% address register direct
+indir_		= 002			% address register indirect
+pincr_		= 003			% indirect postincrement
+pdecr_		= 004			% indirect predecrement
+idisp_		= 005			% indirect with displacement
+index_		= 006			% indirect with index
+short_		= 007			% short absolute address
+long_		= 017			% long absolute address
+pcdsp_		= 027			% PC with displacement
+pcidx_		= 037			% PC with index
+immed_		= 047			% immediate data
+sr_		= 047			% status register
+imuse_		= -1			% immediate use
+
+_datad_N0	= 000
+_datad_N1	= 001
+_datad_N2	= 002
+_datad_N3	= 003
+_datad_N4	= 004
+_datad_N5	= 005
+_datad_N6	= 006
+_datad_N7	= 007
+
+datad_N0_	= 000
+datad_N1_	= 010
+datad_N2_	= 020
+datad_N3_	= 030
+datad_N4_	= 040
+datad_N5_	= 050
+datad_N6_	= 060
+datad_N7_	= 070
+
+_addrd_RR	= 010
+_addrd_R1	= 011
+_addrd_R2	= 012
+_addrd_R3	= 013
+_addrd_R4	= 014
+_addrd_PP	= 015
+_addrd_EP	= 016
+_addrd_SP	= 017
+
+addrd_RR_	= 001
+addrd_R1_	= 011
+addrd_R2_	= 021
+addrd_R3_	= 031
+addrd_R4_	= 041
+addrd_PP_	= 051
+addrd_EP_	= 061
+addrd_SP_	= 071
+
+_indir_RR	= 020
+_indir_R1	= 021
+_indir_R2	= 022
+_indir_R3	= 023
+_indir_R4	= 024
+_indir_PP	= 025
+_indir_EP	= 026
+_indir_SP	= 027
+
+indir_RR_	= 002
+indir_R1_	= 012
+indir_R2_	= 022
+indir_R3_	= 032
+indir_R4_	= 042
+indir_PP_	= 052
+indir_EP_	= 062
+indir_SP_	= 072
+
+_pincr_RR	= 030
+_pincr_R1	= 031
+_pincr_R2	= 032
+_pincr_R3	= 033
+_pincr_R4	= 034
+_pincr_PP	= 035
+_pincr_EP	= 036
+_pincr_SP	= 037
+
+pincr_RR_	= 003
+pincr_R1_	= 013
+pincr_R2_	= 023
+pincr_R3_	= 033
+pincr_R4_	= 043
+pincr_PP_	= 053
+pincr_EP_	= 063
+pincr_SP_	= 073
+
+_pdecr_RR	= 040
+_pdecr_R1	= 041
+_pdecr_R2	= 042
+_pdecr_R3	= 043
+_pdecr_R4	= 044
+_pdecr_PP	= 045
+_pdecr_EP	= 046
+_pdecr_SP	= 047
+
+pdecr_RR_	= 004
+pdecr_R1_	= 014
+pdecr_R2_	= 024
+pdecr_R3_	= 034
+pdecr_R4_	= 044
+pdecr_PP_	= 054
+pdecr_EP_	= 064
+pdecr_SP_	= 074
+
+_idisp_RR	= 050
+_idisp_R1	= 051
+_idisp_R2	= 052
+_idisp_R3	= 053
+_idisp_R4	= 054
+_idisp_PP	= 055
+_idisp_EP	= 056
+_idisp_SP	= 057
+
+idisp_RR_	= 005
+idisp_R1_	= 015
+idisp_R2_	= 025
+idisp_R3_	= 035
+idisp_R4_	= 045
+idisp_PP_	= 055
+idisp_EP_	= 065
+idisp_SP_	= 075
+
+_index_RR	= 060
+_index_R1	= 061
+_index_R2	= 062
+_index_R3	= 063
+_index_R4	= 064
+_index_PP	= 065
+_index_EP	= 066
+_index_SP	= 067
+
+index_RR_	= 006
+index_R1_	= 016
+index_R2_	= 026
+index_R3_	= 036
+index_R4_	= 046
+index_PP_	= 056
+index_EP_	= 066
+index_SP_	= 076
+
+xinst		= g_menv$add_xinst
+ainst		= g_menv$add_ainst
+binst		= g_menv$add_binst
+minst		= g_menv$add_minst
+udesc		= g_menv$add_udesc
+immed		= g_menv$add_immed
+pcrel		= g_menv$add_pcrel

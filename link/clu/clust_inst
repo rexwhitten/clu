@@ -1,0 +1,66 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+cluster_instantiation = cluster is
+	Create, Set_Owns_Address, Get_Owns_Address,
+	Get_Type_Desc, Similar, Print, _gcd;
+
+    rep = record[
+	      a_Inst_Type:	 type_desc,
+	      b_Owns_Address:	 address
+		 ]
+
+    Create = proc (T: type_desc, Env: lnk_env) returns (clust_inst)
+	       signals (error(string));
+
+        T := type_desc$Instantiate(T, Env);
+	   resignal Error;
+	Was_New: bool;
+	New_C_I: clust_inst;
+	New_C_Is: clust_insts;
+	C_I: rep := rep${
+			a_Inst_Type:    T,
+			b_Owns_Address: address$Make_Null()
+			 };
+
+	Clus: c_template := type_desc$Get_C_Template(T, Env);
+
+	New_C_I,
+	Was_New,
+	New_C_Is := Unique_Get[clust_inst](Clus.Instantiations,
+					   up(C_I),
+					   clust_inst$Similar);
+	Clus.Instantiations := New_C_Is;
+
+	if (Was_New cand (Clus.Own_Count > 0))
+	   then down(New_C_I).b_Owns_Address := locate$Address_Advance(
+						    Env.Locates.Owns,
+						    Clus.Own_Count);
+	   end;
+	return (New_C_I);
+	end Create;
+
+    Set_Owns_Address = proc (CI: cvt, A: address);
+	CI.b_Owns_Address := A;
+	end Set_Owns_Address;
+
+    Get_Owns_Address = proc (CI: cvt) returns (address);
+	return (CI.b_Owns_Address);
+	end Get_Owns_Address;
+
+    Get_Type_Desc = proc (CI: cvt) returns (type_desc);
+	return (CI.a_Inst_Type);
+	end Get_Type_Desc;
+
+    Similar = proc (CI1, CI2: cvt) returns (bool);
+	return ( type_desc$Similar(CI1.a_Inst_Type, CI2.a_Inst_Type) );
+	end Similar;
+
+    Print = proc (C: cvt, S: pstream);
+	rep$Print(C, S);
+	end Print;
+
+    _gcd = proc (CI: cvt, Tab: gcd_tab) returns (int);
+	return (rep$_gcd(CI, Tab));
+	end _gcd;
+
+    end cluster_instantiation;

@@ -1,0 +1,17 @@
+;; Copyright Massachusetts Institute of Technology 1984, 1989
+
+%info = 8				;; Offset in debug blk. of _rtn_info.
+%rtnhd = 047271				;; Offset to _rtn_info in debug block.
+
+_routine_name = proc (x: _obj) returns (string) signals (non_routine)
+	ifeq	cmpa	heaplo, rr	;; Has to be below the heap...
+		bge	next
+		cmpa	0377, rr	;; but >8bits worth of data.
+		ble	next
+		cmpiw	%rtnhd, (rr)	;; Routine debug block?
+	then	movea	%info(rr), rr	;; Get _rtn_info.
+		_rtn_info$get_name(rr)	;; Get name...
+		return (rr)		;; and return it.
+		end
+	signal non_routine
+	end _routine_name

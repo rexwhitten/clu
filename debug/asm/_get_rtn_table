@@ -1,0 +1,49 @@
+;; Copyright Massachusetts Institute of Technology 1984, 1989
+
+;; Return the routine tables in the nchain (namtab chain) as a sequence.
+;; The sequence is computed the first time this is called and
+;; only if nchain changes thereafter (since it is a backwards chain, nchain
+;; points to the most recently added table and will change whenever a new table
+;; is added). The sequence is stored in an own for future access.
+
+_get_rtn_table = qproc () returns (_rtn_table)
+	own	tab			;; Current table.
+	own	seqn     		;; Current sequence of tables.
+
+	movea	nchain, r1
+	ifeq	cmpa	tab, r1		;; Check if we already have made it for
+					;; the current nchain.
+	then	return	(seqn)		;; Yes.
+		end
+	moveq	4, n2			;; Counter.
+	qloop				;; Count tables.
+		addq	4, n2		;; n2 = (4 * number-of-tables) + 4
+		move	(r1), n1	;; Offset of (next table pointer*4) + 2
+		subq    2, n1		;; (Offset * 4)
+		movea	4(r1, n1), r1	;; Get next table, if any.
+                move    r1, n5		;; Have to do this to set CC based on r1
+		bne	this
+		end
+	
+	movea	heaphi, rr
+	iflt	sub	n2, freecnt    	;; Alloc mem. for the sequence	
+	then	jsr	memout
+		end
+	add	n2, heaphi
+	move	rr, seqn		;; Remember sequence.
+	movea	rr, r2
+	subq	2, n2			;; Want (SIZE*4)+2.
+	move	n2, (r2)+		;; Store header.
+	movea	nchain, r1
+	move	r1, tab			;; Remember table.
+	qloop
+		move	r1, (r2)+	;; Store table in sequence.
+		move	(r1), n1	;; (offset of next table * 4) + 2
+		subq	2, n1		;; (offset of next table * 4)
+		movea	4(r1, n1), r1	;; Get next table, if any.
+		move	r1, n5
+		bne	this
+		end
+	movea	n0, r2			;; (Don't leave invalid ref.)
+	return 	(rr)
+	end _get_rtn_table

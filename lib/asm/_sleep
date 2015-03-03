@@ -1,0 +1,67 @@
+; Copyright Massachusetts Institute of Technology 1985, 1989
+
+_sleep = qproc (millis: int)
+	wvec	buf	{4}
+	move	rr,n7
+	ifgt	asr	1,n7
+	then	iflt	cmpi	1000,n7
+		then	moveq	0,n5
+			move	n7,n6
+		else	swap	n7		; get seconds
+			moveq	0,n6
+			movew	n7,n6
+			swap	n7
+			divu	1000,n6
+			move	n6,n5
+			movew	n7,n6
+			divu	1000,n6
+			swap	n5
+			movew	n6,n5
+			swap	n6
+		end
+		mulu	1000,n6			; get microseconds
+		clr	-(sp)
+		lea	buf,r1
+		move	r1,-(sp)
+		moveq	14,n1			; SIGALRM
+		move	n1,-(sp)
+		lea	alarm,r2
+		move	r2,(r1)			; handler
+		move	n0,8(r1)		; on stack
+		clr	-(sp)
+		moveq	%sigvec,n0		; set handler
+		move	n0,-(sp)
+		trap	0
+		move	#2000,4(sp)		; SIGALRM
+		moveq	%sigblock,n0		; block it
+		move	n0,-(sp)
+		trap	0
+		move	n0,n4
+		clr	4(sp)
+		clr	(r1)			; interval
+		movem	n5/n6,8(r1)		; time
+		moveq	%setitimer,n0		; set alarm
+		move	n0,-(sp)
+		trap	0
+		bcs	done
+		move	n4,4(sp)
+		moveq	%sigpause,n0		; wait for it
+		move	n0,-(sp)
+		trap	0
+		moveq	%sigsetmask,n0		; reset mask
+		move	n0,-(sp)
+		trap	0
+		clr	4(sp)			; in case it didn't go off
+		clr	8(r1)
+		clr	12(r1)
+		moveq	%setitimer,n0		; cancel the alarm
+		move	n0,-(sp)
+		trap	0
+done:		lea	16(sp),sp		; pop stack
+		moveq	1,n0			; restore 0
+	end
+	return
+alarm:	addq	4,sp
+	move	139,(sp)			; cleanup
+	trap	0
+	end _sleep

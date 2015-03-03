@@ -1,0 +1,10 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+%% Output an address with ref bits off, if any!
+
+Output_Address = proc (A: address, Env: lnk_env)
+		   signals (not_possible);
+    AH, AL: int := address$A_to_Ints(A, Env.Locates);
+       resignal Not_Possible;
+    out_link_chan$Write_Word_Pair(Env.Output, AH, AL);
+    end Output_Address;

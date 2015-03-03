@@ -1,0 +1,11 @@
+#
+set flist = `cat recap.list2`
+chdir ..
+foreach f ($flist)
+	echo $f --------
+	set yr = `grep -i copyright $f-save | awk '{print $3}'`
+	echo $yr
+	awk '/Liskov/{print $1 " " $2 " " $3 " " $4 " " $5 " " $6 " "'$yr'", "  $8; next};{print $0}' $f >/tmp/add
+	/bin/mv -f /tmp/add $f
+	end
+chdir maint

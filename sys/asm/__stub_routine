@@ -1,0 +1,30 @@
+; Copyright Massachusetts Institute of Technology 1981, 1989
+
+__stub_routine = proc [num_args: int, rtn_name: string] ()
+	string$concat("unimplemented: ", rtn_name)
+	move	(rr),n1
+	asr	1,n1
+	move	n1,-(sp)		; number of bytes
+	move	rr,-(sp)
+	_unhandled_exception(rr)
+	_chan$_save_tty()
+	movea	(sp),rr
+	addq	4,(sp)			; buffer
+	moveq	2,n2
+	move	n2,-(sp)		; file desc
+	clr	-(sp)
+	moveq	%write,n0		; write bytes
+	move	n0,-(sp)
+	trap	0
+	move	"\n",8(sp)
+	addq	4,8(sp)			; buffer
+	moveq	1,n0
+	move	n0,12(sp)		; number of bytes
+	moveq	%write,n0
+	move	n0,-(sp)
+	trap	0
+	moveb	15,7(sp)		; SIGTERM
+	moveq	%exit,n0
+	move	n0,-(sp)
+	trap	0
+	end __stub_routine

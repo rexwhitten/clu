@@ -1,0 +1,62 @@
+%% Copyright Massachusetts Institute of Technology 1980, 1989
+
+%%% _rtn_trace_info's objects describe the current state of tracing
+%%% for a routine.
+%%% (SEP/Nov  7 1984)
+
+_rtn_trace_info = cluster is
+	create,
+	get_routine,
+	get_routine_info,
+	get_traced_to,
+	set_traced_to,
+	get_trace_ranged,
+	set_trace_ranged,
+	get_trace_range;
+
+    rep = record[
+	      Rtn:		_obj,
+	      Inf:		_rtn_info,
+	      Traced_To:	bool,
+	      Trace_Ranged:	bool,
+	      Trace_Range:	_trace_rng
+		 ];
+
+
+    Create = proc (Rtn: _obj, RInf: _rtn_info) returns (cvt);
+	return (rep${ Rtn:		Rtn,
+		      Inf:              RInf,
+		      Traced_To:        false,
+		      Trace_Ranged:     false,
+		      Trace_Range:      _trace_rng$Create(Rtn, RInf)
+		     });
+	end Create;
+
+    Get_Routine = proc (RTI: cvt) returns (_obj);
+	return (RTI.Rtn);
+	end Get_Routine;
+
+    Get_Routine_Info = proc (RTI: cvt) returns (_rtn_info);
+	return (RTI.Inf);
+	end Get_Routine_Info;
+
+    Get_Traced_To = proc (RTI: cvt) returns (bool);
+	return (RTI.Traced_To);
+	end Get_Traced_To;
+
+    Set_Traced_To = proc (RTI: cvt, F: bool);
+	RTI.Traced_To := F;
+	end Set_Traced_To;
+
+    Get_Trace_Ranged = proc (RTI: cvt) returns (bool);
+	return (RTI.Trace_Ranged);
+	end Get_Trace_Ranged;
+
+    Set_Trace_Ranged = proc (RTI: cvt, F: bool);
+	RTI.Trace_Ranged := F;
+	end Set_Trace_Ranged;
+
+    Get_Trace_Range = proc (RTI: cvt) returns (_trace_rng);
+	return (RTI.Trace_Range);
+	end Get_Trace_Range;
+    end _rtn_trace_info;

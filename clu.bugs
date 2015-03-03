@@ -1,0 +1,6 @@
+3/1/86: Distribution, SUN CLU Release 1.0
+4/18/86: Bug: /usr/clu/sys/asm/variant - variant$copy, mistakenly using
+        n2 as index into copy routine instead of n1.
+
+         
+

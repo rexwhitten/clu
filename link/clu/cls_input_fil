@@ -1,0 +1,5 @@
+%% Copyright Massachusetts Institute of Technology 1980, 1989
+
+Close_Input_File = proc (Env: lnk_env);
+    in_chan$Close(Env.Input);
+    end Close_Input_File;

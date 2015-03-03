@@ -1,0 +1,1298 @@
+%       GOPT1B  CLU
+% Copyright Massachusetts Institute of Technology 1985, 1989
+%       CLU Compiler Version 3: procedure invocation optimizations
+
+# extend
+
+g_real_op = proc (e: g_env, op: str, args: exprlist, dst: locate)
+                                                            returns (bool)
+    return(false)
+    end g_real_op
+
+g_rec_op = proc (e: g_env, op: str, specs: fieldspeclist, args: exprlist,
+                    dst: locate, mut: bool) returns (bool)
+    me: g_menv := e.menv
+    regs: reglist := me.state
+
+    if str$indexs("get_", op) = 1
+       then % generate  areg := src
+            %           dst := off(areg)
+            areg: int := g_rexpr (e, exprlist$bottom(args), want_areg)
+            g_move_src (e, dst, areg + (_idisp-_addrd), 
+	                4 * g_sel(str$rest(op, 5), specs))
+            return (true)
+
+    elseif mut  cand  str$indexs("set_", op) = 1
+       then % generate  areg := src
+            %           off(areg) := ysrc
+            areg: int, y: expr, ysrc: locate := g_rspair(e, args, want_areg)
+	    dst := locate$make_disp
+	                (regdisp${reg: areg//_addrd, 
+			          disp: 4 * g_sel(str$rest(op, 5), specs)})
+	    g_move_loc (e, dst, y, ysrc)
+            return (true)
+            
+    elseif mut  cand  op = "equal"
+       then return(g_comp_op(e, op, args, dst))
+    else return(false) end
+    end g_rec_op
+
+g_var_op = proc (e: g_env, op: str, specs: fieldspeclist, args: exprlist,
+                    dst: locate, mut: bool) returns (bool)
+    me: g_menv := e.menv
+    regs: reglist := me.state
+
+    if mut cand str$indexs("is_", op) = 1   % variants
+       then g_bool_is_test (e, str$rest(op, 4), specs, args, false, dst)
+	    return (true)
+
+    elseif str$indexs ("is_", op) = 1       % oneofs
+       then g_bool_c_is_test (e, str$rest(op, 4), specs, args, false, dst)
+            return (true)
+
+    elseif mut cand str$indexs("value_", op) = 1    % variants
+       then % generate  areg := src
+	    %           cmpib   k, 3(areg)            (where k = variant tag)
+	    %           bne     wrong_tag
+	    %           dst := 4(areg)
+            areg: int := g_rexpr (e, exprlist$bottom(args), want_areg)
+	    xinst (me, CMPIB, areg + (_idisp-_addrd))
+	    immed (me, g_sel(str$rest(op, 7), specs))
+	    immed (me, 3)
+            g_wrong_tag (e, BNE)
+	    g_move_src (e, dst, areg + (_idisp-_addrd), 4)
+	    return (true)
+
+    elseif str$indexs("value_", op) = 1     % oneofs
+       then % generate  areg := src
+	    %           move    areg, -(sp)
+	    %           moveq   0, n7
+	    %           moveb   (sp), n7
+	    %           bne     comp
+	    %           addq    4, sp
+	    %           movem   (areg), n7/areg
+	    %           cmpib   k, n7
+	    %           bne     wrong_tag
+	    %           bra     done
+	    %     comp: clrb    (sp)
+	    %           movea   (sp)+, areg
+	    %           cmpib   k, n7
+	    %           bne     wrong_tag
+	    %     done: dst := areg
+	    % (if src = tos, take advantage of it; if oneof is known to be
+            %   compact then code to check for and handle non-compact oneofs
+	    %   can be eliminated.)
+	    x: expr, xsrc: locate := g_sexpr(e,exprlist$bottom(args),want_areg)
+	    areg: int
+	    tagn: int := g_sel(str$rest(op, 7), specs)
+	    is_compact: bool := g_is_compact (specs, false)
+            if locate$is_tos(xsrc)
+	       then areg := g_select_reg_dst (regs, dst, -1, -1, want_areg)
+	            ainst (me, MOVEA, areg//_addrd, _indir_SP)
+	       else areg := g_regmove_dst (e, x, xsrc, dst, -1, -1, want_areg)
+	            minst (me, MOVE, pdecr_SP_, areg)
+               end
+	    g_unslave_reg (regs, areg)
+            ainst (me, MOVEQ, _datad_N7, 0)
+	    ainst (me, MOVEB, _datad_N7, _indir_SP)
+            done: int
+            if ~is_compact
+    	       then compact: int := binst (me, BNE)
+                    ainst (me, ADDQ, 4, _addrd_SP)
+                    xinst (me, MOVEM, areg + (_indir-_addrd))
+	            immed (me, i_set1(i_set1(0, _datad_N7, true), areg, true))
+	            xinst (me, CMPIB, _datad_N7)
+	            immed (me, tagn)
+                    g_wrong_tag (e, BNE)
+	            done := binst (me, BRA)
+	            g_menv$goto (me, compact)
+	       end
+	    xinst (me, CLRB, _indir_SP)
+	    ainst (me, MOVEA, areg//_addrd, _pincr_SP)
+	    xinst (me, CMPIB, _datad_N7)
+	    immed (me, tagn)
+	    g_wrong_tag (e, BNE)
+	    if ~is_compact
+	       then g_menv$goto (me, done)
+	       end
+	    g_move_src (e, dst, areg, 0)
+	    return (true)
+	    
+    elseif mut  cand  str$indexs("change_", op) = 1
+       then % generate  areg := src1 (variant address)
+	    %           move    h, (areg)           (h = new header)
+	    %           move    src2, 4(areg)
+	    areg: int, y: expr, ysrc: locate := g_rspair (e, args, want_areg)
+            minst (me, MOVE, (areg - _addrd) * 010 + indir_, _immed)
+	    immed (me, 060000)
+	    immed (me, g_sel(str$rest(op, 8), specs))
+	    g_move_loc (e, locate$make_disp(regdisp${reg:areg//_addrd,disp:4}),
+                           y, ysrc)
+	    return (true)
+
+    elseif mut  cand  op = "v_gets_v" 
+       then % generate  a1reg := src1
+	    %           a2reg := src2
+	    %           move    (a2reg), (a1reg)
+	    %           movem   4(a2reg), 4(a1reg)
+            a1reg, a2reg: int := g_rrpair (e, args, want_areg, want_areg)
+            na1: int := a1reg // _addrd
+	    na2: int := a2reg // _addrd
+	    
+            minst (me, MOVE, na1 * 010 + indir_, na2 + _indir)
+	    minst (me, MOVE, na1 * 010 + idisp_, na2 + _idisp)
+	    immed (me, 4)
+	    immed (me, 4)
+	    return (true)
+
+    elseif mut  cand  op = "equal"
+            cor
+           ~mut cand op = "equal" cand g_simple_vals(specs, true)
+	        cand g_is_compact (specs, false)
+            cor
+           ~mut cand op = "similar" cand g_simple_vals(specs, false)
+	        cand g_is_compact (specs, false)
+       then return(g_comp_op(e, op, args, dst))
+
+    elseif mut  cand  op = "similar1"  cand  g_simple_vals(specs, true)
+       then g_bool_1of_comp(e, args, false, dst)
+            return(true)
+    end
+    return(false)
+    end g_var_op
+
+g_array_op = proc (e: g_env, op: str, args: exprlist, dst: locate)
+                                                            returns (bool)
+    me: g_menv := e.menv
+    regs: reglist := me.state
+
+    if op = "fetch"
+       then % call g_array_fetch() to setup address and index registers, then
+            %           move    disp(areg, dreg), dst
+	    areg, dreg, disp: int := g_array_fetch (e, args)
+	    g_move_src (e, dst, areg + (_index-_addrd), 
+	                g_get_index_word(me, dreg, _long, disp))
+	    return (true)
+
+    elseif op = "store"
+       then % generate  areg := src1
+	    %           dreg := src2
+	    %           sub     dv%low(areg), dreg
+	    %           blt     bounds
+	    %           cmp     dv%max(areg), dreg
+	    %           bgt     bounds
+	    %           add     dreg, dreg
+	    %           movea   dv%rel(areg), areg
+	    %           move    src3, 1(areg, dreg)
+            areg, dreg: int, z: expr, zsrc: locate := g_triple(e, args)
+	    aregn: int := areg//_addrd
+            ainst (me, SUB, dreg, aregn + _idisp)
+	    immed (me, _dv_low)
+	    g_bounds (e, BLT)
+	    ainst (me, CMP, dreg, aregn + _idisp)
+	    immed (me, _dv_max)
+	    g_bounds (e, BGT)
+	    ainst (me, ADD, dreg, dreg)
+            ainst (me, MOVEA, aregn, aregn + _idisp)
+	    immed (me, _dv_rel)
+            g_unslave_reg (regs, areg)
+            g_unslave_reg (regs, dreg)
+	    iword: int := g_get_index_word (me, dreg, _long, 1)
+            g_move_loc (e, locate$make_index(regdisp${reg:aregn, disp:iword}),
+	                    z, zsrc)
+	    return (true)
+
+    elseif op = "size"
+       then % generate  areg := src
+            areg: int := g_rexpr_dst (e, exprlist$bottom(args), dst, want_areg)
+            tagcase dst
+               tag  dreg (n: int):
+                    % generate  move    dv%max(areg), n
+		    %           addq    3, n
+                    ainst (me, MOVE, n, areg + (_idisp-_addrd))
+		    immed (me, _dv_max)
+                    ainst (me, ADDQ, 3, n)
+                    g_unslave_reg (regs, n)
+	       others:
+	            % generate  movea    dv%max(areg), areg
+		    %           addq    3, areg
+		    %           dst := areg
+		    ainst (me, MOVEA, areg//_addrd, areg + (_idisp-_addrd))
+		    immed (me, _dv_max)
+                    ainst (me, ADDQ, 3, areg)
+                    g_unslave_reg (regs, areg)
+		    g_move_src (e, dst, areg, 0)
+               end
+            return (true)
+
+    elseif op = "empty"
+       then g_bool_array_empty(e, args, false, dst)
+            return(true)
+
+    elseif op = "low"
+       then % generate  areg := src
+	    %           dst := dv%low(areg)
+	    areg: int := g_rexpr (e, exprlist$bottom(args), want_areg)
+	    g_move_src (e, dst, areg + (_idisp-_addrd), _dv_low)
+            return (true)
+
+    elseif op = "high"
+       then % generate  areg := src
+	    %           move    dv%low(areg), dreg
+	    %           add     dv%max(areg), dreg
+	    %           dst := dreg
+	    areg: int := g_rexpr (e, exprlist$bottom(args), want_areg)
+	    dreg: int := g_select_reg_dst (regs, dst, areg, -1, want_dreg)
+	    ainst (me, MOVE, dreg, areg + (_idisp-_addrd))
+	    immed (me, _dv_low)
+	    ainst (me, ADD, dreg, areg + (_idisp-_addrd))
+	    immed (me, _dv_max)
+            g_unslave_reg (regs, dreg)
+            g_move_src (e, dst, dreg, 0)
+	    return (true)
+       
+    elseif op = "bottom"
+       then % generate  areg := src
+	    %           tstb    dv%max(areg)
+	    %           blt     bounds
+	    %           movea   dv%rel(areg), areg
+	    %           dst := 1(areg)
+            areg: int := g_rexpr (e, exprlist$bottom(args), want_areg)
+	    xinst (me, TSTB, areg + (_idisp-_addrd))
+	    immed (me, _dv_max)
+	    g_bounds (e, BLT)
+            ainst (me, MOVEA, areg//_addrd, areg + (_idisp-_addrd))
+	    immed (me, _dv_rel)
+            g_unslave_reg (regs, areg)
+	    g_move_src (e, dst, areg + (_idisp-_addrd), 1)
+            return (true)
+
+    elseif op = "top"
+       then % generate  areg := src
+	    %           move    dv%max(areg), n7
+	    %           blt     bounds
+	    %           add     n7, n7
+	    %           movea   dv%rel(areg), areg
+	    %           dst := 1(areg, n7)
+	    areg: int := g_rexpr (e, exprlist$bottom(args), want_areg)
+	    ainst (me, MOVE, _datad_N7, areg  + (_idisp-_addrd))
+	    immed (me, _dv_max)
+	    g_bounds (e, BLT)
+	    ainst (me, ADD, _datad_N7, _datad_n7)
+	    ainst (me, MOVEA, areg//_addrd, areg + (_idisp-_addrd))
+	    immed (me, _dv_rel)
+            g_unslave_reg (regs, areg)
+	    g_move_src (e, dst, areg + (_index-_addrd),
+	                g_get_index_word (me, _datad_N7, _long, 1))
+	    return (true)	    
+       
+    elseif op = "equal"
+       then return(g_comp_op(e, op, args, dst))
+
+    else return(false) end
+    end g_array_op
+
+%%% Set up address and index registers and do bounds checking for an
+%%% array$fetch operation. Return the registers and the displacement for the
+%%% fetch instruction.
+g_array_fetch = proc (e: g_env, args: exprlist) returns (int, int, int)
+    me: g_menv := e.menv
+    regs: reglist := me.state
+
+    % generate  areg := src1
+    %           dreg := src2
+    %           sub     dv%low(areg), dreg
+    %           blt     bounds
+    %           cmp     dv%max(areg), dreg
+    %           bgt     bounds
+    %           add     dreg, dreg
+    %           movea   dv%rel(areg), areg
+    areg, dreg: int := g_rrpair (e, args, want_areg, want_dreg)
+    aregn: int := areg//_addrd
+    ainst (me, SUB, dreg, aregn + _idisp)
+    immed (me, _dv_low)
+    g_bounds (e, BLT)
+    ainst (me, CMP, dreg, aregn + _idisp)
+    immed (me, _dv_max)
+    g_bounds (e, BGT)
+    ainst (me, ADD, dreg, dreg)
+    ainst (me, MOVEA, aregn, aregn + _idisp)
+    immed (me, _dv_rel)
+    g_unslave_reg (regs, areg)
+    g_unslave_reg (regs, dreg)
+    return (areg, dreg, 1)
+end g_array_fetch    
+    
+g_seq_op = proc (e: g_env, cop: clusterop, args: exprlist, dst: locate,
+                                    mut: bool) returns (bool)
+    me: g_menv := e.menv
+    regs: reglist := me.state
+
+    op: str := cop.name
+    if op = "fetch"
+       then % call g_seq_fetch() to setup address and index registers, then
+	    %           dst := disp(areg, dreg)
+            areg, dreg, disp: int := g_seq_fetch (e, args)
+	    g_move_src (e, dst, areg + (_index-_addrd),
+	                g_get_index_word (me, dreg, _long, disp))
+            return (true)
+
+    elseif op = "store"
+       then % generate  areg := src1
+            %           dreg := src2
+	    %           cmp     n0, dreg
+	    %           ble     bounds
+	    %           add     dreg, dreg
+	    %           cmp     (areg), dreg
+	    %           bhi     bounds
+	    %           move    src3, -2(areg, dreg)
+            areg, dreg: int, z: expr, zsrc: locate := g_triple (e, args)
+	    g_unslave_reg (regs, dreg)
+            ainst (me, CMP, dreg, _datad_N0)
+	    g_bounds (e, BLE)
+	    ainst (me, ADD, dreg, dreg)
+	    ainst (me, CMP, dreg, areg + (_indir-_addrd))
+            g_bounds (e, BHI)
+	    dst := locate$make_index 
+	                (regdisp${reg: areg//_addrd,
+	                          disp: g_get_index_word(me, dreg, _long, -2)})
+	    g_move_loc  (e, dst, z, zsrc)		     
+            return (true)
+
+    elseif op = "size"
+       then % generate  areg := src
+	    %           move    (areg), dreg
+	    %           asr     1, dreg
+	    %           dst := dreg
+            areg: int := g_rexpr (e, exprlist$bottom(args), want_areg)
+            dreg: int := g_select_reg_dst (regs, dst, areg, -1, want_dreg)
+	    ainst (me, MOVE, dreg, areg + (_indir-_addrd))
+	    ainst (me, ASR, 1, dreg)
+	    g_unslave_reg (regs, dreg)
+            g_move_src (e, dst, dreg, 0)
+	    return (true)
+
+    elseif ~mut  cand  op = "bottom"
+       then % generate  areg := src
+	    %           moveq   2, n7
+	    %           cmp     (areg), n7
+	    %           beq     bounds
+	    %           dst := 4(areg)
+	    areg: int := g_rexpr (e, exprlist$bottom(args), want_areg)
+            ainst (me, MOVEQ, _datad_N7, 2)
+	    ainst (me, CMP, _datad_N7, areg + (_indir-_addrd))
+            g_bounds (e, BEQ)
+	    g_move_src (e, dst, areg + (_idisp-_addrd), 4)
+	    return (true)
+
+    elseif ~mut  cand  op = "top"
+       then % generate  areg := src
+	    %           move    (areg), n7
+	    %           subq    2, n7
+	    %           beq     bounds
+	    %           dst := (areg, n7)
+	    areg: int := g_rexpr (e, exprlist$bottom(args), want_areg)
+	    ainst (me, MOVE, _datad_N7, areg + (_indir-_addrd))
+	    ainst (me, SUBQ, 2, _datad_N7)
+	    g_bounds (e, BEQ)
+	    g_move_src (e, dst, areg + (_index-_addrd),
+	                g_get_index_word (me, _datad_N7, _long, 0))
+            return (true)
+
+    elseif ~mut  cand  op = "new"
+       then cons: arraycons := arraycons${type_: cop.type_,
+                                          low:   mexpr$make_none(nil),
+                                          elts:  exprlist$[]}
+            g_const_expr(e, expr$create(exprabs$make_a_cons(cons), cop.type_),
+                         dst)
+            return(true)
+
+    elseif ~mut  cand  op = "empty"
+       then g_bool_seq_empty(e, args, false, dst)
+            return(true)
+
+    elseif mut  cand  op ~= "copy"
+       then return(g_comp_op(e, op, args, dst))
+
+    else return(false) end
+    end g_seq_op
+
+%%% Generate code to setup address and index registers and bounds check for a
+%%% sequence$fetch operation. Returns registers and displacement for fetch
+%%% instruction.
+g_seq_fetch = proc (e: g_env, args: exprlist) returns (int, int, int)
+    me: g_menv := e.menv
+    regs: reglist := me.state
+
+    % generate  areg := src1
+    %           dreg := src2
+    %           cmp     n0, dreg
+    %           ble     bounds
+    %           add     dreg, dreg
+    %           cmp     (areg), dreg
+    %           bhi     bounds
+    areg, dreg: int := g_rrpair (e, args, want_areg, want_dreg)
+    ainst (me, CMP, dreg, _datad_N0)
+    g_bounds (e, BLE)
+    ainst (me, ADD, dreg, dreg)
+    ainst (me, CMP, dreg, areg + (_indir-_addrd))
+    g_bounds (e, BHI)
+    g_unslave_reg (regs, dreg)
+    return (areg, dreg, -2)
+end g_seq_fetch
+
+g_adv_op = proc (e: g_env, op: str, args: exprlist, dst: locate) returns (bool)
+    me: g_menv := e.menv
+    regs: reglist := me.state
+
+    if op = "get_low"
+       then % generate  areg := src
+	    %           dst := dv%low(areg)
+            areg: int := g_rexpr (e, exprlist$bottom(args), want_areg)
+            g_move_src (e, dst, areg + (_idisp-_addrd), _dv_low)
+	    return (true)
+
+    elseif op = "get_size"
+       then % generate  areg := src
+            areg: int := g_rexpr_dst (e, exprlist$bottom(args), dst, want_areg)
+	    tagcase dst
+               tag  dreg (n: int):
+                    % generate  move    dv%max(areg), n
+		    %           addq    3, n
+	            ainst (me, MOVE, n, areg + (_idisp-_addrd))
+		    immed (me, _dv_max)
+		    ainst (me, ADDQ, 3, n)
+		    g_unslave_reg (regs, n)
+	        others:
+                    % generate  movea   dv%max(areg), areg
+		    %           addq    3, areg
+		    %           dst := areg
+                    ainst (me, MOVEA, areg//_addrd, areg + (_idisp-_addrd))
+		    immed (me, _dv_max)
+		    ainst (me, ADDQ, 3, areg)
+		    g_unslave_reg (regs, areg)
+		    g_move_src (e, dst, areg, 0)
+		 end
+            return (true)
+
+    elseif op = "get_start"
+       then % generate  areg := src
+	    %           move    dv%lcnt(areg), dreg
+	    %           addq    3, dreg
+	    %           asr     1, dreg
+	    %           dst := dreg
+            areg: int := g_rexpr (e, exprlist$bottom(args), want_areg)
+            dreg: int := g_select_reg_dst (regs, dst, areg, -1, want_dreg)
+	    ainst (me, MOVE, dreg, areg + (_idisp-_addrd))
+	    immed (me, _dv_lcnt)
+            ainst (me, ADDQ, 3, dreg)
+	    ainst (me, ASR, 1, dreg)
+	    g_unslave_reg (regs, dreg)
+	    g_move_src (e, dst, dreg, 0)
+	    return (true)
+
+    elseif op = "equal"
+       then return(g_comp_op(e, op, args, dst))
+
+    else return(false) end
+    end g_adv_op
+
+g_comp_op = proc (e: g_env, op: str, args: exprlist, dst: locate)
+                                                            returns (bool)
+    if op = "copy"
+       then g_expr(e, exprlist$bottom(args), dst)
+            return(true)
+    elseif op = "equal"  cor  op = "similar"  cor
+           op = "lt"  cor  op = "le"  cor  op = "ge"  cor  op = "gt"
+       then g_bool_test_comp(e, op, args, false, dst, false)
+            return(true)
+    else return(false) end
+    end g_comp_op
+
+%%% Construct a boolean. Given gotos for the "true" case, it generates:
+%%% (the gotos are fixed up to be 'true:')
+%%%         clear  dst
+%%%         bra    done
+%%% true:   dst := TRUE
+%%% done:
+g_bcons = proc (e: g_env, gotos: qi, dst: locate)
+    me: g_menv := e.menv
+    regs: reglist := me.state
+    opp: locate := regs[_PP]
+    g_clr_dest(e, dst)
+    loc: int := binst(me, BRA)
+    for xloc: int in qi$elements(gotos) do
+            g_menv$goto(me, xloc)
+            end
+    regs[_PP] := opp
+    g_move_src(e, dst, _immed, 0377)
+    g_menv$goto(me, loc)
+    g_store_state(regs, dst)
+    end g_bcons
+
+g_force_op = proc (e: g_env, t: typespec, args: exprlist, dst: locate)
+    me: g_menv := e.menv
+    regs: reglist := me.state
+    te: g_tenv := e.tenv
+    loc, reg, pflag, disp, xea: int
+    val: mref
+    tagcase t.abs
+        tag any_:
+	    % forcing something to have type _any is a no-op.
+	    g_expr(e, exprlist$bottom(args), dst)
+	    return
+	tag idn:
+	    % type to force to must be a parameter. Have to check if
+	    % it is ANY.
+	    reg := g_rexpr(e, exprlist$bottom(args), want_areg)
+
+            % generate  cmpi     any_type, idn_type
+	    x: expr := expr$create(exprabs$make_type_(t), te.type_type)
+	    val, pflag := g_tenv$store_const(te, x)
+            g_pp_set (me, -1, locate$make_a(nil))
+	    disp := g_tenv$add_puse(te, _use_const, val)
+            if disp = 0
+	       then xinst (me, CMPI, _indir_PP)
+	       else xinst (me, CMPI, _idisp_PP)
+	       end
+	    x := expr$create(exprabs$make_type_(te.any_type),
+		                   te.type_type)
+	    val, pflag := g_tenv$store_const(te, x)
+	    udesc(me, g_tenv$add_use(te, _use_const, val))
+	    if disp ~= 0
+	       then immed (me, disp * 4)
+	       end
+
+            loc := binst(me, BEQ)
+        others:
+	    reg := g_rexpr(e, exprlist$bottom(args), want_areg)
+	    x: expr := expr$create(exprabs$make_type_(t), te.type_type)
+	    val, pflag := g_tenv$store_const(te, x)
+	    if pflag ~= _plain
+	       then g_pp_set (me, -1, locate$make_a(nil))
+	            disp := g_tenv$add_puse(te, _use_const, val)
+	       end
+	    loc := 0
+        end
+
+    if pflag ~= _plain
+       then ainst (me, MOVEW, _N7, reg + (_idisp-_addrd))
+            immed (me, 2)
+            if disp = 0
+	       then ainst (me, CMPW, _N7, _indir_PP)
+	       else ainst (me, CMPW, _N7, _idisp_PP)
+	            immed (me, disp * 4)
+	       end
+       else ainst (me, MOVEQ, _N7, 0)
+            ainst (me, MOVEW, _N7, reg + (_idisp-_addrd))
+	    immed (me, 2)
+	    xinst(me, CMPI, _N7)
+	    udesc(me, g_tenv$add_use(te, _use_const, val))
+       end
+    g_wrong_type(e, BNE)
+    if loc > 0
+       then g_menv$goto(me, loc)
+       end
+    g_move_src (e, dst, reg + (_idisp-_addrd), 4)
+end g_force_op
+
+g_typeof_op = proc (e: g_env, x: expr, dst: locate)
+    signal failure ("g_typeof_op not yet implemented")
+    end g_typeof_op
+
+g_store_state = proc (regs: reglist, dst: locate)
+    tagcase dst
+       tag areg (reg: int):
+            regs[_addrd + reg] := locate$make_a(nil)
+       tag dreg (reg: int):
+            regs[reg] := locate$make_a(nil)
+       others:
+            for i: int in int$from_to_by(_addrd_R3, _datad_N1, -1) do
+                    if regs[i] = dst
+                       then regs[i] := locate$make_a(nil) end
+                    end
+       end
+    end g_store_state
+
+%%% Do the ref comparison operation and generate the boolean into dst 
+%%% (complemented if not = true). If use_byte is true, byte comparisons
+%%% will be used when possible.
+g_bool_test_comp = proc (e: g_env, op: str, args: exprlist, not: bool, 
+                         dst: locate, use_byte: bool)
+    etop = exprlist$top
+    ebot = exprlist$bottom
+    notn = 0400
+    flip = 3 * 0400
+
+    me: g_menv := e.menv
+    regs: reglist := me.state
+    code: int
+
+    % codes for not = false
+    if op = "equal" cor op = "similar"
+       then code := SEQ
+    elseif op = "lt"
+       then code := SLT
+    elseif op = "le"
+       then code := SLE
+    elseif op = "gt"
+       then code := SGT
+    else    code := SGE
+    end
+
+    if ~g_is_literal(etop(args)) cand g_is_literal(ebot(args))
+       then args := exprlist$[etop(args), ebot(args)]
+            if code ~= SEQ then code := i_xor (code, flip) end
+       end
+    if not then code := i_xor (code, notn) end
+
+    x: expr, xsrc: locate, y: expr, ysrc: locate := g_sspair(e,args,want_any)
+
+    % generate dreg := 0
+    dreg: int := g_select_reg_dst (regs, dst, g_get_reg(xsrc), g_get_reg(ysrc),
+                                   want_dreg)
+    ainst (me, MOVEQ, dreg, 0)
+
+    if locate$is_a (ysrc) cand ~locate$is_areg(xsrc) cand ~locate$is_a(xsrc)
+       then tagcase y.abs
+                tag int_ (i: int):
+		    switch: bool := false
+   		    xea, xstyle, xdisp: int := g_sea (e, x, xsrc)
+		    % can extra-optimize some comparisons against 0 and -1.
+                    if i = 0 cand (code = SLT cor code = SGE)
+		       cor  i = -1 cand (code = SGT cor code = SLE)
+		       then % generate  tst x
+		            xinst (me, TST, xea)
+		            switch := true
+		    elseif i = 0
+		       then % generate  cmp x, n0
+		            ainst (me, CMP, _N0, xea)
+		            switch := true
+	            else    % generate  cmpi y, x
+		            ystyle: int := _immed
+			    i := i * 2 + 1
+			        except when overflow: ystyle := _bigint end
+		            xinst (me, CMPI, xea)
+			    g_disp (me, ystyle, i)
+	            end
+		    g_disp (me, xstyle, xdisp)
+		    if switch
+		       then if i = 0 cand code = SGT cor i = -1 cand code = SLE
+		               then code := SLT
+                            elseif i = 0 cand code = SGE
+			       then code := SGT
+			    elseif i = 0 cand code = SLE
+			       then code := SGE
+                            end
+                       end
+
+                tag bool_ (b: bool):
+                    xea, xstyle, xdisp: int := g_sea (e, x, xsrc)
+                    if use_byte cand g_byte_ok (xstyle)
+		       then % can use byte instruction: tstb x
+		            xea, xstyle, xdisp := g_byte_ea(xea, xstyle, xdisp)
+		            xinst (me, TSTB, xea)
+			    g_disp (me, xstyle, xdisp)
+                       else % can't use byte instruction. use tst x
+		            xinst (me, TST, xea)
+			    g_disp (me, xstyle, xdisp)
+                       end
+                    % if comparing against FALSE, complement comparison.
+                    if ~b
+		       then code := i_xor (code, notn)
+		       end
+
+		tag char_ (c: char):
+		    xea, xstyle, xdisp: int := g_sea (e, x, xsrc)
+		    if c = '\000'
+                       then if use_byte cand code = SGE
+		               then % char >= 0 is always true.
+			            code := ST
+				    if locate$is_tos (xsrc)
+				       then xinst (me, TST, _pincr_SP)  end
+			    elseif use_byte cand code = SLT
+			       then % char < 0 is never true.
+			            code := SF
+				    if locate$is_tos (xsrc)
+				       then xinst (me, TST, _pincr_SP)  end
+			    elseif use_byte cand g_byte_ok (xstyle)
+                               then % can use byte test instruction.
+			            % generate  tstb x
+				    xea, xstyle, xdisp := 
+				                g_byte_ea(xea, xstyle, xdisp)
+				    xinst (me, TSTB, xea)
+				    g_disp (me,xstyle,xdisp)
+			            if code = SLE
+				       then code := SEQ
+                                    elseif code = SGT
+				       then code := SHI     % 'unsigned'
+                                    end
+                            else    % can't use byte instruction
+				    % generate  tst x
+			            xinst (me, TST, xea)
+				    g_disp (me, xstyle, xdisp)
+                            end
+		    elseif use_byte cand g_byte_ok (xstyle)
+		       then % use byte comparison instruction.
+			    % If the comparison is LT or GE then we'll do the
+			    % flip comparison and change code accordingly
+			    % because there aren't any 'unsigned' versions of
+			    % LT and GE.
+                            xea, xstyle, xdisp := g_byte_ea(xea, xstyle, xdisp)
+
+                            if code = SLT cor code = SGE
+		               then % do flip comparison:
+				    % generate      moveq y, n7
+				    %               cmpb  x, n7
+			            ainst (me, MOVEQ, _N7, char$c2i(c))
+                                    ainst (me, CMPB, _N7, xea)
+				    g_disp (me, xstyle, xdisp)
+                                    % change to opposite, unsigned code.
+				    if code = SLT
+				       then code := SHI
+				       else code := SLS
+				       end
+                               else % do straight comparison:
+				    % generate      cmpib y, x
+                                    xinst (me, CMPIB, xea)
+			            immed (me, char$c2i(c))
+    				    g_disp (me, xstyle, xdisp)
+                                    % change to unsigned code.
+                                    if code = SLE 
+				       then code := SLS
+				    elseif code = SGT 
+				       then code := SHI
+				    end
+			       end
+                    else    % must do long word comparison:
+			    % generate  cmpi y, x
+		            xinst (me, CMPI, xea)
+		            g_disp (me, _immed, char$c2i(c))
+			    g_disp (me, xstyle, xdisp)
+                    end
+
+		tag null_:
+                    % generate  tst x
+                    xea, xstyle, xdisp: int := g_sea (e, x, xsrc)
+		    xinst (me, TST, xea)
+		    g_disp (me, xstyle, xdisp)
+
+		others:
+                    % generate  xreg := src1
+	            %           cmp     ysrc, xreg
+                    xreg: int := g_regmove (e, x, xsrc, dreg, g_get_reg(ysrc),
+		                            want_dreg)
+                    yea, ystyle, ydisp: int := g_sea (e, y, ysrc)
+                    ainst (me, CMP, xreg, yea)
+        	    g_disp (me, ystyle, ydisp)
+
+		end
+    elseif locate$is_a (xsrc) cor locate$is_areg(ysrc)
+       then % generate  cmpa    y, x
+            if locate$is_areg(ysrc)
+	       then x, y := y, x
+	            xsrc, ysrc := ysrc, xsrc
+		    if code ~= SEQ cand code ~= SNE 
+		       then code := i_xor (code, flip)
+		       end
+               end
+            yea, ystyle, ydisp: int := g_sea (e, y, ysrc)
+            ainst (me, CMPA, locate$value_areg(xsrc), yea)
+	    g_disp (me, ystyle, ydisp)
+    else    % generate  xreg := src1
+	    %           cmp     ysrc, xreg
+            xreg: int
+	    if locate$is_dreg(ysrc)
+	       then x, y := y, x
+	            xsrc, ysrc := ysrc, xsrc
+                    if code ~= SEQ cand code ~= SNE
+		       then code := i_xor (code, flip)
+		       end
+                    xreg := g_get_reg (xsrc)
+	       else xreg := g_regmove(e,x,xsrc,dreg,g_get_reg(ysrc),want_dreg)
+               end
+            yea, ystyle, ydisp: int := g_sea (e, y, ysrc)
+            ainst (me, CMP, xreg, yea)
+	    g_disp (me, ystyle, ydisp)
+    end
+
+    % generate     Scc dreg     (if code ~= SF)
+    %              dst := dreg
+    if code ~= SF
+       then xinst (me, code, dreg)
+       end
+    g_unslave_reg (regs, dreg)
+    g_move_src (e, dst, dreg, 0)
+end g_bool_test_comp
+
+%%% Optimize invocations of some boolean-returning procedures. Generate the
+%%% resulting boolean into dst (complemented if not = true).
+%%% Returns _simple if the boolean was generated, _medium or _hard otherwise
+%%% (depending on how "hard" the expression is).
+g_bool_invoke = proc (e: g_env, dst: locate, inv: invoke, not: bool)
+                                                                returns (int)
+    cop: clusterop := exprabs$value_op (inv.apply.abs)
+        except when wrong_tag: return (_hard)  end
+    lev: int := _hard
+    t: typespec := cop.type_
+    tagcase cop.type_.abs
+        tag cluster_ (clut: clutype):
+	    n: name := clut.gen.unique
+            if n = "int"
+	       then g_bool_test_comp (e, cop.name, inv.args, not, dst, false)
+	            lev := _simple
+            elseif n = "char"
+	       then g_bool_char_comp (e, cop.name, inv.args, not, dst)
+	            lev := _simple
+            elseif n = "real"
+	       then lev := _hard
+                    % g_bool_real_comp (e, cop.name, inv.args, not, dst)
+	            % lev := _simple
+            elseif n = "array"
+	       then op: str := cop.name
+	            if op = "equal"
+		       then g_bool_test_comp (e, op, inv.args, not, dst, false)
+		            lev := _simple
+                    elseif op = "empty"
+                       then g_bool_array_empty (e, inv.args, not, dst)
+   		            lev := _simple
+                    elseif op = "fetch" cor op = "bottom" cor op = "top"
+		       then lev := _medium
+		    end
+            elseif n = "string"
+	       then op: str := cop.name
+	            if op = "empty"
+		       then g_bool_str_empty (e, inv.args, not, dst)
+		            lev := _simple
+                       end
+            elseif n = "sequence"
+	       then op: str := cop.name
+	            if op = "empty"
+		       then g_bool_seq_empty (e, inv.args, not, dst)
+		            lev := _simple
+                    elseif op = "fetch" cor op = "bottom" cor op = "top"
+		       then lev := _medium
+                    end
+            elseif n = "bool" cor n = "_bytevec" cor n = "_vec" cor n = "_adv"
+	           cor n = "_obj"
+               then op: str := cop.name
+	            if op = "equal" cor op = "similar"
+                       then g_bool_test_comp (e, op, inv.args, not, dst,
+		                              n = "bool")
+		            lev := _simple
+                    elseif op = "fetch" cand n = "_vec"
+		       then lev := _medium
+		    end
+            end
+        tag type_:
+	    g_bool_test_comp (e, cop.name, inv.args, not, dst, false)
+	    lev := _simple
+        tag apply (apt: appletype):
+	    n: name := apt.gen.unique
+	    if n = "proctype" cor n = "itertype"
+	       then g_bool_test_comp (e, cop.name, inv.args, not, dst, false)
+	            lev := _simple
+               end
+        tag select (selt: seltype):
+	    n: name := selt.gen.unique
+	    if n = "record"
+	       then op: str := cop.name
+	            if op = "equal"
+		       then g_bool_test_comp (e, op, inv.args, not, dst, false)
+		            lev := _simple
+	            elseif str$indexs("get_", op) = 1
+		       then lev := _medium
+                    end
+            elseif n = "struct"
+	       then op: str := cop.name
+                    if str$indexs ("get_", op) = 1
+		       then lev := _medium
+                    end
+            elseif n = "variant"
+	       then op: str := cop.name
+        	    specs: fieldspeclist := selt.parms
+                    if op = "equal"
+		       then g_bool_test_comp (e, op, inv.args, not, dst,false)
+		            lev := _simple
+                    elseif str$indexs("is_", op) = 1
+		       then g_bool_is_test(e, str$rest(op, 4), specs, 
+		                           inv.args, not, dst)
+		            lev := _simple
+                    elseif (op = "similar"  cand
+			    g_simple_vals(specs, false))  cor
+			   (op = "similar1"  cand
+			    g_simple_vals(specs, true))
+		       then g_bool_1of_comp(e, inv.args, not, dst)
+		            lev := _simple
+	            end
+            elseif n = "oneof"
+	       then specs: fieldspeclist := selt.parms
+	            op: str := cop.name
+                    if str$indexs("is_", op) = 1
+		       then g_bool_c_is_test(e, str$rest(op, 4),
+			                     specs, inv.args, 
+					     not, dst)
+                            lev := _simple
+                    elseif g_is_compact(specs, false) cand
+                           (op = "equal" cand
+			     g_simple_vals(specs, true) cor
+			    op = "similar" cand
+			     g_simple_vals(specs, false))
+		       then g_bool_test_comp(e, op, inv.args, not, dst, false)
+			    lev := _simple
+                    end
+            end
+        others:
+	end
+
+	return (lev)
+end g_bool_invoke
+
+%%% Generate code for the given character comparison. The resulting boolean
+%%% gets moved to dst (complemented if not = true).
+g_bool_char_comp = proc (e: g_env, op: str, args: exprlist, not: bool, 
+                         dst: locate)
+    notn = 0400         % XOR mask to get the complement Scc instruction.
+    flipn = 3 * 0400    % XOR mask to get the flip Scc instruction.
+
+    x: expr := exprlist$bottom(args)
+    y: expr := exprlist$top(args)
+    flip: bool := false
+    ok: bool := false
+
+    if exprabs$is_char_(x.abs) cor exprabs$is_idn(x.abs)
+       then x, y := y, x
+            flip := true
+       end
+
+    tagcase y.abs
+        tag char_ (c: char):
+            ok := true
+        tag idn (id: idn):
+	    ok := locate$is_var(id.val)
+        others:
+        end
+
+    if ok
+       % Extra-optimize comparisons where the first operand is string$fetch()
+       % and the second is a constant or variable. For other kinds of 
+       % comparisons let g_test_comp do the work.
+       then inv: invoke := exprabs$value_invoke (x.abs)
+            cop: clusterop := exprabs$value_op (inv.apply.abs)
+            if cop.name ~= "fetch"
+               then exit toohard
+               end
+	    clut: clutype := typeabs$value_cluster_ (cop.type_.abs)
+	    if clut.gen.unique ~= "string"
+	       then exit toohard
+	       end
+
+            % codes for not = false
+	    code: int
+	    if op = "equal"  cor  op = "similar"
+	       then code := SEQ
+	    elseif op = "lt"
+	       then code := SLT
+	    elseif op = "le"
+	       then code := SLE
+	    elseif op = "gt"
+	       then code := SGT
+	    else code := SGE
+	    end
+
+	    if flip  cand  code ~= SEQ
+	       then code := i_xor(code, flipn) end
+            if not
+	       then code := i_xor(code, notn) end
+
+            me: g_menv := e.menv
+            regs: reglist := me.state
+
+            % call g_str_fetch() to setup addr and index registers.
+            xreg, dreg, disp: int := g_str_fetch(e, inv.args)
+            iword: int := g_get_index_word (me, dreg, _long, disp)
+            ea: int  := xreg + (_index-_addrd)
+
+            % allocate rreg and generate    moveq   0, rreg
+	    rreg: int := g_select_reg_dst (regs,dst,xreg,dreg,want_dreg)
+            ainst (me, MOVEQ, rreg, 0)
+
+	    tagcase y.abs
+                tag char_ (c: char):
+	            if c = '\000'
+                       then % special case comparisons against 0
+                            if code = SGE
+                               then % char >= 0 is always true
+			            code := ST
+                            elseif code = SLT
+			       then % char < 0 is always false
+				    code := SF
+                            else    % generate  tstb disp(xreg, dreg)
+			            xinst (me, TSTB, ea)
+                                    immed (me, iword)
+                            end
+		       else % For LT and GE  we do the flip comparisons and
+			    % change code accordingly because LT and GE don't
+			    % have unsigned versions.
+                            if code = SLT cor code = SGE
+		               then % do flip comparison:
+				    % generate      moveq y, n7
+				    %               cmpb  x, n7
+			            ainst (me, MOVEQ, _N7, char$c2i(c))
+                                    ainst (me, CMPB, _N7, ea)
+                                    immed (me, iword)
+				    % change to flip, unsigned code.
+			            if code = SLT
+				       then code := SHI
+				       else code := SLS
+				       end
+                               else % do straight comparison:
+				    % generate      cmpib y, x
+                                    xinst (me, CMPIB, ea)
+                                    immed (me, char$c2i(c))
+                                    immed (me, iword)
+                               end
+                       end
+
+                tag idn (id: idn):
+		    if code = SLT cor code = SGE
+		       then % flip comparison to use unsigned codes.
+			    % generate  moveb   idn, n7
+			    %           cmpb    disp(xreg,dreg), n7
+		            ainst (me, MOVEB, _N7, _idisp_EP)
+                            immed (me, locate$value_var (id.val) + 3)
+			    ainst (me, CMPB, _N7, ea)
+			    immed (me, iword)
+			    % change to flip, unsigned code
+		            if code = SLT
+                               then code := SHI
+			       else code := SLS
+			       end
+                       else % straight comparison
+			    % generate      moveb   disp(xreg,dreg), n7
+			    %               cmpb    idn, n7
+		            ainst (me, MOVEB, _N7, ea)
+                            immed (me, iword)
+			    ainst (me, CMPB, _N7, _idisp_EP)
+			    immed (me, locate$value_var(id.val) + 3)
+		       end
+		others:
+		end
+            % generate  Scc rreg            (if code ~= SF)
+	    %           dst := rreg
+            if code ~= SF
+	       then if code = SGT
+	               then code := SHI
+		    elseif code = SLE
+		       then code := SLS  end
+	            xinst (me, code, rreg)
+	       end
+            g_unslave_reg (regs, rreg)
+            g_move_src (e, dst, rreg, 0)
+	    return
+        end
+            except when wrong_tag, toohard:     end
+
+        % Let g_bool_test_comp do the optimization.
+    g_bool_test_comp(e, op, args, not, dst, true)
+end g_bool_char_comp
+
+g_bool_real_comp = proc (e: g_env, op: str, args: exprlist, not: bool, 
+                         dst: locate)
+    g_bool_test_comp (e, op, args, not, dst, false)
+end g_bool_real_comp
+
+%%% Generate code to test whether the string argument is empty and
+%%% put the resulting boolean in dst (complemented if not = true).
+g_bool_str_empty = proc (e: g_env, args: exprlist, not: bool, dst: locate)
+    me: g_menv := e.menv
+    regs: reglist := me.state
+
+    % generate  areg := src
+    %           dreg := 0
+    %           cmp     (areg), n0
+    %           seq     dreg        (or sne if not = true)
+    %           dst := dreg
+    areg: int := g_rexpr (e, exprlist$bottom(args), want_areg)
+    dreg: int := g_select_reg_dst (regs, dst, areg, -1, want_dreg)
+    ainst (me, MOVEQ, dreg, 0)
+    ainst (me, CMP, _N0, areg + (_indir-_addrd))
+    if not
+       then xinst (me, SNE, dreg)
+       else xinst (me, SEQ, dreg)
+       end
+    g_unslave_reg (regs, dreg)
+    g_move_src (e, dst, dreg, 0)
+end g_bool_str_empty
+
+
+%%% Generate code to test if the array argument is empty and put the resulting
+%%% boolean in dst (complemented if not = true).
+g_bool_array_empty = proc (e: g_env, args: exprlist, not: bool, dst: locate)
+    me: g_menv := e.menv
+    regs: reglist := me.state
+
+    % generate  areg := src
+    %           dreg := 0
+    %           tstb    _dv_max(areg)
+    %           slt     dreg            (sge if not = true)
+    %           dst := dreg
+    areg: int := g_rexpr (e, exprlist$bottom(args), want_areg)
+    dreg: int := g_select_reg_dst (regs, dst, areg, -1, want_dreg)
+    ainst (me, MOVEQ, dreg, 0)
+    xinst (me, TSTB, areg + (_idisp-_addrd))
+    immed (me, _dv_max)
+    if not
+       then xinst (me, SGE, dreg)
+       else xinst (me, SLT, dreg)
+       end
+    g_unslave_reg (regs, dreg)
+    g_move_src (e, dst, dreg, 0)
+end g_bool_array_empty
+
+%%% Generate code to test whether the given sequence argument is empty and put
+%%% the resulting boolean in dst (complemented if not = true).
+g_bool_seq_empty = proc (e: g_env, args: exprlist, not: bool, dst: locate)
+    me: g_menv := e.menv
+    regs: reglist := me.state
+
+    % generate  areg := src
+    %           dreg := 2
+    %           cmp     (areg), dreg
+    %           seq     dreg            (sne if not = true)
+    %           dst := dreg
+    areg: int := g_rexpr (e, exprlist$bottom(args), want_areg)
+    dreg: int := g_select_reg_dst (regs, dst, areg, -1, want_dreg)
+    ainst (me, MOVEQ, dreg, 2)
+    ainst (me, CMP, dreg, areg + (_indir-_addrd))
+    if not
+       then xinst (me, SNE, dreg)
+       else xinst (me, SEQ, dreg)
+       end
+    g_unslave_reg (regs, dreg)
+    g_move_src (e, dst, dreg, 0)
+end g_bool_seq_empty
+
+
+%%% Generate code to test for a particular tag in a variant
+%%% Place the resulting boolean in dst (complemented if
+%%% not=true).
+g_bool_is_test = proc (e: g_env, tagn: str, specs: fieldspeclist, 
+                       args: exprlist, not: bool, dst: locate)
+    me: g_menv := e.menv
+    regs: reglist := me.state
+    % generate  areg := src
+    %           moveq   k, dreg         % k = variant tag
+    %           cmpb    3(areg), dreg
+    %           seq     dreg            (sne if not = true)
+    %           dst := dreg
+    areg: int := g_rexpr (e, exprlist$bottom(args), want_areg)
+    dreg: int := g_select_reg_dst (regs, dst, areg, -1, want_dreg)
+    g_unslave_reg (regs, dreg)
+    ainst (me, MOVEQ, dreg, g_sel(tagn, specs))
+    ainst (me, CMPB, dreg, areg + (_idisp-_addrd))
+    immed (me, 3)
+    if not
+       then xinst (me, SNE, dreg)
+       else xinst (me, SEQ, dreg)
+       end
+    g_move_src (e, dst, dreg, 0)
+end g_bool_is_test
+
+%%% Generate code to compare two variants and put the
+%%% resulting boolean in dst (complemented if not = true).
+g_bool_1of_comp = proc (e: g_env, args: exprlist, not: bool, dst: locate)
+    % generate  a1reg := src1
+    %           a2reg := src2
+    %           moveq   0, dreg
+    %           move    (a2reg), n7
+    %           cmpw    2(a1reg), n7
+    %           bne     neq
+    %           move    4(a2reg), n7
+    %           cmp     4(a1reg), n7
+    % if not = false then
+    %           seq     dreg
+    %      neq:
+    % else
+    %      neq: sne     dreg
+    % then
+    %           dst := dreg
+    me: g_menv := e.menv
+    regs: reglist := me.state
+    a1reg, a2reg: int := g_rrpair (e, args, want_areg, want_areg)
+    dreg: int := g_select_reg_dst (regs, dst, a1reg, a2reg, want_dreg)
+    ainst (me, MOVEQ, dreg, 0)
+    ainst (me, MOVE, _N7, a2reg + (_indir-_addrd))
+    ainst (me, CMPW, _N7, a1reg + (_idisp-_addrd))
+    immed (me, 2)
+    neq: int := binst (me, BNE)
+    ainst (me, MOVE, _N7, a2reg + (_idisp-_addrd))
+    immed (me, 4)
+    ainst (me, CMP, _N7, a1reg + (_idisp-_addrd))
+    immed (me, 4)
+    if not
+       then g_menv$goto (me, neq)
+            xinst (me, SNE, dreg)
+       else xinst (me, SEQ, dreg)
+            g_menv$goto (me, neq)
+       end 
+    g_unslave_reg (me.state, dreg)
+    g_move_src (e, dst, dreg, 0)
+end g_bool_1of_comp
+
+
+%%% Generate code to test for a particular tag in a 
+%%% oneof. Place the resulting boolean in dst (complemented if
+%%% not=true).
+g_bool_c_is_test = proc (e: g_env, tagn: str, specs: fieldspeclist, 
+                            args: exprlist, not: bool, dst: locate)
+    me: g_menv := e.menv
+    regs: reglist := me.state
+    % generate  areg := src
+    %           move    areg, -(sp)
+    %           moveq   0, dreg
+    %           moveb   (sp), dreg
+    %           bne     compact
+    %           moveb   3(areg), dreg
+    %  compact: addq    4, sp
+    %           cmpib   k, dreg             (cmpb n0, dreg for k = 1)
+    %           seq     dreg
+    %           dst := dreg
+    % (check for src = tos and remove push op if so; if oneof is 
+    %   known to be compact, can eliminate code to test for and
+    %   handle non-compact oneofs).
+    is_compact: bool := g_is_compact (specs, false)
+    areg: int
+    dreg: int := g_select_reg_dst (regs, dst, -1, -1, want_dreg)
+    g_unslave_reg (regs, dreg)
+    if is_compact
+       then g_expr (e, exprlist$bottom(args), locate$make_tos(nil))
+       else x: expr, xsrc: locate := g_sexpr(e,exprlist$bottom(args),want_areg)
+            if locate$is_tos(xsrc)
+               then areg := g_select_reg (regs, dreg, -1, want_areg)
+                    ainst (me, MOVEA, areg//_addrd, _indir_SP)
+               else areg := g_regmove (e, x, xsrc, dreg, -1, want_areg)
+	            minst (me, MOVE, pdecr_SP_, areg)
+               end
+       end
+    ainst (me, MOVEQ, dreg, 0)
+    ainst (me, MOVEB, dreg, _indir_SP)
+    if ~is_compact
+       then loc: int := binst (me, BNE)
+            ainst (me, MOVEB, dreg, areg + (_idisp-_addrd))
+            immed (me, 3)
+            g_menv$goto (me, loc)
+       end
+     ainst (me, ADDQ, 4, _addrd_SP)
+    tagnum: int := g_sel (tagn, specs)
+    if tagnum = 1
+       then ainst (me, CMPB, dreg, _datad_N0)
+       else xinst (me, CMPIB, dreg)
+            immed (me, g_sel(tagn, specs))
+       end
+    if not
+       then xinst (me, SNE, dreg)
+       else xinst (me, SEQ, dreg)
+       end
+     g_move_src (e, dst, dreg, 0)
+end g_bool_c_is_test

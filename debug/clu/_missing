@@ -1,0 +1,34 @@
+%% Copyright Massachusetts Institute of Technology 1980, 1989
+
+%%% Print out names of all routines which are called but which have not been
+%%% loaded. [user-interface routine].
+%%% (SEP/Nov  6 1984)
+
+_Missing = proc ();
+    ss = sequence[string]
+    ftab = table[string,string]
+    Stub_Rtn_Nm   = "__stub_routine"
+    own Fnd_Tab: ftab := ftab$Create(50, Hash, string$Equal);
+    Flag: bool := _Enter_System();
+    ftab$Flush(Fnd_Tab);
+    Rtn_Tab: _rtn_table := _Get_Rtn_Table();
+    PO: stream := stream$Primary_Output();
+    for Caller_RI: _rtn_info in _rtn_table$Elements(Rtn_Tab) do
+	for Callee, Slot: _obj in _Call_Slots(Caller_RI.Routine, Caller_RI) do
+	    Callee_RI: _rtn_info := _Get_Rtn_Info(Callee);
+	       except when Not_Found:
+			   continue;
+		      end;
+	    Callee_Nm: string := Callee_RI.Name;
+	    if (Callee_Nm = Stub_Rtn_Nm)
+	       then Real_Nm: string := _cvt[_obj, string](_Param_Fetch(Callee, 1));
+		    ftab$Bind(Fnd_Tab, Real_Nm, Real_Nm);
+		    stream$PutL(PO, Real_Nm);
+	       end;
+	       except when Exists:
+		      end;
+	    end;
+	end;
+    ftab$Flush(Fnd_Tab);
+    _Exit_System(Flag);
+    end _Missing;

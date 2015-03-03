@@ -1,0 +1,214 @@
+; Copyright    Barbara Liskov    1985
+
+sg%flgs = 5		; tty mode flags
+
+%cbreak	= 002		; CBREAK
+%echo	= 010		; ECHO
+%crmod	= 020		; CRMOD
+%raw	= 040		; RAW
+
+%ebadf	= 9
+
+%tiocgetp  = #4006,,#7408
+%tiocsetp  = #8006,,#7409
+%tiocflush = #8004,,#7410
+%tiocoutq  = #4004,,#7473
+%fionread  = #4004,,#667f
+
+_image = cluster is set, meta, pending, pending_wait, getc, wait, flush
+
+wvec	fd0	{1}
+wvec	fd1	{1}
+wvec	cbuf	{1}
+wvec	pbuf	{1}
+wvec	sbuf	{1}
+wvec	tbuf	{3}
+wvec	wbuf	{1}
+wvec	mbit	{1}
+wvec	cmask	{1}
+
+set = qproc (b: bool)
+	ifeq	tst	mbit
+	then	moveb	0177,cmask
+	else	moveb	0377,cmask
+	end
+	ifne	tst	fd0			; still have file desc?
+	then	link	ep,0			; build frame
+		move	rr,-(sp)
+		_death()
+	end
+	lea	tbuf,r1
+	lea	death,r2
+	move	r2,(r1)				; address
+	move	-1,4(r1)			; mask
+	move	n0,8(r1)			; on stack
+	clr	-(sp)
+	move	r1,-(sp)			; buffer
+	move	n0,-(sp)			; SIGHUP
+	clr	-(sp)
+	moveq	%sigvec,n0			; enable
+	move	n0,-(sp)
+	trap	0
+	clr	4(sp)
+	move	%tiocgetp,8(sp)
+	move	r1,12(sp)
+	moveq	%ioctl,n1
+	move	n1,-(sp)
+	trap	0
+	iff
+	then	andib	-%raw+-%cbreak+-1,sg%flgs(r1)
+		orib	%crmod+%echo,sg%flgs(r1)
+	else	orib	%raw,sg%flgs(r1)
+		andib	-%crmod+-%echo+-%cbreak+-1,sg%flgs(r1)
+	end
+	move	%tiocsetp,8(sp)
+	move	n1,-(sp)
+	trap	0
+	lea	16(sp),sp			; pop stack
+	moveq	1,n0				; restore 0
+	move	n0,(r1)
+	move	5,,0,4(r1)
+	return
+death:	move	-1,fd0				; clobber file descs
+	move	-1,fd1
+	addq	4,sp
+	move	139,(sp)			; cleanup
+	trap	0
+	end set
+
+meta = qproc (b: bool)
+	ifeq	move	rr,mbit
+	then	moveb	0177,cmask
+	else	moveb	0377,cmask
+	end
+	end meta
+
+getc = qproc () returns (char)
+	lea	cbuf,rr
+	move	n0,-(sp)
+	move	rr,-(sp)
+	move	fd0,-(sp)
+	clr	-(sp)
+	moveq	%read,n1
+	qloop
+		move	n1,-(sp)
+		ifcc	trap	0
+		then	moveb	(rr),n1
+			andb	cmask,n1
+			lea	16(sp),sp
+			moveq	1,n0
+			return(n1)
+		end
+		cmpib	%ebadf,n0		; still have file desc?
+		bne	this
+	end
+	lea	16(sp),sp
+	link	ep,0				; build a frame
+	moveq	1,n0
+	_death()
+	end getc
+
+pending = qproc () returns (bool)
+	lea	pbuf,r1
+	move	r1,-(sp)
+	move	%fionread,-(sp)
+	move	fd0,-(sp)
+	clr	-(sp)
+	moveq	%ioctl,n1
+	qloop
+		move	n1,-(sp)
+		ifcc	trap	0
+		then	tst	(r1)
+			sne	n1
+			lea	16(sp),sp
+			moveq	1,n0
+			return(n1)
+		end
+		cmpib	%ebadf,n0		; still have file desc?
+		bne	this
+	end
+	lea	16(sp),sp			; build a frame
+	link	ep,0
+	moveq	1,n0
+	_death()
+	end pending
+
+pending_wait = qproc () returns (bool)
+	lea	sbuf,r1
+	pea	tbuf
+	clr	-(sp)
+	clr	-(sp)
+	move	r1,-(sp)
+	move	n0,(r1)
+	move	n0,-(sp)
+	clr	-(sp)
+	moveq	%select,n0
+	move	n0,-(sp)
+	trap	0
+	lea	24(sp),sp
+	ifcc
+	then	tst	n0
+		sne	n0
+		movea	n0,rr
+		moveq	1,n0
+		return(rr)
+	end
+	moveq	1,n0
+	return(false)
+	end pending_wait
+
+wait = qproc (speed: int) returns (bool)
+	lea	pbuf,r1
+	move	r1,-(sp)
+	move	%fionread,-(sp)
+	move	fd0,-(sp)
+	clr	-(sp)
+	moveq	%ioctl,n1
+	qloop
+		move	n1,-(sp)
+		trap	0
+		ifne	tst	(r1)
+		then	lea	16(sp),sp
+			moveq	1,n0
+			return(true)
+		end
+		cmpaw	4800,rr
+		bge	next
+		move	%tiocoutq,8(sp)
+		move	fd1,4(sp)
+		move	n1,-(sp)
+		trap	0
+		move	fd0,4(sp)
+		move	%fionread,8(sp)
+		move	rr,n2
+		divu	600,n2			; allow 16 ms
+		cmp	(r1),n2
+		blt	this
+	end
+	lea	16(sp),sp
+	moveq	1,n0
+	return(false)
+	end wait
+
+flush = qproc ()
+	lea	wbuf,r1
+	move	r1,-(sp)
+	move	%tiocoutq,-(sp)
+	move	fd1,-(sp)
+	clr	-(sp)
+	moveq	%ioctl,n1
+	qloop
+		move	n1,-(sp)
+		trap	0
+		tst	(r1)
+		bgt	this
+	end
+	move	%tiocflush,4(sp)
+	move	n1,-(sp)
+	trap	0
+	clr	4(sp)
+	lea	12(sp),sp
+	moveq	1,n0
+	end flush
+
+end _image

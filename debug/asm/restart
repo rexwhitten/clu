@@ -1,0 +1,6 @@
+;; Copyright Massachusetts Institute of Technology 1984, 1989
+
+restart = qproc ()
+	lea	jmploc, rr		;; Go to start up code
+	jmp	(rr)
+	end restart

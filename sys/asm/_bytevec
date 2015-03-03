@@ -1,0 +1,515 @@
+; Copyright Massachusetts Institute of Technology 1980, 1989
+
+_bytevec = cluster is create, fetch, store, size, equal,
+		      indexc, indexv, nc_indexv, comp,
+		      copy, more_lr, move_rl, move_v, move_b, _gcd
+
+create = qproc (z: int) returns (cvt) signals (toobig)
+	ifle	move	rr,n1			; check size
+		blt	next
+		cmpi	037,,0177777,n1
+	then	move	n1,n2			; get byte count
+		asr	1,n2
+		addq	7,n2
+		andib	-4,n2
+		movea	heaphi,rr		; alloc
+		iflt	sub	n2,freecnt
+		then	jsr	memout
+		end
+		add	n2,heaphi
+		move	n1,(rr)
+		return(rr)
+	end
+	signal	toobig
+	end create
+
+fetch = qproc (v: cvt, i: int) returns (char) signals (bounds)
+	movea	v,r1
+	ifgt	cmpa	(r1),rr			; check bounds
+		bgt	next
+		move	rr,n1
+		asr	1,n1
+	then	moveq	0,n2
+		moveb	3(r1,n1),n2		; fetch
+		return(n2)
+	end
+	signal	bounds
+	end fetch
+
+store = qproc (v: cvt, i: int, c: char) signals (bounds)
+	movem	i,n1/r1
+	ifgt	cmp	(r1),n1			; check bounds
+		bgt	next
+		asr	1,n1
+	then	move	rr,n2
+		moveb	n2,3(r1,n1)		; store
+		return
+	end
+	signal	bounds
+	end store
+
+size = qproc (v: cvt) returns (int)
+	movea	(rr),rr
+	return(rr)
+	end size
+
+equal = qproc (v1, v2: cvt) returns (bool)
+	moveq	0,n1
+	cmpa	v1,rr
+	seq	n1
+	return(n1)
+	end equal
+
+indexc = qproc (c: char, v: cvt, i: int) returns (int) signals (bounds)
+	movea	v,r1
+	move	(r1),n3
+	move	rr,n4
+	ifgt	subq	2,n4			; check bounds
+		blt	this
+		cmp	n3,n4
+	then	signal	bounds
+	end
+	ifeq
+	then	return(0)
+	end
+	move	c,n1
+	asr	1,n3
+	asr	1,n4
+	lea	4(r1,n4),rr			; get to first char
+	sub	n4,n3				; get byte count
+	subq	1,n3
+	loop
+		cmpb	(rr)+,n1		; search for char
+		dbeq	n3,this
+		ifeq
+		then	suba	r1,rr		; get index
+			lea	-7(rr,rr),rr
+			return(rr)
+		end
+		swap	n3
+		subqw	1,n3
+		blt	next
+		swap	n3
+	end
+	movea	n0,rr				; not found
+	return(rr)
+	end indexc
+
+indexv = qproc (v1, v2: cvt, i: int) returns (int) signals (bounds)
+	movem	v2,r1/r2
+	move	(r2),n3					; get size of v1
+	move	(r1),n4					; get size of v2
+	move	rr,n5
+	ifgt	subq	2,n5				; check bounds
+		blt	this
+		cmp	n4,n5
+	then	signal	bounds
+	end
+	ifeq	asr	1,n3
+	then	return(rr)				; match empty always
+	end
+	asr	1,n4
+	sub	n3,n4					; get last start
+	asr	1,n5
+	ifgt	cmp	n4,n5				; room to fit?
+	then	return(0)				; no
+	end
+	addq	4,n3
+	add	r2,n3
+	addq	5,n4
+	add	r1,n4
+	lea	4(r1,n5),rr				; get to first char
+	qloop
+		lea	4(r2),r3
+		moveb	(r3)+,n1			; get first char of v1
+		qloop
+			cmpb	(rr)+,n1		; compare
+			beq	next
+			cmp	rr,n4
+			bne	this			; test and branch
+			bra	none			; no match
+		end
+		move	rr,n6				; save ptr
+		qloop
+			cmp	r3,n3			; done?
+			beq	found
+			cmpmb	(rr)+,(r3)+		; compare
+			beq	this
+		end
+		movea	n6,rr				; reget ptr
+		cmp	rr,n4
+		bne	this				; test and branch
+	end
+none:	movea	n0,rr
+	movea	n0,r3
+	return(rr)					; not found
+found:	movea	n6,rr					; reget ptr
+	suba	r1,rr					; compute index
+	lea	-7(rr,rr),rr
+	movea	n0,r3
+	return(rr)
+	end indexv
+
+nc_indexv = qproc (v1, v2: cvt, i: int) returns (int) signals (bounds)
+	movem	v2,r1/r2
+	move	(r2),n3					; get size of v1
+	move	(r1),n4					; get size of v2
+	move	rr,n5
+	ifgt	subq	2,n5				; check bounds
+		blt	this
+		cmp	n4,n5
+	then	signal	bounds
+	end
+	ifeq	asr	1,n3
+	then	return(rr)				; match empty always
+	end
+	asr	1,n4
+	sub	n3,n4					; get last start
+	asr	1,n5
+	ifgt	cmp	n4,n5				; room to fit?
+	then	return(0)				; no
+	end
+	addq	4,n3
+	add	r2,n3
+	addq	5,n4
+	add	r1,n4
+	lea	4(r1,n5),rr				; get to first char
+	qloop
+		lea	4(r2),r3
+		moveb	(r3)+,n1			; get first char of v1
+		ifge	cmpib	'Z',n1
+			bgt	next
+			cmpib	'A',n1
+		then	addib	' ',n1			; convert to lower case
+		end
+		qloop
+			moveb	(rr)+,n5		; fetch from v2
+			cmpb	n5,n1			; compare
+			beq	next
+			ifge	cmpib	'Z',n5
+				bgt	next
+				cmpib	'A',n5
+			then	addib	' ',n5		; convert to lower case
+				cmpb	n5,n1		; compare
+				beq	next
+			end
+			cmp	rr,n4
+			bne	this			; test and branch
+			bra	none
+		end
+		move	rr,n6				; save ptr
+		qloop
+			cmp	r3,n3			; done?
+			beq	found
+			moveb	(r3)+,n1		; fetch from v1
+			moveb	(rr)+,n5		; fetch from v2
+			cmpb	n5,n1			; compare
+			beq	this
+			iflt
+			then	exg	n5,n1		; get min in n5
+			end
+			cmpib	'Z',n5
+			bgt	next
+			cmpib	'A',n5
+			blt	next
+			addib	' ',n5
+			cmpb	n5,n1			; compare
+			beq	this
+		end
+		movea	n6,rr				; reget ptr
+		cmp	rr,n4
+		bne	this				; test and branch
+	end
+none:	movea	n0,rr
+	movea	n0,r3
+	return(rr)					; not found
+found:	movea	n6,rr					; reget ptr
+	suba	r1,rr					; compute index
+	lea	-7(rr,rr),rr
+	movea	n0,r3
+	return(rr)
+	end nc_indexv
+
+comp = qproc (v1, v2: cvt) returns (int)
+	movea	v1,r1
+	move	(r1)+,n1				; get size of v1
+	move	(rr)+,n2				; get size of v2
+	ifeq	asr	1,n2				; v2 empty?
+	then	asr	1,n1				; yes, check v1
+		beq	compeq
+	else	asr	1,n1				; no, check v1
+		beq	complt
+		add	r1,n1
+		add	rr,n2
+		qloop
+			cmpm	(r1)+,(rr)+		; compare 4 bytes
+			bhi	complt
+			bne	compgt
+			cmp	r1,n1
+			ble	next			; go until v1 empty
+			cmp	rr,n2
+			bgt	this			; or v2 empty
+			bra	compgt
+		end
+		sub	r1,n1				; compare final counts
+		sub	rr,n2
+		cmp	n2,n1				; compare final counts
+		blt	complt
+		beq	compeq
+	end
+compgt:	moveq	3,n1					; v1 greater than v2
+	bra	compdn
+complt:	moveq	-1,n1					; v1 less than v2
+	bra	compdn
+compeq:	moveq	1,n1
+compdn:	movea	n1,rr
+	movea	n0,r1
+	return(rr)
+	end comp
+
+copy = qproc (v: cvt) returns (cvt)
+	movea	rr,r1
+	move	(r1),n2				; get byte count
+	asr	1,n2
+	addq	7,n2
+	andib	-4,n2
+	movea	heaphi,rr			; alloc
+	iflt	sub	n2,freecnt
+	then	jsr	memout
+	end
+	add	n2,heaphi
+	movea	rr,r2
+	asr	2,n2				; get long count
+	subq	1,n2
+	loop
+		move	(r1)+,(r2)+		; copy
+		dbra	n2,this
+		swap	n2
+		subqw	1,n2
+		blt	next
+		swap	n2
+	end
+	movea	n0,r1
+	movea	n0,r2
+	return(rr)
+	end copy
+
+move_lr = qproc (v1: cvt, s1: int, v2: cvt, s2: int, len: int)
+		signals (negative_size, bounds)
+	iflt	move	rr,n3
+	then	signal	negative_size
+	end
+	movea	v1,r1
+	movea	v2,r2
+	ifgt	move	s1,n1			; bounds check s1
+		subq	3,n1
+		blt	this
+		move	(r1),n4
+		cmp	n4,n1
+		bgt	this
+		move	s2,n2			; bounds check s2
+		subq	3,n2
+		blt	this
+		move	(r2),n5
+		cmp	n5,n2
+	then	signal	bounds
+	end
+	move	n1,n6
+	add	n3,n6
+	ifhi	cmp	n4,n6			; check length
+	then	move	n4,n3			; use rest of v1
+		sub	n1,n3
+	end
+	move	n2,n6
+	add	n3,n6
+	ifhi	cmp	n5,n6			; check length
+	then	move	n5,n3			; use rest of v2
+		sub	n2,n3
+	end
+	ifgt	asr	1,n3			; test for zero size
+	then	asr	1,n1
+		asr	1,n2
+		lea	4(r1,n1),r1		; get start of from
+		lea	4(r2,n2),r2		; get start of to
+		subq	1,n3
+		loop
+			moveb	(r1)+,(r2)+	; copy
+			dbra	n3,this
+			swap	n3
+			subqw	1,n3
+			blt	next
+			swap	n3
+		end
+		movea	n0,r1
+		movea	n0,r2
+	end
+	end move_lr
+
+move_rl = qproc (v1: cvt, s1: int, v2: cvt, s2: int, len: int)
+		signals (negative_size, bounds)
+	iflt	move	rr,n3
+	then	signal	negative_size
+	end
+	movea	v1,r1
+	movea	v2,r2
+	ifgt	move	s1,n1			; bounds check s1
+		subq	3,n1
+		blt	this
+		move	(r1),n4
+		cmp	n4,n1
+		bgt	this
+		move	s2,n2			; bounds check s2
+		subq	3,n2
+		blt	this
+		move	(r2),n5
+		cmp	n5,n2
+	then	signal	bounds
+	end
+	move	n1,n6
+	add	n3,n6
+	ifhi	cmp	n4,n6			; check length
+	then	move	n4,n6			; get last index
+		move	n4,n3			; use rest of v1
+		sub	n1,n3
+	end
+	move	n2,n7
+	add	n3,n7
+	ifhi	cmp	n5,n7			; check length
+	then	move	n5,n7			; get last index
+		move	n5,n3			; use rest of v2
+		sub	n2,n3
+		move	n1,n6
+		add	n3,n6			; reget last index
+	end
+	ifgt	asr	1,n3			; test for zero size
+	then	asr	1,n6
+		asr	1,n7
+		lea	4(r1,n6),r1		; get end of from + 1
+		lea	4(r2,n7),r2		; get end of to + 1
+		subq	1,n3
+		loop
+			moveb	-(r1),-(r2)	; copy
+			dbra	n3,this
+			swap	n3
+			subqw	1,n3
+			blt	next
+			swap	n3
+		end
+		movea	n0,r1
+		movea	n0,r2
+	end
+	end move_rl
+
+move_v = qproc (v1: _vec[char], s1: int, v2: cvt, s2: int, len: int)
+				signals (negative_size, bounds)
+	iflt	move	rr,n3			; check length
+	then	signal	negative_size
+	end
+	movea	v1,r1
+	movea	v2,r2
+	ifgt	move	s1,n1			; bounds check s1
+		subq	3,n1
+		blt	this
+		move	(r1),n4
+		asr	1,n4
+		cmp	n4,n1
+		bgt	this
+		move	s2,n2			; bounds check s2
+		subq	3,n2
+		blt	this
+		move	(r2),n5
+		cmp	n5,n2
+	then	signal	bounds
+	end
+	move	n1,n6
+	add	n3,n6				; check length
+	ifhi	cmp	n4,n6
+	then	move	n4,n3			; use rest of v1
+		sub	n1,n3
+	end
+	move	n2,n6
+	add	n3,n6				; check length
+	ifhi	cmp	n5,n6
+	then	move	n5,n3			; use rest of v2
+		sub	n2,n3
+	end
+	ifgt	asr	1,n3			; test for zero size
+	then	add	n1,n1			; get to first char
+		asr	1,n2
+		lea	4(r1,n1),r1		; get to first char
+		lea	4(r2,n2),r2		; get to first space
+		add	r2,n3
+		qloop
+			move	(r1)+,n1	; fetch
+			moveb	n1,(r2)+	; store
+			cmp	r2,n3
+			bne	this		; test and branch
+		end
+		movea	n0,r1
+		movea	n0,r2
+	end
+	end move_v
+
+move_b = qproc (v1: cvt, s1: int, v2: _vec[char], s2: int, len: int)
+				signals (negative_size, bounds)
+	iflt	move	rr,n3			; check length
+	then	signal	negative_size
+	end
+	movea	v1,r1
+	movea	v2,r2
+	ifgt	move	s1,n1			; bounds check s1
+		subq	3,n1
+		blt	this
+		move	(r1),n4
+		cmp	n4,n1
+		bgt	this
+		move	s2,n2			; bounds check s2
+		subq	3,n2
+		blt	this
+		move	(r2),n5
+		asr	1,n5
+		cmp	n5,n2
+	then	signal	bounds
+	end
+	move	n1,n6
+	add	n3,n6				; check length
+	ifhi	cmp	n4,n6
+	then	move	n4,n3			; use rest of v1
+		sub	n1,n3
+	end
+	move	n2,n6
+	add	n3,n6				; check length
+	ifhi	cmp	n5,n6
+	then	move	n5,n3			; use rest of v2
+		sub	n2,n3
+	end
+	ifgt	asr	1,n3			; test for zero size
+	then	asr	1,n1
+		add	n2,n2
+		lea	4(r1,n1),r1		; get to first char
+		lea	4(r2,n2),r2		; get to first space
+		add	r1,n3
+		moveq	0,n1
+		qloop
+			moveb	(r1)+,n1	; fetch
+			move	n1,(r2)+	; store
+			cmp	r1,n3
+			bne	this		; test and branch
+		end
+		movea	n0,r1
+		movea	n0,r2
+	end
+	end move_b
+
+_gcd = proc (v: cvt, tab: gcd_tab) returns (int)
+	move	rr,-(sp)
+	movea	v,rr
+	move	(rr),n2
+	moveq	14,n1
+	add	n1,n2
+	andib	-7,n2
+	gcd_tab$%insert(*, n2, <1: 0>, rr)
+	return(rr)
+	end _gcd
+
+end _bytevec

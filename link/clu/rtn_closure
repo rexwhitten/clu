@@ -1,0 +1,66 @@
+%% Copyright Massachusetts Institute of Technology 1983, 1989
+
+Routine_Closure = proc (R_D: rtn_desc, R: r_template, Env: lnk_env)
+		    returns (rtn_inst) signals (error(string));
+
+    rtn_stk = array[rtn_desc];
+    Old_IList: sequence[rtn_inst];
+    New_IList: sequence[rtn_inst];
+    R_I: rtn_inst;
+    Was_New: bool;
+
+    Old_IList := R.Instantiations;
+    Never_Instantiated: bool := sequence[rtn_inst]$Empty(Old_IList);
+    No_P_Uses: bool := use_list$Empty(R.P_Uses);
+
+    if (No_P_Uses cand ~Never_Instantiated)
+       then return (sequence[rtn_inst]$Bottom(Old_IList));
+       end;
+
+    rtn_stk$AddH(Env.Rtn_Stack, R_D);   %% Remember current rtn.
+
+    begin
+	R_I,
+	Was_New,
+	New_IList := Unique_Get[rtn_inst](Old_IList,
+					  rtn_inst$Create(R_D, R, Env),
+					  rtn_inst$Similar);
+	R.Instantiations := New_IList;
+
+	if (Was_New cand (R.Own_Count ~= 0))
+	   then R_I.Owns_Address := locate$Address_Advance(
+					Env.Locates.Owns, R.Own_Count);
+	   end;
+
+	if (Never_Instantiated)
+	   then use_list$Instantiate(R.UP_Uses, R_I, false, Env);
+		%% May not need rtn name in VAX version.
+		%%R.Name_Constant := constant$Instantiate(R.Name_Constant,
+		%%					true, Env);
+	   end;
+	%%resignal Error;
+
+	if (Was_New)
+	   then R_I.Uses := use_list$Bind(R.P_Uses, R_D, Env);
+		use_list$Instantiate(R_I.Uses, R_I, true, Env);
+		R_I.Result_Type := type_desc$Instantiate(
+				       type_desc$Bind(R_I.Result_Type,
+						      R_D, Env),
+				       Env);
+		if (R.Was_Output)
+		   then	old_rtns$Alter(Env.Old_Rtns,
+				       R.Name_Constant,
+				       R);
+		   end;
+	   end;
+	end;
+       except when Error(Err_S: string):
+		   R.Instantiations := Old_IList;	%% Restore original insts.
+		   rtn_stk$RemH(Env.Rtn_Stack);
+		   signal Error(Err_S);
+	      end;
+
+    rtn_stk$RemH(Env.Rtn_Stack);    %% Forget current rtn.
+
+    return (R_I);
+    end Routine_Closure;

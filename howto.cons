@@ -1,0 +1,72 @@
+Compiler xfile's for various pieces of the system:
+
+	~CLU/asm/asm.xfile		for ~CLU/asm/*.clu
+	~CLU/cmp/cmp.xfile		for ~CLU/cmp/*.clu
+	~CLU/debug/debug.xfile		for ~CLU/debug/clu/*
+	~CLU/link/link.xfile		for ~CLU/link/clu/*
+	~CLU/sys/sys.xfile		for ~CLU/lib/clu/* and ~CLU/sys/clu/*
+	~CLU/ted/ted.xfile		for ~CLU/ted/clu/*
+
+Use
+	asm -lib
+for
+	~CLU/lib/asm/*
+	~CLU/sys/asm/*
+
+Use
+	asm -bin
+for
+	~CLU/debug/asm/*
+	~CLU/ted/asm/*
+
+To create a new clu:
+	Increment #version:N to #version:N+1 in ~CLU/cmp/cmp.xload
+	cd ~CLU/cmp
+	link @cmp^../exe/clu
+	rm state.N
+	clu
+	  command(s): kill
+
+To create a new asm:
+	Increment #version:N to #version:N+1 in ~CLU/asm/asm.xload
+	cd ~CLU/asm
+	link @asm^../exe/asm
+	rm state.N
+	asm
+	  FILE(S) = ^D
+
+To create a new link:
+	cd ~CLU/link
+	link @link^../exe/nlink
+	mv ../exe/nlink ../exe/link
+
+Note that exe/debug is a symbolic link to exe/link.
+
+To create a new basesys and basesys.dump:
+	link #init
+
+To create a new ted:
+	cd ~CLU/ted
+	link @ted^../exe/ted
+
+To create a new calc:
+	cd ~CLU/util
+	link calc#-sym^../exe/calc
+
+To create a new compare:
+	cd ~CLU/util
+	link @compare^../exe/compare
+
+To create a new gcdprt:
+	cd ~CLU/util
+	link @gcdprt^../exe/gcdprt		(ignore error message)
+	
+To create a new liblst:
+	cd ~CLU/util
+	link @liblst^../exe/liblst
+
+To create a new dbg (if you have the sources to dbg):
+	cd ~CLU/dbg
+	make
+	make install
+	make clean

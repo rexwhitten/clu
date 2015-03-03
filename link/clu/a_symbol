@@ -1,0 +1,83 @@
+%% Copyright Massachusetts Institute of Technology 1984, 1989
+
+#extend
+
+a_symbol = cluster is
+	create_absolute,
+	create_text,
+	create_data,
+	create_bss,
+	similar,
+	output,
+	print,
+	_gcd;
+
+    %% Output head bytes.
+    vhb_Abs    = 003
+    vhb_Text   = 005
+    vhb_Data   = 007
+    vhb_BSS    = 011
+
+    rep = record[
+	      SType:  int,
+	      Offset: int,
+	      A_or_V: aorv
+		 ];
+
+    aorv = oneof[ Addr:	address,
+		  Val:   word ];
+
+    Create_Absolute = proc (S: string, Val: word, A_Str: a_strings)
+			returns (cvt);
+	return (rep${ SType:	vhb_Abs,
+		      Offset:   a_strings$Add_String(A_Str, S),
+		      A_or_V:	aorv$Make_Val(Val) });
+	end Create_Absolute;
+
+    Create_Text = proc (S: string, Addr: address, A_Strs: a_strings)
+		    returns (cvt);
+	return (rep${ SType:	vhb_Text,
+		      Offset:   a_strings$Add_String(A_Strs, S),
+		      A_or_V:	aorv$Make_Addr(Addr) });
+	end Create_Text;
+
+    Create_Data = proc (S: string, Addr: address, A_Strs: a_strings)
+		    returns (cvt);
+	return (rep${ SType:	vhb_Data,
+		      Offset:   a_strings$Add_String(A_Strs, S),
+		      A_or_V:	aorv$Make_Addr(Addr) });
+	end Create_Data;
+
+    Create_BSS = proc (S: string, Addr: address, A_Strs: a_strings)
+		   returns (cvt);
+	return (rep${ SType:	vhb_BSS,
+		      Offset:   a_strings$Add_String(A_Strs, S),
+		      A_or_V:	aorv$Make_Addr(Addr) });
+	end Create_BSS;
+
+    Similar = proc (Sym1, Sym2: cvt) returns (bool);
+	return (rep$Similar(Sym1, Sym2));
+	end Similar;
+
+    Output = proc (AS: cvt, Env: lnk_env) signals (not_possible);
+	Out: out_link_chan := Env.Output;
+	out_link_chan$Write_Long_Word(Out, AS.Offset);
+	out_link_chan$Write_Tagged_Long(Out, AS.SType, 0);	%% High byte in zero long.
+	tagcase AS.A_or_V
+	   tag Addr (A: address):
+	       AH, AL: int := address$A_to_Ints(A, Env.Locates);
+	       out_link_chan$Write_Word_Pair(Out, AH, AL);
+	   tag Val (V: word):
+	       WH, WL: int := word$W_to_Is(V);
+	       out_link_chan$Write_Word_Pair(Out, WH, WL);
+	   end;
+	end Output;
+
+    Print = proc (Sym: cvt, S: pstream);
+	rep$Print(Sym, S);
+	end Print;
+
+    _gcd = proc (ASym: cvt, Tab: gcd_tab) returns (int);
+	return (rep$_gcd(ASym, Tab));
+	end _gcd;
+    end a_symbol;

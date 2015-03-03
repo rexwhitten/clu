@@ -1,0 +1,17 @@
+% Copyright Massachusetts Institute of Technology 1984, 1989
+_debugger = proc ()
+    _enter_system()
+
+    if _setup_pipes()
+       then _load_from_pipe()
+	    _rtn_table$overloads(_get_rtn_table())
+       end
+    st: stream := stream$primary_input()
+    stream$reset(st)
+    while true do
+	_listen(st)
+	_enter_system()
+	if stream$empty(st)
+	   then quit_() end
+	end
+    end _debugger

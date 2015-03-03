@@ -1,0 +1,47 @@
+%% Copyright Massachusetts Institute of Technology 1981, 1989
+
+sbs = sequence[_signal_block];
+
+%%% Enable (_Set_Trace_Signal) or disable (_Set_Untrace_Signal) tracing for
+%%% signal block SB.
+%%% (SEP/Nov  7 1984)
+
+
+_Set_Trace_Signal = proc (SB: _signal_block);
+    Trc_Sg_Table: sbs;
+    Trc_Sg_Table := _Get_Sig_Tab();
+       except when No_Table:
+		   Trc_Sg_Table := sbs$New();
+	      end;
+    for Tst_SB: _signal_block in sbs$Elements(Trc_Sg_Table) do
+	if (SB = Tst_SB)
+	   then return;
+	   end;
+	end;
+    _Set_Sig_Tab(sbs$AddL(Trc_Sg_Table, SB));
+    end _Set_Trace_Signal;
+
+_Set_Untrace_Signal = proc (SB: _signal_block);
+    asb = array[_signal_block];
+    own Trim_ASB: asb := asb$Predict(1, 10);
+    Trc_Sg_Table: sbs;
+    Trc_Sg_Table := _Get_Sig_Tab();
+       except when No_Table:
+		   return;
+	      end;
+    for I: int in sbs$Indexes(Trc_Sg_Table) do
+	if (SB = Trc_Sg_Table[I])
+	   then asb$Trim(Trim_ASB, 1, 0);
+		for Tst_SB: _signal_block in sbs$Elements(Trc_Sg_Table) do
+		    if (SB ~= Tst_SB)
+		       then asb$AddH(Trim_ASB, Tst_SB);
+		       end;
+		    end;
+		if (asb$Empty(Trim_ASB))
+		   then _Clear_Sig_Tab();
+		   else _Set_Sig_Tab(sbs$A2S(Trim_ASB));
+		   end;
+		return;
+	   end;
+	end;
+    end _Set_Untrace_Signal;

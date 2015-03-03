@@ -1,0 +1,206 @@
+Copyright    Barbara Liskov    1981
+
+
+Format of gc_read'able part:
+
+
+header:			record		% top-most node
+
+	sequence[template]		% cluster/routine templates
+	int				% size of part2 segment of file
+	int				% unique identifier
+
+template		variant		% module template
+
+1	c_template			% cluster template
+2	r_template			% routine template
+
+c_template:		record		% cluster template
+
+	string				% cluster name
+	int				% number of parameters
+					% < 0 implies selector type
+	int				% number of own variables
+	const (sequence[string])	% own variable names
+	sequence[r_template]		% operation templates
+	sequence[---]			% instantiations (initially empty)
+
+r_template:		record		% routine template
+
+	string				% routine name
+	int				% number of parameters
+					% < 0 implies selector dependence
+	const (sequence[string])	% argument names
+	tdesc				% result type (if exactly one)
+	int				% number of own variables
+	sequence[use]			% parameter-dependent references
+	sequence[use]			% parameter-independent references
+	int				% file offset relative to part2 start
+	int				% code size
+	const (sequence[string])	% local variable names
+	const (sequence[string])	% own variable names
+	int				% >= 0 is number of proc results
+					% < 0 is -number - 1 of iter results
+	int				% number of arguments
+	int				% number of local variables
+	const (string)			% type_name$routine_name
+	cluptr				% cluster pointer
+	sequence[---]			% instantiations (initially empty)
+	int				% address (initially 0)
+
+cluptr			oneof		% cluster pointer
+
+2	null
+...
+
+use:			variant		% constant or external reference
+
+ 1	const				% constant
+ 2	int				% cluster own variable
+ 3	int				% routine own variable
+ 4	string				% exception
+ 5	siguse				% signal
+ 6	wordvec				% word vector of N elements
+ 7	int				% global offset
+ 8	rdesc				% routine renaming
+
+wordvec:		variant		% word vector
+
+1	int				% number of elements
+
+const:			variant		% constant
+
+ 1	null				% null
+ 2	bool				% bool
+ 3	int				% int
+ 4	real				% real
+ 5	char				% char
+ 6	string				% string
+ 7	int				% cluster parameter
+ 8	int				% routine parameter
+ 9	oconst				% oneof
+10	sequence[const]			% struct
+11	sequence[const]			% sequence
+12	tdesc				% type
+13	int				% machine_word
+14	oconst				% relative reference
+15	rdesc				% routine
+16	int				% selector value
+17	vdesc				% vector of selector routines
+18	null				% vector of selector names
+19	sequence[int]			% string (for differing byte size)
+20	vdesc				% vector of argument routines
+21	vdesc				% vector of result routines
+22	vdesc				% vector of vector of signal routines
+23	null				% vector of signal names
+
+oconst:			record		% oneof constant/relative reference
+
+ 1	int				% tag part/relative offset
+ 2	const				% value part/base reference
+
+rdesc:			record		% routine descriptor
+
+	tdesc				% cluster type (if operation)
+	string				% routine name
+	sequence[const]			% actual parameters
+	int				% expected number of arguments
+					% < 0 implies unknown
+	int				% expected number of results
+					% < 0 implies unknown
+
+siguse:			record		% signal
+
+	string				% exception name
+	int				% number of exception values
+
+tdesc:			variant		% type descriptor
+
+ 1	null				% no type at all (used in rdesc's)
+ 2	cdesc				% cluster type
+ 3	sdesc				% selector type
+ 4	string				% alternate selector type name
+					% parms of current cluster are added
+ 5	opdesc				% routine type
+ 6	int				% cluster parameter
+ 7	int				% routine parameter
+ 8	rdesc				% return type of named routine
+ 9	null				% selector parameter
+
+cdesc:			record		% cluster type descriptor
+
+	string				% cluster name
+	sequence[const]			% actual parameters
+
+sdesc:			record		% selector type descriptor
+
+	string				% selector type name
+	sequence[pdesc]			% selector/type pairs
+
+pdesc:			record		% selector/type pair descriptor
+
+	string				% selector name
+	tdesc				% type
+
+opdesc:			record		% routine type descriptor
+
+	string				% routine type name
+	sequence[tdesc]			% argument types
+	sequence[tdesc]			% result types
+	sequence[edesc]			% exceptions
+
+edesc:			record		% exception
+
+	string				% exception name
+	sequence[tdesc]			% result types
+
+vdesc:			record		% routine vector descriptor
+
+	string				% operation name for each type
+	int				% expected number of arguments
+					% < 0 implies unknown
+	int				% expected number of results
+					% < 0 implies unknown
+
+
+
+Format of second part:
+
+A sequence of triplets; one triplet for each routine.
+
+A triplet is three blocks:
+
+	1) Relocation offset
+	2) Code block
+	3) Exception block
+
+
+Relocation offset:
+
+A 32-bit byte offset to the first relocation word in the code block.
+
+Code block:
+
+A sequence of 8-bit bytes, padded out to a longword boundary.
+Any relocatable longwords have the form:
+	offset to next relocation word in high 16 bits
+	index into the un-parameterized use list in low 16 bits
+
+Exception block:
+
+An initial count of the number of 16-bit words in the block.
+Each entry in the sequence making up the block contains the following:
+
+	Range:			[Offset, Length] pair, 16 bits each
+	Name-List:		sequence of exception string references
+	Handler-Address:	offset, 16 bits
+
+An offset is a byte index into the code-block.
+The length is a count of 8-bit bytes.
+The coding of the Name-List is a 16-bit count of the number of references
+followed by a sequence of indexes into the un-parameterized use list,
+each index being 16 bits.
+If the Name-List is empty (count = 0) then this is an "Others" handler.
+If the Handler-Address is zero then this is a "resignal".
+The term "sequence" is NOT used in the CLU sense.  It is simply a bunch
+of items, one after the other.

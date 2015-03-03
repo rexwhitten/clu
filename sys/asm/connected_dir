@@ -1,0 +1,228 @@
+; Copyright Massachusetts Institute of Technology 1986, 1989
+
+; Hacked to use %getdirentries instead of %read to work around
+; bug in SUN NFS -- E. Stark 4/20/86
+
+st%dev	= 0		; device
+st%ino	= 2		; inode
+st%cre	= 36		; time of creation
+
+d%ino	 = 0		; inode
+d%reclen = 4		; record length
+d%namlen = 6		; name length
+d%name	 = 8		; start of name
+
+%dirblksiz = 512
+; %getdirentries = 156
+
+connected_dir = qproc () returns (string)
+	wvec	save	{3}			; last STAT
+	wvec	sbuf	{16}			; STAT buffer
+	wvec	dbuf	{128}			; dir entry buffer
+	own	dir
+	own	base				; garbage cell
+
+	lea	base, r2			; install ptr to garbage
+	move	r2, -(sp)
+	clr	-(sp)
+	lea	sbuf,r2
+	move	r2,-(sp)			; buffer
+	pea	"."+4				; name
+	clr	-(sp)
+	moveq	%stat,n0			; get status
+	move	n0,-(sp)
+	trap	0
+	bcs	oops
+	lea	save,r4
+	ifeq	movew	(r4),n1			; same as before?
+		cmpw	(r2),n1
+		bne	next
+		move	st%ino(r4),n1
+		cmp	st%ino(r2),n1
+		bne	next
+		move	8(r4),n1
+		cmp	st%cre(r2),n1
+	then	lea	20(sp),sp		; yes, pop stack
+		moveq	1,n0			; restore 0
+		return(dir)
+	end
+	movew	(r2),n4				; save inode + device
+	move	n4,(r4)+
+	move	st%ino(r2),n5
+	move	n5,(r4)+
+	move	st%cre(r2),(r4)
+	lea	"/"+4,r1			; name
+	move	r1,4(sp)
+	moveq	%stat,n0			; get status
+	move	n0,-(sp)
+	trap	0
+	bcs	oops
+	movew	(r2),n6
+	move	st%ino(r2),n7
+	movew	n4,(r2)
+	move	n5,st%ino(r2)
+	moveq	8,n2				; get byte count
+	movea	heaphi,rr			; alloc
+	iflt	sub	n2,freecnt
+	then	jsr	memout
+	end
+	add	n2,heaphi
+	moveb	3,3(rr)
+	moveb	'/',4(rr)
+again:	movew	(r2),n4				; save inode + device
+	move	st%ino(r2),n5
+	ifeq	cmpw	n4,n6			; root?
+	then	cmp	n5,n7
+		beq	done
+	end
+	move	st%ino(r2),n3			; save inode
+	lea	".."+4,r1			; name
+	move	r1,4(sp)
+	clr	8(sp)
+	clr	12(sp)
+	moveq	%open,n0
+	move	n0,-(sp)
+	trap	0
+	bcs	oops
+	move	n0,4(sp)			; file desc
+	move	n0,n2				; save it
+	move	r2,8(sp)
+	moveq	%fstat,n0			; get status
+	move	n0,-(sp)
+	trap	0
+	bcs	coops
+	ifeq	cmpw	(r2),n4			; same device?
+	then	cmp	st%ino(r2),n5		; same inode?
+		beq	cdone
+	end
+	move	r1,4(sp)			; no, name
+	moveq	%chdir,n0			; move up
+	move	n0,-(sp)
+	trap	0
+	bcs	coops
+	cmpw	(r2),n4				; same device?
+	bne	newdev
+	move	n2,4(sp)			; file desc
+	lea	dbuf,r1
+	move	r1,8(sp)			; buffer
+	movew	%dirblksiz,14(sp)		; number of bytes
+	loop
+		move	%getdirentries, n0
+		move	n0,-(sp)
+		trap	0
+		bcs	coops
+		tst	n0
+		beq	coops
+		add	r1,n0			; end of buffer
+		qloop
+			cmp	(r1),n5		; same inode?
+			beq	close
+			addaw	d%reclen(r1),r1 ; bump to next entry
+			cmp	r1,n0
+			bgt	this
+		end
+		movea	8(sp),r1
+	end
+close:	move	n2,4(sp)			; file desc
+	moveq	%close,n0			; close file
+	move	n0,-(sp)
+	trap	0
+	movew	d%namlen(r1),n2			; get size
+	lea	d%name(r1,n2),r3
+	addq	1,n2
+	move	n2,n1
+	move	(rr),n3				; get old count
+	asr	1,n3
+	move	n3,n0
+	add	n3,n2
+	move	n2,n4
+	addq	7,n3
+	andib	-4,n3
+	addq	8,n2
+	andib	-4,n2
+	movea	rr,r1
+	sub	n3,n2				; get difference
+	movea	heaphi,rr			; alloc
+	iflt	sub	n2,freecnt
+	then	jsr	memout
+	end
+	add	n2,heaphi
+	add	n1,(r1)				; fix header
+	add	n1,(r1)
+	lea	4(r1,n0),rr
+	lea	4(r1,n4),r1
+	subq	1,n0
+	qloop
+		moveb	-(rr),-(r1)		; copy old bytes
+		dbra	n0,this
+	end
+	subq	4,rr
+	subq	2,n1
+	qloop
+		moveb	-(r3),-(r1)		; copy new bytes
+		dbra	n1,this
+	end
+	lea	"."+4,r1			; name
+	move	r1,4(sp)
+	move	r2,8(sp)			; buffer
+	moveq	%stat,n0			; get status
+	move	n0,-(sp)
+	trap	0
+	bcc	again
+oops:	clr	(r4)
+	clr	4(r4)
+	lea	20(sp),sp			; pop stack
+	moveq	1,n0				; restore 0
+	signal	failure("cannot get connected directory")
+newdev:	loop
+		move	n2,4(sp)		; file desc
+		lea	dbuf,r1
+		move	r1,8(sp)		; buffer
+		movew	%dirblksiz,14(sp)	; number of bytes
+		move	%getdirentries, n0
+		move	n0, -(sp)
+		trap	0
+		bcs	coops
+		tst	n0
+		beq	coops
+		move	n0,n3			; end of buffer
+		add	r1,n3
+		qloop
+			tst	(r1)		; in use?
+			beq	bump
+			lea	d%name(r1),r3	; name
+			move	r3,4(sp)
+			move	r2,8(sp)	; buffer
+			moveq	%stat,n0	; get status
+			move	n0,-(sp)
+			trap	0
+			bcs	bump
+			cmpw	(r2),n4		; same device?
+			bne	bump
+			cmp	st%ino(r2),n5	; same inode?
+			beq	close
+bump:			addaw	d%reclen(r1),r1	; bump to next entry
+			cmp	r1,n3
+			bgt	this
+		end
+	end
+xoops:	move	n2,4(sp)			; file desc
+coops:	moveq	%close,n0			; close file
+	move	n0,-(sp)
+	trap	0
+	bra	oops
+cdone:	moveq	%close,n0			; close file
+	move	n0,-(sp)
+	trap	0
+done:	lea	4(rr),r1			; name
+	move	r1,4(sp)
+	moveq	%chdir,n0			; reset working dir
+	move	n0,-(sp)
+	trap	0
+	suba	r1,r1
+	clr	4(sp)
+	lea	20(sp),sp			; pop stack
+	moveq	1,n0				; restore 0
+	move	rr,dir
+	return(rr)
+	end connected_dir

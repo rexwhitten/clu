@@ -1,0 +1,103 @@
+%% Copyright Massachusetts Institute of Technology 1984, 1989
+
+#extend
+
+Setup_Special_Symbols = proc (Env: lnk_env);
+    abs_syms = sequence[abs_sym];
+    abs_sym = struct[ Addr: int,
+		      Sym:  string ];
+    vBase = vLow_Address
+    Absolute_Symbols = abs_syms$[
+			   abs_sym${ Addr: vBase + 010,
+				     Sym:  "Start"},    % start address
+			   abs_sym${ Addr: vBase + 014,
+				     Sym:  "Rtntab"},   % code range to routine record table
+			   abs_sym${ Addr: vBase + 020,
+				     Sym:  "Namtab"},   % routine name to routine record table
+			   abs_sym${ Addr: vBase + 024,
+				     Sym:  "Ochain"},   % others exception handling chain
+			   abs_sym${ Addr: vBase + 030,
+				     Sym:  "Fchain"},   % failure exception handling chain
+			   abs_sym${ Addr: vBase + 034,
+				     Sym:  "Segmap"},   % address of segment map
+			   abs_sym${ Addr: vBase + 040,
+				     Sym:  "Stksz"},    % Size of stack
+			   abs_sym${ Addr: vBase + 044,
+				     Sym:  "Heapsz"},   % size of heap
+			   abs_sym${ Addr: vBase + 050,
+				     Sym:  "Version"},  % version number
+			   abs_sym${ Addr: vBase + 054,
+				     Sym:  "JCLSize"}   % base of stack
+				 ];
+
+    A_Syms: a_symbols := Env.Mach_Dependent.A_Symbols;
+    A_Strs: a_strings := Env.Mach_Dependent.A_Strings;
+    for Abs_Symbol: abs_sym in abs_syms$Elements(Absolute_Symbols) do
+	a_symbols$AddH(A_Syms,
+		       a_symbol$Create_Text(Abs_Symbol.Sym,
+					    address$Make_Specific(Abs_Symbol.Addr),
+					    A_Strs)
+		       );
+	end;
+    begin
+	Spcl_In: stream := Open_Read(System_Root() || vSyms_File);
+	Base_Addr: address := Env.Locates.Globals.Start_Address;
+	while (true) do
+	    %% Must be in form
+	    %%  "<octal offset><space or tab><string><space or tab plus anything to eol>"
+	    Ofst: int;
+	    Name: string;
+	    while (true) do
+		Ofst := I_OParse(stream$GetS(Spcl_In, " \t"));
+		   except when Bad_Format,
+			       Overflow:
+			       stream$GetC(Spcl_In);
+			       stream$GetL(Spcl_In);
+			       continue;
+			  end;
+		stream$GetC(Spcl_In);
+		break;
+		end;
+	    Name := stream$GetS(Spcl_In, " \t\n");
+	    a_symbols$AddH(A_Syms,
+			   a_symbol$Create_Data(Name,
+						address$Advance(Base_Addr, Ofst),
+						A_Strs)
+			   );
+	    if (stream$GetC(Spcl_In) ~= '\n')
+	       then stream$GetL(Spcl_In);
+	       end;
+	    end;
+	   except when End_of_File:
+		  end;
+	stream$Close(Spcl_In);
+	end;
+       except Others:
+	      end;
+    %% Extra specials;
+    Locs: locates := Env.Locates;
+    a_symbols$AddH(A_Syms,
+		   a_symbol$Create_BSS("Consts",
+				       Locs.Consts.Low_Address,
+				       A_Strs));
+    a_symbols$AddH(A_Syms,
+		   a_symbol$Create_BSS("Signals",
+				       Locs.Sigs.Low_Address,
+				       A_Strs));
+    a_symbols$AddH(A_Syms,
+		   a_symbol$Create_BSS("Excepts",
+				       Locs.Excepts.Low_Address,
+				       A_Strs));
+    a_symbols$AddH(A_Syms,
+		   a_symbol$Create_BSS("SegMap",
+				       Locs.Seg_Map.Low_Address,
+				       A_Strs));
+    a_symbols$AddH(A_Syms,
+		   a_symbol$Create_BSS("Owns",
+				       Locs.Owns.Low_Address,
+				       A_Strs));
+    a_symbols$AddH(A_Syms,
+		   a_symbol$Create_BSS("Wvecs",
+				       Locs.W_Vecs.Low_Address,
+				       A_Strs));
+    end Setup_Special_Symbols;

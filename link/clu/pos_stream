@@ -1,0 +1,55 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+pos_stream = cluster is make_none, make_str,
+			change_none, change_str,
+			is_none, is_str,
+			value_none, value_str,
+			print, _gcd;
+
+    rep = variant[ None: null,
+		   Str:  stream ];
+
+    Make_None = proc (N: null) returns (cvt);
+	return (rep$Make_None(N));
+	end Make_None;
+
+    Make_Str = proc (Str: stream) returns (cvt);
+	return (rep$Make_Str(Str));
+	end Make_Str;
+
+    Change_None = proc (PS: cvt, N: null);
+	rep$Change_None(PS, N);
+	end Change_None;
+
+    Change_Str = proc (PS: cvt, Str: stream);
+	rep$Change_Str(PS, Str);
+	end Change_Str;
+
+    Is_None = proc (PS: cvt) returns (bool);
+	return (rep$Is_None(PS));
+	end Is_None;
+
+    Is_Str = proc (PS: cvt) returns (bool);
+	return (rep$Is_Str(PS));
+	end Is_Str;
+
+    Value_None = proc (PS: cvt) returns (null) signals (wrong_tag);
+	return (rep$Value_None(PS));
+	   resignal Wrong_Tag;
+	end Value_None;
+
+    Value_Str = proc (PS: cvt) returns (stream) signals (wrong_tag);
+	return (rep$Value_Str(PS));
+	   resignal Wrong_Tag;
+	end Value_Str;
+
+    Print = proc (PS: cvt, S: pstream);
+	rep$Print(PS, S);
+	end Print;
+
+    _gcd = proc (PS: cvt, Tab: gcd_tab) returns (int);
+	drep = variant[ None: null,
+			Str:  null ];
+	return (drep$_gcd(_cvt[rep, drep](PS), Tab));
+	end _gcd;
+    end pos_stream;

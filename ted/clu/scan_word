@@ -1,0 +1,44 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+scan_word = proc (b: buf, line, pos, arg: int, neg: bool, chars: string)
+	      returns (int, int)
+    sign: int := 1
+    if arg = 0
+       then return(line, pos)
+     elseif arg < 0
+       then sign := -1
+	    arg := -arg
+	    if pos = 1
+	       then if line = 1
+		       then return(line, pos) end
+		    line := line - 1
+		    pos := string$size(b[line]) + 1
+	       else pos := pos - 1
+	       end
+     end
+    c: char
+    nope: bool := true
+    for c, line, pos in scan_buf_chars(b, line, pos, sign) do
+	if neg ~= ((c >= 'a'  cand  c <= 'z')  cor
+		   (c >= '0'  cand  c <= '9')  cor
+		   (c >= 'A'  cand  c <= 'Z')  cor
+		   string$indexc(c, chars) > 0)
+	   then nope := false
+	 elseif ~nope
+	   then arg := arg - 1
+		if arg = 0
+		   then if sign < 0
+			   then if c = '\n'
+				   then line := line + 1
+					pos := 1
+				   else pos := pos + 1
+				   end
+			   end
+			return(line, pos)
+		   end
+		nope := true
+	 end
+	end
+    if sign > 0
+       then pos := string$size(b[line]) + 1 end
+    return(line, pos)
+    end scan_word

@@ -1,0 +1,217 @@
+;; Copyright Massachusetts Institute of Technology 1985, 1989
+
+_byteptr8 = cluster is create, reset, next, peek, deposit, adjust, empty,
+		       get_buf, get_index, get_count, equal, similar, copy,
+		       _gcd
+
+bp%buf	= 4				;; _wordvec
+bp%nidx = 8				;; index of next byte (offset from buf)
+bp%max = 12				;; max index (as offset from buf).
+
+bpsiz = 14				;; 3 * 4 + 2 (header of bp8 object)
+bplen = 16				;; Size in bytes of a bp8 object.
+
+create = qproc (wv: _wordvec, i, cnt: int) returns (cvt)
+					  signals (bounds, negative_size)
+	; start index i, cnt bytes
+	movea	wv, r1
+	move	(r1), n1		;; Size of bv as a CLU int.
+	move	i, n4			;; i as a CLU int
+	subq	2, n4			;; Get (i - 1) as a CLU int.
+	ifle	cmp	n0, n4		;; Make sure i is positive (i-1 >= 0)
+		blt	next
+		cmp	n1, n4		;; Check bounds.
+	then	ifgt	move	rr, n3	;; Check length.
+		then	ifgt	eorb	n0, n4	;; Kill low bit in n4
+				add	n3, n4	;; i-1+cnt as a CLU int
+				cmp	n1, n4	;; end = min{i-1+cnt,bv size}
+			then	move	n1, n4 	
+				end
+			move	bplen, n2
+			movea	heaphi, rr
+			iflt	sub	n2, freecnt	;; Alloc mem for the bp.
+			then	jsr	memout
+				end
+			add	n2, heaphi
+			move	bpsiz, (rr)	;; Store header
+			move	r1, bp%buf(rr)	;; and rest.
+			move	i, n3
+			addq	6, n3	;; i + 3 as a CLU int.
+			move	n3, bp%nidx(rr)
+			addq	6, n4	;; end + 3 as a CLU int.
+			move	n4, bp%max(rr)
+			return (rr)
+			end
+		signal	negative_size
+		end
+	signal	bounds
+	end create
+
+reset = qproc (bp: cvt, wv: _wordvec, i, cnt: int)
+						signals (bounds, negative_size)
+	; start index i, cnt bytes
+	movea	wv, r1
+	move	(r1), n1		;; Size of bv as a CLU int.
+	move	i, n4			;; i as a CLU int
+	subq	2, n4			;; Get (i - 1) as a CLU int.
+	ifle	cmp	n0, n4		;; Make sure i is positive (i-1 >= 0)
+		blt	next
+		cmp	n1, n4		;; Check bounds.
+	then	ifgt	move	rr, n3	;; Check length.
+		then	ifgt	eorb	n0, n4	;; Kill low bit in n4
+				add	n3, n4	;; i-1+cnt as a CLU int
+				cmp	n1, n4	;; end = min{i-1+cnt,bv size}
+			then	move	n1, n4 	
+				end
+			movea	bp, r2
+			move	r1, bp%buf(r2)	;; and rest.
+			move	i, n3
+			addq	6, n3	;; i + 3 as a CLU int.
+			move	n3, bp%nidx(r2)
+			addq	6, n4	;; end + 3 as a CLU int.
+			move	n4, bp%max(r2)
+			return
+			end
+		signal	negative_size
+		end
+	signal	bounds
+	end reset
+
+next = qproc (bp: cvt) returns (int) signals (bounds)
+	; read byte and increment index
+	ifgt	move	bp%nidx(rr), n1	;; Any left?
+		cmp	bp%max(rr), n1
+	then	signal	bounds
+		end
+	asr	1, n1			;; De-integerize index.
+	movea	bp%buf(rr), r1
+	clr	n2
+	moveb	(r1, n1), n2		;; Get the byte
+	add	n2, n2
+	addqb	1, n2			;; Integerize it.
+	addq	2, bp%nidx(rr)		;; Increment the "next" index.
+	return (n2)
+	end next
+
+peek = qproc (bp: cvt) returns (int) signals (bounds)
+	; peek at next byte
+	ifgt	move	bp%nidx(rr), n1	;; Any left?
+		cmp	bp%max(rr), n1	
+	then	signal	bounds
+		end
+	asr	1, n1			;; De-integerize nidx.
+	movea	bp%buf(rr), r1
+	clr	n2
+	moveb	(r1, n1), n2		;; Get the next byte
+	add	n2, n2
+	addqb	1, n2			;; Integerize it.
+	return (n2)
+	end peek
+
+deposit = qproc (bp: cvt, i: int) signals (bounds)
+	; write byte and increment index
+	movea	bp, r1
+	ifgt	move	bp%nidx(r1), n1	;; Any left?
+		cmp	bp%max(r1), n1
+	then	signal	bounds
+		end
+	asr	1, n1			;; De-integerize nidx.
+	movea	bp%buf(r1), r2
+	move	rr, n2
+	asr	1, n2			;; De-integerize byte.
+	moveb	n2, (r2, n1)
+	addq	2, bp%nidx(r1)		;; Increment index.
+	end deposit
+
+adjust = qproc (bp: cvt, disp: int) signals (bounds)
+	; move disp bytes relative to current position
+	movea	bp, r1
+	move	bp%nidx(r1), n1
+	eorb	n0, n1			;; Kill low bit of n1.
+	adda	n1, rr			;; Get nidx + disp as a CLU int.
+	ifle	cmpa	7, rr		;; In bounds? ((nidx + disp) > 3)
+		ble	next
+		cmpa	bp%max(r1), rr
+	then	move	rr, bp%nidx(r1)	;; Store new index.
+		return
+		end
+	signal	bounds	
+	end adjust
+
+empty = qproc (bp: cvt) returns (bool)
+	; test if next read/write will fail
+	ifgt	move	bp%nidx(rr), n1
+		cmp	bp%max(rr), n1
+	then	return (true)
+		end
+	return (false)
+	end empty
+
+get_buf = qproc (bp: cvt) returns (_wordvec)
+	movea	bp%buf(rr), rr
+	return	(rr)
+	end get_buf
+
+get_index = qproc (bp: cvt) returns (int)
+	; get next index to be read/written
+	movea	bp%nidx(rr), rr
+	subq	6, rr			;; index as a LCU int.
+	return (rr)
+	end get_index
+
+get_count = qproc (bp: cvt) returns (int)
+	; get count of remaining bytes to read/write
+	move	bp%max(rr), n2
+	addq	2, n2			;; Get (max + 1) as a CLU int.
+	move	bp%nidx(rr), n1
+	eorb	n0, n1			;; Kill low bit of nidx
+	sub	n1, n2			;; Count as a CLU int.
+	return (n2)
+	end get_count
+
+equal = qproc (bp1, bp2: cvt) returns (bool)
+	; object identity
+	ifeq	cmpa	bp1, rr
+	then	return (true)
+		end
+	return (false)
+	end equal
+
+similar = qproc (bp1, bp2: cvt) returns (bool)
+	; same buf, index, and count
+	movea	bp1, r1
+	addq	4, r1
+	ifeq	movem	(r1)+, n1/n2/n3
+		movea	n0, r1		;; Make r1 a valid ref.
+		cmp	bp%buf(rr), n1
+		bne	next
+		cmp	bp%nidx(rr), n2
+		bne	next
+		cmp	bp%max(rr), n3
+	then	return (true)
+		end
+	return (false)
+	end similar
+
+copy = qproc (bp: cvt) returns (cvt)
+	; really copy1
+	movea	rr, r1			;; Save bp to be copied.
+	move	bplen, n2
+	movea	heaphi, rr
+	iflt	sub	n2, freecnt	;; Alloc mem for the new byteptr
+	then	jsr	memout
+		end
+	add	n2, heaphi
+	move	(r1), (rr)		;; Copy header.
+	move	4(r1), 4(rr)		;; Copy buf pointer.
+	move	8(r1), 8(rr)		;; Copy nidx.
+	move	12(r1), 12(rr)		;; Copy max.
+	return (rr)
+	end copy
+
+_gcd = proc (bp: cvt, tab: gcd_tab) returns (int)
+	gcd_tab$%insert(rr, bplen, <3:[_wordvec$_gcd, int$_gcd, int$_gcd]>, bp)
+	return (rr)
+	end _gcd
+
+end _byteptr8

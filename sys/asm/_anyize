@@ -1,0 +1,19 @@
+; Copyright Massachusetts Institute of Technology 1980, 1989
+
+_anyize = qproc [t: type] (x: t) returns (any)
+	move	t,n1
+	ifeq	cmp	any,n1		; don't anyize ANY
+	then	return(rr)
+	end
+	ori	%cell,,0,n1		; get header
+	movea	rr,r1
+	moveq	8,n2			; get byte count
+	movea	heaphi,rr		; alloc
+	iflt	sub	n2,freecnt
+	then	jsr	memout
+	end
+	add	n2,heaphi
+	move	n1,(rr)
+	move	r1,4(rr)
+	return(rr)
+	end _anyize

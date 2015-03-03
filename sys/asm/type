@@ -1,0 +1,23 @@
+; Copyright Massachusetts Institute of Technology 1980, 1989
+
+type = cluster is equal, similar, copy
+
+equal = qproc (t1, t2: cvt) returns (bool)
+	moveq	0,n1
+	cmpa	t1,rr
+	seq	n1
+	return(n1)
+	end equal
+
+similar = qproc (t1, t2: cvt) returns (bool)
+	moveq	0,n1
+	cmpa	t1,rr
+	seq	n1
+	return(n1)
+	end similar
+
+copy = qproc (t: cvt) returns (cvt)
+	return(rr)
+	end copy
+
+end type

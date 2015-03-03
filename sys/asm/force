@@ -1,0 +1,13 @@
+; Copyright Massachusetts Institute of Technology 1980, 1989
+
+force = qproc [t: type] (x: any) returns (t) signals (wrong_type)
+	move	t,n1
+	ifeq	cmp	any,n1		; don't force ANY
+	then	return(rr)
+	end
+	movem	(rr),n5/rr		; get type and value
+	ifeq	cmpw	n1,n5
+	then	return(rr)
+	end
+	signal	wrong_type
+	end force

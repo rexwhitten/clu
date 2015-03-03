@@ -1,0 +1,3078 @@
+;; Copyright Massachusetts Institute of Technology 1980, 1989
+
+_chan = cluster is open, _open, pipe,
+		   primary_input, primary_output, error_output, nul,
+		   control, lock, sync, reset, close, abort,
+		   is_tty,
+		   getc, geti, getb, getbv, getw, getwv, get, recv, recvfrom,
+		   pending, pend_count, buf_count,
+		   putc, puti, puts, putb, putw, put, send, sendto,
+		   read_wait, write_wait, wait,
+		   listen, accept, bind, connect, shutdown, peername, sockname,
+		   getsockopt, setsockopt,
+		   get_name, get_date, get_speeds, get_block_size, stat,
+		   get_access, set_access, get_length, set_length,
+		   equal, similar, copy,
+		   get_read_channel, get_write_channel,
+		   get_def_mode, set_def_mode,
+		   _save_tty, _restore_tty, close_all
+
+; REP is a vec with the following components:
+
+ch%fn	= 4		; file name
+ch%rd	= 8		; read file desc (or -1)
+ch%wr	= 12		; write file desc (or -1)
+ch%typ	= 16		; file type
+ch%new	= 18		; file is newly created
+ch%prm	= 19		; _chan is permanent
+
+ch%hd	= 18
+ch%blen = 20
+
+%tty	= 0		; hack for now
+%bty	= 1
+%nul	= 2
+%oth	= 3
+
+%ordonly = #0		; O_RDONLY
+%owronly = #1		; O_WRONLY
+%ordwr   = #2		; O_RDWR
+%oappend = #8		; O_APPEND
+%ocreat  = #200		; O_CREAT
+%otrunc  = #400		; O_TRUNC
+
+sg%flgs	= 5		; tty mode flags
+
+%cbreak	= 002		; CBREAK
+%echo	= 010		; ECHO
+%crmod	= 020		; CRMOD
+
+%tiocgetp = #4006,,#7408	; TIOCGETP
+%tiocsetp = #8006,,#7409	; TIOCSETP
+%tioclget = #4004,,#747c	; TIOCLGET
+%tioclset = #8004,,#747d	; TIOCLSET
+%tioclbis = #8004,,#747f	; TIOCLBIS
+%tioclbic = #8004,,#747e	; TIOCLBIC
+%tiocoutq = #4004,,#7473	; TIOCOUTQ
+%fionread = #4004,,#667f	; FIONREAD
+
+%llitout = 040		; LLITOUT
+
+%eintr	= 4
+
+st%dev	= 0		; device
+st%ino	= 2		; inode
+st%mod	= 6		; mode
+st%lnk	= 8		; link count
+st%uid	= 10		; user id
+st%gid	= 12		; group id
+st%rdev	= 14		; real? device
+st%siz	= 16		; size
+st%acc	= 20		; time of last access
+st%wrt	= 28		; time of last modification
+st%cre	= 36		; time of creation
+st%bsz	= 44		; optimal block size
+st%bks	= 48		; blocks allocated
+
+s%ifdir	= 004		; directory
+s%ifchr	= 002		; char special
+s%ifblk	= 006		; block special
+s%ifreg	= 010		; regular
+s%iflnk = 012		; symbolic link
+s%ifsoc = 014		; socket
+
+speeds = [50, 75, 110, 134, 150, 200, 300, 600,
+	  1200, 1800, 2400, 4800, 9600, 19200, 0,,#9600]
+
+sigmask = #ff7b,,#f0e0		; usual signal mask
+
+wvec	obuf {16}	; general buffer for system calls
+wvec	sbuf {2}	; initial tty status buffer
+wvec	lbuf {1}	; initial local mode buffer
+wvec	isbuf {2}	; interrupt tty status buffer
+wvec	ilbuf {1}	; interrupt local mode buffer
+wvec	iibuf {3}	; interrupt buffer for system calls
+wvec	defmod {1}	; default file creation mode
+own	pri		; primary input _chan
+own	pro		; primary output _chan
+own	ero		; error output _chan
+own	nul		; /dev/null _chan
+
+open = proc (fn: file_name, mode: string, fmode: int) returns (cvt)
+						signals (not_possible(string))
+	var	flags, ch
+	ift	string$equal(mode, "read")		; check mode
+	then	clr	flags
+	elft	string$equal(mode, "write")
+	then	move	%owronly+%otrunc+%ocreat,flags
+	elft	string$equal(mode, "append")
+	then	move	%owronly+%oappend+%ocreat,flags
+	elft	string$equal(mode, "random")
+	then	move	%ordwr+%otrunc+%ocreat,flags
+	elft	string$equal(mode, "modify")
+	then	move	%ordwr+%ocreat,flags
+	else	signal	not_possible("illegal access mode")
+	end
+	moveq	ch%hd,n1
+	moveq	ch%blen,n2
+	movea	heaphi,rr				; alloc
+	iflt	sub	n2,freecnt
+	then	jsr	memout
+	end
+	add	n2,heaphi
+	move	n1,(rr)
+	move	rr,ch
+	file_name_fill(fn, "")				; fill in dir part
+	movea	ch,r1
+	move	rr,ch%fn(r1)
+	file_name$unparse(rr)				; get string name
+	moveq	6,n1					; ASCIIZ
+	ifeq	and	(rr),n1
+	then	string$append(rr, '\000')
+	end
+	movea	ch,r1
+	ifeq	move	flags,n0
+		andib	%owronly+%ordwr,n0		; writing?
+		beq	next
+		addqb	1,ch%new(r1)			; yes
+		move	flags,n0
+		andiw	%ocreat+%otrunc,n0		; old?
+	then	clr	-(sp)				; maybe
+		pea	4(rr)
+		clr	-(sp)
+		moveq	%access,n0			; exists?
+		move	n0,-(sp)
+		trap	0
+		ifcc
+		then	clrb	ch%new(r1)		; yes
+		end
+		lea	12(sp),sp			; pop stack
+	end
+	move	fmode,n0
+	asr	1,n0
+	ifeq	move	n0,-(sp)			; mode bits
+		bne	next
+		move	defmod,(sp)
+	then	movew	0666,2(sp)
+	end
+	move	flags,-(sp)				; open flags
+	pea	4(rr)					; name
+	clr	-(sp)
+	moveq	%open,n0				; try to open
+	move	n0,-(sp)
+	trap	0
+	lea	16(sp),sp				; pop stack
+	bcs	error
+	move	flags,n1
+	ifeq	btst	0,n1				; store file desc
+	then	move	n0,ch%rd(r1)
+	else	subq	1,ch%rd(r1)
+	end
+	ifne	andib	%owronly+%ordwr,n1
+	then	move	n0,ch%wr(r1)
+	else	subq	1,ch%wr(r1)
+	end
+	moveb	%oth,ch%typ(r1)
+	lea	obuf,r2
+	move	r2,-(sp)				; buffer
+	move	%tiocgetp,-(sp)				; get status
+	move	n0,-(sp)				; file desc
+	clr	-(sp)
+	moveq	%ioctl,n0
+	move	n0,-(sp)
+	trap	0
+	ifcc
+	then	clrb	ch%typ(r1)			; tty
+		ifeq	move	ch%rd(r1),n0
+			cmp	ch%wr(r1),n0
+		then	orib	%cbreak+%crmod,sg%flgs(r2)
+			andib	-%echo+-1,sg%flgs(r2)
+			move	%tiocsetp,8(sp)		; set status
+			moveq	%ioctl,n0
+			move	n0,-(sp)
+			trap	0
+			ifcs
+			then	lea	16(sp),sp	; pop stack
+				bra	oops
+			end
+		end
+	end
+	lea	16(sp),sp				; pop stack
+	moveq	1,n0					; restore 0
+	move	ch%fn(r1),-(sp)
+	_fixup_file_name(*, false)
+	movea	ch,r1
+	move	rr,ch%fn(r1)
+	return(r1)
+oops:	move	n0,n1
+	move	ch%wr(r1),-(sp)
+	clr	-(sp)
+	moveq	%close,n0				; close it
+	move	n0,-(sp)
+	trap	0
+	addq	8,sp
+error:	movea	n0,rr
+	moveq	1,n0					; restore 0
+	lea	1(rr,rr),rr
+	_erstr(rr)
+	signal	not_possible(rr)
+	end open
+
+_open = proc (fn: file_name, flags, fmode: int) returns (cvt)
+						signals (not_possible(string))
+	var	nflags,ch
+	moveq	ch%hd,n1
+	moveq	ch%blen,n2
+	movea	heaphi,rr				; alloc
+	iflt	sub	n2,freecnt
+	then	jsr	memout
+	end
+	add	n2,heaphi
+	move	n1,(rr)
+	move	rr,ch
+	file_name_fill(fn, "")				; fill in dir part
+	movea	ch,r1
+	move	rr,ch%fn(r1)
+	file_name$unparse(rr)				; get string name
+	moveq	6,n1					; ASCIIZ
+	ifeq	and	(rr),n1
+	then	string$append(rr, '\000')
+	end
+	movea	ch,r1
+	move	flags,n0
+	asr	1,n0
+	move	n0,nflags
+	ifeq	andib	%owronly+%ordwr,n0		; writing?
+		beq	next
+		addqb	1,ch%new(r1)			; yes
+		move	nflags,n0
+		andiw	%ocreat+%otrunc,n0		; old?
+	then	clr	-(sp)				; maybe
+		pea	4(rr)
+		clr	-(sp)
+		moveq	%access,n0			; exists?
+		move	n0,-(sp)
+		trap	0
+		ifcc
+		then	clrb	ch%new(r1)		; yes
+		end
+		lea	12(sp),sp			; pop stack
+	end
+	move	fmode,n0
+	asr	1,n0
+	ifeq	move	n0,-(sp)			; mode bits
+		bne	next
+		move	defmod,(sp)
+	then	movew	0666,2(sp)
+	end
+	move	nflags,-(sp)				; open flags
+	pea	4(rr)					; name
+	clr	-(sp)
+	moveq	%open,n0				; try to open
+	move	n0,-(sp)
+	trap	0
+	bcs	error
+	lea	16(sp),sp				; pop stack
+	move	nflags,n1
+	ifeq	btst	0,n1				; store file desc
+	then	move	n0,ch%rd(r1)
+	else	subq	1,ch%rd(r1)
+	end
+	ifne	andib	%owronly+%ordwr,n1
+	then	move	n0,ch%wr(r1)
+	else	subq	1,ch%wr(r1)
+	end
+	moveb	%oth,ch%typ(r1)
+	lea	obuf,r2
+	move	r2,-(sp)				; buffer
+	move	%tiocgetp,-(sp)				; get status
+	move	n0,-(sp)				; file desc
+	clr	-(sp)
+	moveq	%ioctl,n0
+	move	n0,-(sp)
+	trap	0
+	ifcc
+	then	clrb	ch%typ(r1)			; tty
+		ifeq	move	ch%rd(r1),n0
+			cmp	ch%wr(r1),n0
+		then	orib	%cbreak+%crmod,sg%flgs(r2)
+			andib	-%echo+-1,sg%flgs(r2)
+			move	%tiocsetp,8(sp)		; set status
+			moveq	%ioctl,n0
+			move	n0,-(sp)
+			trap	0
+			ifcs
+			then	lea	16(sp),sp	; pop stack
+				bra	oops
+			end
+		end
+	end
+	lea	16(sp),sp				; pop stack
+	moveq	1,n0					; restore 0
+	move	ch%fn(r1),-(sp)
+	_fixup_file_name(*, false)
+	movea	ch,r1
+	move	rr,ch%fn(r1)
+	return(r1)
+oops:	move	n0,n1
+	move	ch%wr(r1),-(sp)
+	clr	-(sp)
+	moveq	%close,n0				; close it
+	move	n0,-(sp)
+	trap	0
+	addq	8,sp
+error:	movea	n0,rr
+	moveq	1,n0					; restore 0
+	lea	1(rr,rr),rr
+	_erstr(rr)
+	signal	not_possible(rr)
+	end _open
+
+pipe = proc () returns (cvt, cvt) signals (not_possible(string))
+	file_name$parse("/dev/pipe")
+	movea	rr,r1
+	moveq	ch%hd,n1
+	moveq	ch%blen,n2
+	movea	heaphi,rr				; alloc
+	iflt	sub	n2,freecnt
+	then	jsr	memout
+	end
+	add	n2,heaphi
+	move	n1,(rr)
+	move	r1,ch%fn(rr)
+	subq	1,ch%wr(rr)
+	moveb	%oth,ch%typ(rr)
+	movea	rr,r2
+	moveq	ch%blen,n2
+	movea	heaphi,rr				; alloc
+	iflt	sub	n2,freecnt
+	then	jsr	memout
+	end
+	add	n2,heaphi
+	move	n1,(rr)
+	move	r1,ch%fn(rr)
+	subq	1,ch%rd(rr)
+	moveb	%oth,ch%typ(rr)
+	moveq	%pipe,n0				; create pipe
+	move	n0,-(sp)
+	ifcc	trap	0
+	then	move	n0,ch%rd(r2)			; read file desc
+		move	n1,ch%wr(rr)			; write file desc
+		moveq	1,n0				; restore 0
+		return(r2, rr)
+	end
+	movea	n0,rr
+	moveq	1,n0					; restore 0
+	lea	1(rr,rr),rr
+	_erstr(rr)
+	signal	failure(rr)
+	end pipe
+
+socket = proc (family, socktype, protocol: int) returns (cvt)
+						signals (not_possible(string))
+	;; create a socket.
+	file_name$parse("/dev/socket")
+	movea	rr, r1			;; Save file name.
+
+	moveq	ch%hd, n1
+	moveq	ch%blen, n2
+	movea	heaphi, rr		;; Create a new _chan object.
+	iflt	sub	n2, freecnt
+	then	jsr	memout
+		end
+	add	n2, heaphi
+	move	n1, (rr)		;; Store header.
+	move	r1, ch%fn(rr)		;; Fill in the _chan.
+	moveb	%oth, ch%typ(rr)
+
+	move	protocol, n4
+	asr	1, n4			;; De-integerize protocol
+	move	socktype, n3
+	asr	1, n3			;; De-integerize socktype
+	move	family, n2
+	asr	1, n2   		;; De-integerize family
+	sub	n1, n1			;; Hack pc.
+	moveq	%socket, n0
+	movem	n4/n3/n2/n1/n0, -(sp)	;; Push the args.
+	trap	0			;; Create the socket.
+	scc	n1			;; Remember carry.
+	addq	4, sp			;; Pop hack pc.
+	clr	(sp)+			;; Pop and clear stack args.
+	clr	(sp)+
+	clr	(sp)+
+	ifne	tstb	n1		;; Did the create succeed?
+	then	move	n0, ch%rd(rr)	;; Yes.
+		move	n0, ch%wr(rr)
+		moveq	1, n0		;; Restore n0
+		return (rr)
+		end
+	movea	n0, rr
+	lea	1(rr, rr), rr		;; Save and integerize error code.
+	moveq	1, n0			;; Restore n0.
+	_erstr(rr)
+	signal	not_possible(rr)	
+	end socket
+
+socketpair = proc (domain, socktype, protocol: int) returns (cvt, cvt)
+						signals (not_possible(string))
+	;; create a pair of sockets
+	file_name$parse("/dev/socket")
+	movea	rr, r2			;; Save file name.
+
+	moveq	ch%hd, n1
+	moveq	ch%blen, n2
+	movea	heaphi, rr		;; Create first new _chan obj.
+	iflt	sub	n2, freecnt
+	then	jsr	memout
+		end
+	add	n2, heaphi
+	move	n1, (rr)		;; Store header.
+	move	r2, ch%fn(rr)		;; Fill in the _chan.
+	moveb	%oth, ch%typ(rr)
+	movea	rr, r1			;; Save first _chan.
+	movea	heaphi, rr		;; Create second new _chan obj.
+	iflt	sub	n2, freecnt
+	then	jsr	memout
+		end
+	add	n2, heaphi
+	move	n1, (rr)		;; Store header.
+	move	r2, ch%fn(rr)		;; Fill in the _chan.
+	moveb	%oth, ch%typ(rr)
+
+	pea	obuf			;; Buffer for returned sockets.
+	move	protocol, n4
+	asr	1, n4			;; De-integerize protocol
+	move	socktype, n3
+	asr	1, n3			;; De-integerize socktype
+	move	domain, n2
+	asr	1, n2			;; De-integerize domain
+	sub	n1, n1			;; Hack pc.
+	move	%socketpair, n0
+	movem	n4/n3/n2/n1/n0, -(sp)	;; Push args.
+	trap	0
+	scc	n1			;; Remember state of carry.
+	addq	4, sp			;; Pop pc.
+	clr	(sp)+			;; Pop and clear args.
+	clr	(sp)+
+	clr	(sp)+
+	clr	(sp)+
+	ifne	tstb	n1		;; Did the create succeed?
+	then	lea	obuf, r2	;; Yes.
+		move	(r2), ch%rd(r1)
+		move	(r2), ch%wr(r1)
+		move	4(r2), ch%rd(rr)
+		move	4(r2), ch%wr(rr)
+		moveq	1, n0		;; Restore n0.
+		return (r1, rr)
+		end
+	movea	n0, rr
+	lea	1(rr, rr), rr		;; Save and integerize error code.
+	moveq	1,n0			;; Restore n0.
+	_erstr(rr)
+	signal	not_possible(rr)
+	end socketpair
+
+primary_input = proc () returns (cvt)
+	ifeq	tst	pri				; got it?
+	then	moveq	ch%hd,n1			; no
+		moveq	ch%blen,n2
+		movea	heaphi,rr			; alloc
+		iflt	sub	n2,freecnt
+		then	jsr	memout
+		end
+		add	n2,heaphi
+		move	n1,(rr)
+		subq	1,ch%wr(rr)
+		move	rr,pri
+		_chan$%set_tty(rr)
+	end
+	return(pri)
+	end primary_input
+
+primary_output = proc () returns (cvt)
+	ifeq	tst	pro				; got it?
+	then	moveq	ch%hd,n1			; no
+		moveq	ch%blen,n2
+		movea	heaphi,rr			; alloc
+		iflt	sub	n2,freecnt
+		then	jsr	memout
+		end
+		add	n2,heaphi
+		move	n1,(rr)
+		subq	1,ch%rd(rr)
+		move	n0,ch%wr(rr)
+		move	rr,pro
+		_chan$%set_tty(rr)
+	end
+	return(pro)
+	end primary_output
+
+recv = proc (ch: cvt, buf: _wordvec, flags: int) returns (int)
+						signals (not_possible(string))
+	;; receive a message in buf
+	;; flags are as in recv Unix system call
+	;; returns length of message read
+	movea	ch, r1
+	ifge	move	ch%rd(r1), n3	;; File desc.
+	then	move	rr, n2
+		asr	1, n2		;; De-integerize flags.
+		movea	buf, r1
+		move	(r1), n1
+		asr	1, n1		;; De-integerize buffer length.
+		movem	n2/n1, -(sp)	;; Push flags and len.
+		pea	4(r1)		;; Push buffer addr.
+		move	n3, -(sp)	;; Push file desc.
+		clr	-(sp)		;; Hack pc.
+		qloop
+			moveq	%recv, n0
+			move	n0, -(sp)
+			ifcs	trap	0
+			then	cmpi	%eintr, n0	;; Interrupted?
+				beq	this
+				sf	n1
+			else	st	n1
+				end
+
+			addq	8, sp	;; Clean up. Pop pc and file desc.
+			clr	(sp)+	;; Pop and clear other args.
+			clr	(sp)+
+			clr	(sp)+
+			movea	n0, rr
+			lea	1(rr, rr), rr	;; Save and integerize result.
+			moveq	1, n0	;; Restore n0
+
+			tstb	n1	;; Did the call succeed?
+			bne	next
+			_erstr(rr)	;; No.
+			signal	not_possible(rr)
+			end
+		return (rr)		;; Yes.
+		end
+	signal	not_possible ("cannot read from this _chan")
+	end recv
+
+recvfrom = proc (ch: cvt, buf: _wordvec, flags: int, addr: _wordvec)
+			returns (int, int) signals (not_possible(string))
+	;; receive a message in bug
+	;; flags are as in recvfrom Unix system call
+	;; sender address is stored inaddr
+	;; returns length of message read and length of addr stored
+
+	movea	ch, r1
+	ifge	move	ch%rd(r1), n1	;; File desc.
+	then	lea	obuf, r1	;; Buffer to receive addr length.
+                move    (rr), n2
+		asr	1, n2
+		move	n2, (r1)	;; Current size of addr (de-int-ized)
+		addq	4, rr		;; addr address.
+		move	flags, n4
+		asr	1, n4		;; De-integerize flags.
+		movea	buf, r2
+		move	(r2), n3
+		asr	1, n3		;; De-integerize buffer length.
+		move	r2, n2
+		addq	4, n2		;; buf address.
+		sub	n0, n0		;; Hack pc.
+		movem	r1/rr/n4/n3/n2/n1/n0, -(sp);; Push all.
+		qloop
+			moveq	%recvfrom, n0
+			move	n0, -(sp)
+			ifcs	trap	0
+			then	cmpi	%eintr, n0	;; Interrupted?
+				beq	this
+				sf	n1
+			else	st	n1
+				end
+
+			addq	8, sp	;; Clean up. Pop pc and file desc.
+			clr	(sp)+	;; Pop and clear other args.
+			clr	(sp)+
+			clr	(sp)+
+			clr	(sp)+
+			clr	(sp)+
+			movea	n0, r1
+			lea	1(r1, r1), r1	;; Save and integerize result.
+			moveq	1, n0	;; Restore n0
+
+			tstb	n1	;; Did the call succeed?
+			bne	next
+			_erstr(r1)	;; No.
+			signal	not_possible(r1)
+			end
+		movea	obuf, rr	;; Yes, get new addr len.
+		lea	1(rr, rr), rr	;; Integerize.
+		return (r1, rr)		;; Return new buf len and addr len.
+		end
+	signal	not_possible ("cannot read from this _chan")
+	
+	end recvfrom
+
+
+%set_tty = proc (ch: cvt)
+	file_name$parse("/dev/p")		; get file name
+	movea	ch,r1
+	move	rr,ch%fn(r1)
+	moveb	n0,ch%prm(r1)			; show permanent
+	iflt	move	ch%rd(r1),n1		; file desc
+	then	move	ch%wr(r1),n1
+	end
+	lea	sbuf,r3
+	move	r3,-(sp)			; buffer
+	move	%tiocgetp,-(sp)			; get status
+	move	n1,-(sp)			; file desc
+	clr	-(sp)
+	moveq	%ioctl,n0
+	move	n0,-(sp)
+	trap	0
+	lea	16(sp),sp			; pop stack
+	ifcs
+	then	clr	-12(sp)			; not tty
+		moveb	%oth,ch%typ(r1)
+		moveq	1, n0		;; Restore n0.
+		return
+	end
+	lea	obuf,r2
+	move	r2,-(sp)			; buffer
+	clr	-(sp)				; file desc
+	clr	-(sp)
+	moveq	%fstat,n0			; get status
+	move	n0,-(sp)
+	trap	0
+	movew	(r2),n1				; get device
+	move	st%ino(r2),n2			; and inode
+	addqb	1,7(sp)				; other file desc
+	moveq	%fstat,n0			; get status
+	move	n0,-(sp)
+	trap	0
+	lea	12(sp),sp			; pop stack
+	ifne	cmpw	(r2),n1			; save device?
+		bne	this
+		cmp	st%ino(r2),n2		; same inode?
+	then	moveb	%bty,ch%typ(r1)		; no
+		moveq	1, n0		;; Restore n0.
+		return
+	end
+	clr	ch%rd(r1)
+	moveq	1,n0
+	move	n0,ch%wr(r1)
+	move	r1,pri
+	move	r1,pro
+	move	(r3),(r2)			; copy status
+	move	4(r3),4(r2)
+	orib	%cbreak+%crmod,sg%flgs(r2)
+	andib	-%echo+-1,sg%flgs(r2)
+	move	r2,-(sp)			; buffer
+	move	%tiocsetp,-(sp)			; set status
+	clr	-(sp)				; file desc
+	clr	-(sp)
+	moveq	%ioctl,n0
+	move	n0,-(sp)
+	trap	0
+	lea	lbuf,r1
+	move	r1,12(sp)			; buffer
+	move	%tioclget,8(sp)			; get local mode
+	moveq	%ioctl,n0
+	move	n0,-(sp)
+	trap	0
+	lea	16(sp),sp			; pop stack
+	moveq	1,n0				; restore 0
+	ifeq	tst	wrpipe
+	then	lea	obuf,rr
+		lea	tdie,r1
+		move	r1,(rr)			; address
+		move	sigmask,4(rr)		; mask
+		move	n0,8(rr)		; on stack
+		pea	12(rr)			; buffer
+		move	rr,-(sp)		; buffer
+		moveq	2,n0			; SIGINT
+		move	n0,-(sp)
+		clr	-(sp)
+		moveq	%sigvec,n1		; enable
+		move	n1,-(sp)
+		trap	0
+		moveq	3,n0			; SIGQUIT
+		move	n0,4(sp)
+		move	n1,-(sp)		; enable
+		trap	0
+		ifne	tst	12(rr)		; was it default?
+		then	move	12(sp),8(sp)	; no, restore it
+			clr	12(sp)
+			move	n1,-(sp)	; enable
+			trap	0
+			move	8(sp),12(sp)
+			move	rr,8(sp)
+		end
+		moveq	4,n0			; SIGILL
+		move	n0,4(sp)
+		move	n1,-(sp)		; enable
+		trap	0
+		moveq	10,n0			; SIGBUS
+		move	n0,4(sp)
+		move	n1,-(sp)		; enable
+		trap	0
+		moveq	11,n0			; SIGSEGV
+		move	n0,4(sp)
+		move	n1,-(sp)		; enable
+		trap	0
+		lea	tstop,r1		; address
+		move	r1,(rr)
+		moveq	18,n0			; SIGTSTP
+		move	n0,4(sp)
+		move	n1,-(sp)		; enable
+		trap	0
+		lea	16(sp),sp
+		moveq	1,n0			; restore 0
+	end
+	return
+tdie:	move	(sp),n1				; signal
+	lea	iibuf,rr
+	clr	(rr)				; back to default
+	clr	4(rr)
+	clr	8(rr)
+	clr	-(sp)				; buffer
+	move	rr,-(sp)			; buffer
+	move	n1,-(sp)			; signal
+	clr	-(sp)
+	moveq	%sigvec,n0			; reset
+	move	n0,-(sp)
+	trap	0
+	move	n1,8(sp)			; signal
+	moveq	%getpid,n0			; get process pid
+	move	n0,-(sp)
+	trap	0
+	move	n0,4(sp)			; pid
+	moveq	%kill,n0			; do it
+	move	n0,-(sp)
+	trap	0
+	_chan$_save_tty()			; save tty
+	lea	20(sp),sp
+	move	139,(sp)			; cleanup
+	trap	0
+tstop:	movem	n0/n1/rr/r1,-(sp)		; save regs
+	_chan$_save_tty()			; save tty
+	lea	iibuf,rr
+	clr	(rr)				; back to default
+	clr	4(rr)
+	clr	8(rr)
+	clr	-(sp)				; buffer
+	move	rr,-(sp)			; buffer
+	moveq	18,n1				; SIGTSTP
+	move	n1,-(sp)			; signal
+	clr	-(sp)
+	moveq	%sigvec,n0			; reset
+	move	n0,-(sp)
+	trap	0
+	move	n1,8(sp)			; signal
+	moveq	%getpid,n0			; get process pid
+	move	n0,-(sp)
+	trap	0
+	move	n0,4(sp)
+	moveq	%kill,n0			; do it
+	move	n0,-(sp)
+	trap	0
+	clr	4(sp)				; allow all
+	moveq	%sigsetmask,n1
+	move	n1,-(sp)
+	trap	0
+	move	n0,4(sp)			; disallow
+	move	n1,-(sp)
+	trap	0
+	_chan$_restore_tty()
+	lea	iibuf,rr
+	lea	tstop,r1			; address
+	move	r1,(rr)
+	move	sigmask,4(rr)			; mask
+	move	n0,8(rr)			; on stack
+	moveq	18,n0				; SIGTSTP
+	move	n0,4(sp)
+	move	rr,8(sp)
+	moveq	%sigvec,n0			; reset
+	move	n0,-(sp)
+	trap	0
+	lea	16(sp),sp			; pop stack
+	movem	(sp)+,n0/n1/rr/r1		; restore regs
+	addq	4,sp
+	move	139,(sp)			; cleanup
+	trap	0
+	end %set_tty
+
+_save_tty = qproc ()
+	ifle	tst	pri				; primary used?
+		beq	next
+		movea	pri,rr
+		tstb	ch%typ(rr)			; and terminal?
+		bne	next
+		tst	wrpipe				; and not debugger?
+	then	lea	isbuf,rr
+		move	rr,-(sp)			; buffer
+		move	%tiocgetp,-(sp)			; get status
+		clr	-(sp)				; file desc
+		clr	-(sp)
+		moveq	%ioctl,n0
+		move	n0,-(sp)
+		trap	0
+		lea	sbuf,rr
+		move	rr,12(sp)			; buffer
+		move	%tiocsetp,8(sp)			; set status
+		moveq	%ioctl,n0
+		move	n0,-(sp)
+		trap	0
+		lea	ilbuf,rr
+		move	rr,12(sp)			; buffer
+		move	%tioclget,8(sp)			; get local mode
+		moveq	%ioctl,n0
+		move	n0,-(sp)
+		trap	0
+		lea	lbuf,rr
+		move	rr,12(sp)			; buffer
+		move	%tioclset,8(sp)			; set local mode
+		moveq	%ioctl,n0
+		move	n0,-(sp)
+		trap	0
+		lea	16(sp),sp			; pop stack
+		moveq	1,n0				; restore 0
+	end
+	end _save_tty
+
+_restore_tty = qproc ()
+	ifle	tst	pri				; primary used?
+		beq	next
+		movea	pri,rr
+		tstb	ch%typ(rr)			; and terminal?
+		bne	next
+		tst	wrpipe				; and not debugger?
+	then	lea	isbuf,rr
+		move	rr,-(sp)			; buffer
+		move	%tiocsetp,-(sp)			; set status
+		clr	-(sp)				; file desc
+		clr	-(sp)
+		moveq	%ioctl,n0
+		move	n0,-(sp)
+		trap	0
+		lea	ilbuf,rr
+		move	rr,12(sp)			; buffer
+		move	%tioclset,8(sp)			; set local mode
+		moveq	%ioctl,n0
+		move	n0,-(sp)
+		trap	0
+		lea	16(sp),sp			; pop stack
+		moveq	1,n0				; restore 0
+	end
+	end _restore_tty
+
+error_output = proc () returns (cvt)
+	ifeq	tst	ero				; got it?
+	then	moveq	ch%hd,n1			; no
+		moveq	ch%blen,n2
+		movea	heaphi,rr			; alloc
+		iflt	sub	n2,freecnt
+		then	jsr	memout
+		end
+		add	n2,heaphi
+		move	n1,(rr)
+		subq	1,ch%rd(rr)
+		addq	2,ch%wr(rr)
+		moveb	1,ch%prm(rr)
+		move	rr,ero
+	end
+	return(ero)
+	end error_output
+
+nul = proc () returns (cvt)
+	ifeq	tst	nul				; got it?
+	then	moveq	2,n1
+		move	n1,-(sp)
+		lea	"/dev/null",r1
+		pea	4(r1)
+		clr	-(sp)
+		moveq	%open,n0			; open it
+		move	n0,-(sp)
+		trap	0
+		lea	12(sp),sp			; pop stack
+		bcs	oops
+		move	n0,n3				; save file desc
+		moveq	1,n0				; restore 0
+		moveq	ch%hd,n1
+		moveq	ch%blen,n2
+		movea	heaphi,rr			; alloc
+		iflt	sub	n2,freecnt
+		then	jsr	memout
+		end
+		add	n2,heaphi
+		move	n1,(rr)
+		move	n3,ch%rd(rr)
+		move	n3,ch%wr(rr)
+		moveb	%nul,ch%typ(rr)
+		move	rr,nul
+		file_name$parse(r1)			; get name
+		movea	nul,r1
+		move	rr,ch%fn(r1)
+	end
+	return(nul)
+oops:	movea	n0,rr
+	moveq	1,n0					; restore 0
+	lea	1(rr,rr),rr
+	_erstr(rr)
+	signal	failure(rr)
+	end nul
+
+%forget = qproc ()
+	ifgt	movea	nul,rr
+	then	move	-1,ch%rd(rr)
+		move	-1,ch%wr(rr)
+		clrb	ch%prm(rr)
+		clr	nul
+	end
+	end %forget
+
+control = proc (ch: cvt, cmd, arg: int) returns (int)
+					signals (not_possible(string))
+	movea	ch,r1
+	ifge	move	ch%rd(r1),n2		; file desc
+		bge	this
+		move	ch%wr(r1),n2
+	then	move	cmd,n3
+		ifeq	asr	1,n3
+		then	signal	not_possible("cannot duplicate _chan")
+		end
+		move	rr,n4
+		asr	1,n4
+		moveq	0,n1
+		moveq	%fcntl,n0
+		movem	n4/n3/n2/n1/n0,-(sp)
+		trap	0
+		lea	16(sp),sp		; pop stack
+		movea	n0,rr
+		lea	1(rr,rr),rr
+		ifcc
+		then	moveq	1,n0		; restore 0
+			return(rr)
+		end
+		moveq	1,n0			; restore 0
+		_erstr(rr)
+		signal	not_possible(rr)
+	end
+	signal	not_possible("_chan is closed")
+	end control
+
+lock = proc (ch: cvt, op: int) signals (not_possible(string))
+	movea	ch,r1
+	ifge	move	ch%rd(r1),n2		; file desc
+		bge	this
+		move	ch%wr(r1),n2
+	then	move	rr,n3
+		asr	1,n3
+		moveq	0,n1
+		moveb	%flock,n0
+		movem	n3/n2/n1/n0,-(sp)
+		trap	0
+		lea	12(sp),sp		; pop stack
+		ifcc
+		then	moveq	1,n0		; restore 0
+			return
+		end
+		movea	n0,rr
+		lea	1(rr,rr),rr
+		moveq	1,n0			; restore 0
+		_erstr(rr)
+		signal	not_possible(rr)
+	end
+	signal	not_possible("_chan is closed")
+	end lock
+
+sync = proc (ch: cvt) signals (not_possible(string))
+	ifge	move	ch%rd(rr),n2		; file desc
+		bge	this
+		move	ch%wr(rr),n2
+	then	move	n2,-(sp)
+		moveq	0,n1
+		moveq	%fsync,n0
+		movem	n2/n1/n0,-(sp)
+		trap	0
+		addq	8,sp			; pop stack
+		bcs	oops
+		moveq	1,n0			; restore 0
+	end
+	return
+oops:	movea	n0,rr
+	lea	1(rr,rr),rr
+	moveq	1,n0				; restore 0
+	_erstr(rr)
+	signal	not_possible(rr)
+	end sync
+
+reset = proc (ch: cvt) signals (not_possible(string))
+	ifhi	cmpib	%bty,ch%typ(rr)		; no need to reset tty
+	then	ifge	move	ch%rd(rr),n1	; file desc
+			bge	this
+			move	ch%wr(rr),n1
+		then	clr	-(sp)		; from base
+			clr	-(sp)		; zero offset
+			move	n1,-(sp)	; file desc
+			clr	-(sp)
+			moveq	%lseek,n0	; reset file pointer
+			move	n0,-(sp)
+			trap	0
+			lea	16(sp),sp
+			bcs	oops
+		end
+	end
+	return
+oops:	movea	n0,rr
+	moveq	1,n0				; restore 0
+	lea	1(rr,rr),rr
+	_erstr(rr)
+	signal	not_possible(rr)
+	end reset
+
+close = proc (ch: cvt) signals (permanent, not_possible(string))
+	ifeq	tstb	ch%prm(rr)			; permanent?
+	then	ifge	move	ch%rd(rr),n1
+			bge	this
+			move	ch%wr(rr),n1
+		then	move	n1,-(sp)		; file desc
+			clr	-(sp)
+			moveq	%close,n0		; close it
+			move	n0,-(sp)
+			trap	0
+			addq	8,sp
+			bcs	oops
+			moveq	1,n0			; restore 0
+			move	-1,ch%rd(rr)
+			move	-1,ch%wr(rr)
+		end
+		return
+	end
+	signal	permanent
+oops:	movea	n0,rr
+	moveq	1,n0					; restore 0
+	lea	1(rr,rr),rr
+	_erstr(rr)
+	signal	not_possible(rr)
+	end close
+
+abort = proc (ch: cvt) signals (permanent, not_possible(string))
+	ifne	tstb	ch%prm(rr)			; permanent?
+	then	signal	permanent
+	end
+	ifge	move	ch%rd(rr),n1
+		bge	this
+		move	ch%wr(rr),n1
+	then	move	n1,-(sp)			; file desc
+		clr	-(sp)
+		moveq	%close,n0			; close it
+		move	n0,-(sp)
+		trap	0
+		addq	8,sp
+		bcs	oops
+		moveq	1,n0				; restore 0
+		move	-1,ch%rd(rr)
+		move	-1,ch%wr(rr)
+		ifne	tstb	ch%new(rr)		; newly created?
+		then	movea	ch%fn(rr),rr		; yes
+			file_name$unparse(rr)		; get string
+			moveq	6,n1			; ASCIIZ
+			ifeq	and	(rr),n1
+			then	string$append(rr, '\000')
+			end
+			pea	4(rr)			; name
+			clr	-(sp)
+			moveq	%unlink,n0		; try to remove it
+			move	n0,-(sp)
+			trap	0
+			addq	8,sp
+			clr	-4(sp)
+			moveq	1,n0			; restore 0
+		end
+	end
+	return
+oops:	movea	n0,rr
+	moveq	1,n0					; restore 0
+	lea	1(rr,rr),rr
+	_erstr(rr)
+	signal	not_possible(rr)
+	end abort
+
+is_tty = qproc (ch: cvt) returns (bool)
+	moveq	0,n1
+	tstb	ch%typ(rr)
+	seq	n1
+	return(n1)
+	end is_tty
+
+getc = proc (ch: cvt, image: bool) returns (char)
+				   signals (end_of_file, not_possible(string))
+	var	c
+	movea	ch,r2
+	iflt	move	ch%rd(r2),n1			; get file desc
+	then	signal	not_possible("cannot read from this _chan")
+	end
+	clr	c
+	qloop
+		move	n0,-(sp)			; 1 byte
+		pea	-5(ep)				; buffer
+		move	n1,-(sp)			; file desc
+		clr	-(sp)
+		moveq	%read,n0			; read byte
+		move	n0,-(sp)
+		trap	0
+		lea	16(sp),sp			; pop stack
+		bcc	next
+		move	n0,n1
+		moveq	1,n0				; restore 0
+		cmpib	%eintr,n1			; interrupted?
+		beq	this
+		movea	n1,rr
+		lea	1(rr,rr),rr
+		_erstr(rr)
+		signal	not_possible(rr)
+	end
+	ifeq	move	n0,n1
+	then	moveq	1,n0				; restore 0
+		signal	end_of_file
+	end
+	movea	c,rr
+	ifne	tstb	ch%typ(r2)			; tty?
+		bne	this
+		tst	image				; image?
+	then	return(rr)
+	end
+	move	rr,n1					; yes, do echo
+	ifhi	cmpib	'\177',n1
+	then	ifeq
+		then	moveb	'?',c
+			moveb	'^',n1
+		elf	subb	0100,n1
+			cmpib	0140,n1
+			bmi	this
+			subb	0100,n1
+			cmpib	'\177',n1
+			bne	next
+			moveb	'?',n1
+		then	moveb	n1,c
+			moveb	'!',n1
+		else	moveb	n1,c
+			moveb	'&',n1
+		end
+		addqb	1,n0
+	elfne	cmpib	' ',n1
+		bge	next
+		cmpib	'\n',n1
+		beq	next
+		cmpib	'\t',n1
+	then	moveb	'^',n1
+		addib	' ',c
+		addqb	1,n0
+	end
+	move	n0,-(sp)				; count
+	pea	-6(ep)					; buffer
+	moveb	n1,-6(ep)
+	move	ch%wr(r2),-(sp)				; file desc
+	clr	-(sp)
+	moveq	%write,n0				; write bytes
+	move	n0,-(sp)
+	trap	0
+	lea	16(sp),sp				; pop stack
+	moveq	1,n0					; restore 0
+	clr	c
+	return(rr)
+	end getc
+
+geti = proc (ch: cvt, image: bool) returns (int)
+		   signals (overflow, end_of_file, not_possible(string))
+	var	c
+	movea	ch,r2
+	iflt	move	ch%rd(r2),n1			; get file desc
+	then	signal	not_possible("cannot read from this _chan")
+	end
+	clr	c
+	qloop
+		move	n0,-(sp)			; 1 byte
+		pea	-5(ep)				; buffer
+		move	n1,-(sp)			; file desc
+		clr	-(sp)
+		moveq	%read,n0			; read byte
+		move	n0,-(sp)
+		trap	0
+		lea	16(sp),sp			; pop stack
+		bcc	next
+		move	n0,n1
+		moveq	1,n0				; restore 0
+		cmpib	%eintr,n1			; interrupted?
+		beq	this
+		movea	n1,rr
+		lea	1(rr,rr),rr
+		_erstr(rr)
+		signal	not_possible(rr)
+	end
+	ifeq	move	n0,n1
+	then	moveq	1,n0				; restore 0
+		signal	end_of_file
+	end
+	movea	c,rr
+	ifne	tstb	ch%typ(r2)			; tty?
+		bne	this
+		tst	image				; image?
+	then	lea	1(rr,rr),rr
+		return(rr)
+	end
+	move	rr,n1					; yes, do echo
+	ifhi	cmpib	'\177',n1
+	then	ifeq
+		then	moveb	'?',c
+			moveb	'^',n1
+		elf	subb	0100,n1
+			cmpib	0140,n1
+			bmi	this
+			subb	0100,n1
+			cmpib	'\177',n1
+			bne	next
+			moveb	'?',n1
+		then	moveb	n1,c
+			moveb	'!',n1
+		else	moveb	n1,c
+			moveb	'&',n1
+		end
+		addqb	1,n0
+	elfne	cmpib	' ',n1
+		bge	next
+		cmpib	'\n',n1
+		beq	next
+		cmpib	'\t',n1
+	then	moveb	'^',n1
+		addib	' ',c
+		addqb	1,n0
+	end
+	move	n0,-(sp)				; count
+	pea	-6(ep)					; buffer
+	moveb	n1,-6(ep)
+	move	ch%wr(r2),-(sp)				; file desc
+	clr	-(sp)
+	moveq	%write,n0				; write bytes
+	move	n0,-(sp)
+	trap	0
+	lea	16(sp),sp				; pop stack
+	moveq	1,n0					; restore 0
+	clr	c
+	lea	1(rr,rr),rr
+	return(rr)
+	end geti
+
+getb = proc (ch: cvt, bv: _bytevec) returns (int)
+			signals (bounds, end_of_file, not_possible(string))
+	movea	ch,r1
+	ifge	move	ch%rd(r1),n1			; can read?
+	then	move	(rr),n2				; yes, get count
+		asr	1,n2
+		beq	bnds
+		qloop
+			move	n2,-(sp)		; count
+			pea	4(rr)			; buffer
+			move	n1,-(sp)		; file desc
+			clr	-(sp)
+			moveq	%read,n0		; read bytes
+			move	n0,-(sp)
+			trap	0
+			lea	16(sp),sp		; pop stack
+			bcc	next
+			cmpib	%eintr,n0		; interrupted?
+			beq	this
+			movea	n0,rr
+			moveq	1,n0			; restore 0
+			lea	1(rr,rr),rr
+			_erstr(rr)
+			signal	not_possible(rr)
+		end
+		clr	-8(sp)
+		movea	n0,rr
+		moveq	1,n0				; restore 0
+		lea	1(rr,rr),rr
+		ifne	cmpa	n0,rr			; end of file?
+		then	return(rr)
+		end
+		signal	end_of_file
+	end
+	signal	not_possible("cannot read from this _chan")
+bnds:	signal	bounds
+	end getb
+
+getbv = proc (ch: cvt, bv: _bytevec, strt, n: int) returns (int)
+			signals (bounds, end_of_file, not_possible(string))
+	movem	strt,n2/r1/r2
+	asr	1,n2
+	subq	1,n2					; check start
+	blt	bnds
+	move	(r1),n3
+	asr	1,n3
+	sub	n2,n3					; get space left
+	move	rr,n4
+	asr	1,n4
+	iflt	cmp	n4,n3				; check size
+	then	move	n3,n4				; cut back
+	end
+	tst	n4					; check bounds
+	blt	bnds
+	ifge	move	ch%rd(r2),n1			; can read?
+	then	qloop
+			move	n4,-(sp)		; count
+			pea	4(r1,n2)		; buffer
+			move	n1,-(sp)		; file desc
+			clr	-(sp)
+			moveq	%read,n0		; read bytes
+			move	n0,-(sp)
+			trap	0
+			lea	16(sp),sp		; pop stack
+			bcc	next
+			cmpib	%eintr,n0		; interrupted?
+			beq	this
+			movea	n0,rr
+			moveq	1,n0			; restore 0
+			lea	1(rr,rr),rr
+			_erstr(rr)
+			signal	not_possible(rr)
+		end
+		clr	-8(sp)
+		movea	n0,rr
+		moveq	1,n0				; restore 0
+		lea	1(rr,rr),rr
+		ifne	cmpa	n0,rr			; end of file?
+		then	return(rr)
+		end
+		signal	end_of_file
+	end
+	signal	not_possible("cannot read from this _chan")
+bnds:	signal	bounds
+	end getbv
+
+getw = proc (ch: cvt, wv: _wordvec) returns (int)
+			signals (bounds, end_of_file, not_possible(string))
+	movea	ch,r1
+	ifge	move	ch%rd(r1),n1			; can read?
+	then	move	(rr),n2				; yes, get count
+		asr	1,n2
+		beq	bnds
+		qloop
+			move	n2,-(sp)		; count
+			pea	4(rr)			; buffer
+			move	n1,-(sp)		; file desc
+			clr	-(sp)
+			moveq	%read,n0		; read bytes
+			move	n0,-(sp)
+			trap	0
+			lea	16(sp),sp		; pop stack
+			bcc	next
+			cmpib	%eintr,n0		; interrupted?
+			beq	this
+			movea	n0,rr
+			moveq	1,n0			; restore 0
+			lea	1(rr,rr),rr
+			_erstr(rr)
+			signal	not_possible(rr)
+		end
+		clr	-8(sp)
+		movea	n0,rr
+		moveq	1,n0				; restore 0
+		lea	1(rr,rr),rr
+		ifne	cmpa	n0,rr			; end of file?
+		then	return(rr)
+		end
+		signal	end_of_file
+	end
+	signal	not_possible("cannot read from this _chan")
+bnds:	signal	bounds
+	end getw
+
+getwv = proc (ch: cvt, wv: _wordvec, strt, n: int) returns (int)
+			signals (bounds, end_of_file, not_possible(string))
+	movem	strt,n2/r1/r2
+	asr	1,n2
+	subq	1,n2					; check start
+	blt	bnds
+	move	(r1),n3
+	asr	1,n3
+	sub	n2,n3					; get space left
+	move	rr,n4
+	asr	1,n4
+	iflt	cmp	n4,n3				; check size
+	then	move	n3,n4				; cut back
+	end
+	tst	n4					; check bounds
+	blt	bnds
+	ifge	move	ch%rd(r2),n1			; can read?
+	then	qloop
+			move	n4,-(sp)		; count
+			pea	4(r1,n2)		; buffer
+			move	n1,-(sp)		; file desc
+			clr	-(sp)
+			moveq	%read,n0		; read bytes
+			move	n0,-(sp)
+			trap	0
+			lea	16(sp),sp		; pop stack
+			bcc	next
+			cmpib	%eintr,n0		; interrupted?
+			beq	this
+			movea	n0,rr
+			moveq	1,n0			; restore 0
+			lea	1(rr,rr),rr
+			_erstr(rr)
+			signal	not_possible(rr)
+		end
+		clr	-8(sp)
+		movea	n0,rr
+		moveq	1,n0				; restore 0
+		lea	1(rr,rr),rr
+		ifne	cmpa	n0,rr			; end of file?
+		then	return(rr)
+		end
+		signal	end_of_file
+	end
+	signal	not_possible("cannot read from this _chan")
+bnds:	signal	bounds
+	end getwv
+
+get = proc (ch: cvt, bvec: _bytevec, low, high: int, term: string, image: bool)
+			returns (string, int, int)
+			signals (bounds, end_of_file, not_possible(string))
+	movem	high,n1/n2/r1/r2
+	iflt	move	ch%rd(r2),n7		; can read?
+	then	signal	not_possible("cannot read from this _chan")
+	end
+	move	(r1),n3				; get buffer size
+	ifgt	asr	1,n3			; must be non-empty
+		beq	this
+		asr	1,n2			; check low
+		ble	this
+		subq	1,n2
+		cmp	n3,n2
+		bgt	this
+		asr	1,n1			; check high
+		cmp	n2,n1
+		blt	this
+		cmp	n3,n1
+	then	signal	bounds
+	end
+	movea	term,r3
+	add	r1,n1				; get end of chars
+	addq	3,n1
+	lea	4(r1,n2),rr			; index into bvec
+	move	(r3)+,n4			; get string size
+	asr	1,n4
+	add	r3,n4				; get end of string
+	move	brkaddr,n5
+	movea	heaphi,r4
+	addq	4,r4
+	loop
+		cmp	rr,n1			; any chars left?
+		blt	readem
+getchar:	moveb	(rr)+,n3		; get next char
+		movea	r3,r2
+		qloop
+			cmp	r2,n4		; any more terminators?
+			beq	next
+			cmpb	(r2)+,n3	; yes, check against next
+			bne	this
+			bra	done
+		end
+		cmp	r4,n5			; room to store it?
+		beq	consem
+putchar:	moveb	n3,(r4)+		; store char
+	end
+done:	movea	heaphi,r2
+	suba	r2,r4				; get count of chars
+	lea	-7(r4,r4),r3
+	move	r3,(r2)				; store header
+	move	r4,n1
+	addq	3,n1				; round up count
+	andib	-4,n1
+	add	n1,heaphi
+	iflt	sub	n1,freecnt
+	then	clr	freecnt
+		end			;; gc should happen on next alloc.
+	suba	r1,rr				; get new low
+	lea	-7(rr,rr),rr
+	movea	n0,r4
+	return(r2, rr, high)
+readem:	move	(r1),n1				; get size of buffer
+	asr	1,n1
+	qloop
+		move	n1,-(sp)		; count
+		pea	4(r1)			; buffer
+		move	n7,-(sp)		; file desc
+		clr	-(sp)
+		moveq	%read,n0		; read bytes
+		move	n0,-(sp)
+		trap	0
+		lea	16(sp),sp		; pop stack
+		bcc	next
+		cmpib	%eintr,n0		; interrupted?
+		beq	this
+		bra	oops
+	end
+	clr	-8(sp)
+	move	n0,n1
+	lea	4(r1),rr
+	add	n0,n0				; get new high
+	addqb	1,n0
+	move	n0,high
+	moveq	1,n0				; restore 0
+	add	r1,n1				; new end of buffer
+	addq	3,n1
+	cmp	rr,n1				; check for end of file
+	bge	getchar
+	addq	1,rr				; fix low
+	lea	-4(r4),r2
+	cmpa	heaphi,r2			; got any chars?
+	bne	done
+	movea	n0,rr				; no
+	movea	n0,r2
+	movea	n0,r3
+	movea	n0,r4
+	signal	end_of_file
+oops:	movea	heaphi,r2
+	qloop
+		clr	(r2)+			; clear out heap
+		cmpa	r4,r2
+		blt	this
+	end
+	movea	n0,rr
+	moveq	1,n0				; restore 0
+	movea	n0,r2
+	movea	n0,r3
+	movea	n0,r4
+	_erstr(rr)
+	signal	not_possible(rr)
+consem:	movea	heaphi,r2			; no
+	move	r4,heaphi			; show heap gone
+	clr	freecnt
+	suba	r2,r4				; get count of chars
+	move	r4,n4
+	lea	-7(r4,r4),r3
+	move	r3,(r2)				; store header
+	suba	r1,rr				; get new low
+	lea	-7(rr,rr),rr
+	exg	rr,r4
+	moveq	4,n2				; need another word
+	sub	n2,freecnt			; fake alloc
+	jsr	memout				; cause gc
+	move	brkaddr, n5
+	exg	rr,r4
+	move	r2,heaphi			; reset heap
+	addq	3,n4
+	andib	-4,n4
+	sub	n4,freecnt
+	movea	term,r3				; reset terminators
+	move	(r3)+,n4
+	asr	1,n4
+	add	r3,n4
+	move	high,n1				; reset end of buffer
+	asr	1,n1
+	add	r1,n1
+	addq	3,n1
+	move	rr,n2				; reset index into bvec
+	asr	1,n2
+	lea	4(r1,n2),rr
+	bra	putchar
+	end get
+
+pending = qproc (ch: cvt, image: bool) returns (bool)
+				       signals (not_possible(string))
+	movea	ch,r1
+	ifge	move	ch%rd(r1),n1			; get file desc
+	then	lea	obuf,r2
+		move	r2,-(sp)			; buffer
+		move	%fionread,-(sp)
+		move	n1,-(sp)
+		clr	-(sp)
+		moveq	%ioctl,n0
+		move	n0,-(sp)
+		trap	0
+		lea	16(sp),sp
+		ifne	bcs	next
+			tst	(r2)			; any pending?
+		then	moveq	1,n0
+			return(true)
+		end
+		moveq	1,n0
+		return(false)
+	end
+	signal	not_possible("cannot read from this _chan")
+	end pending
+
+pend_count = proc (ch: cvt) returns (int) signals (not_possible(string))
+	ifge	move	ch%rd(rr),n1			; get file desc
+	then	lea	obuf,r2
+		move	r2,-(sp)			; buffer
+		move	%fionread,-(sp)
+		move	n1,-(sp)
+		clr	-(sp)
+		moveq	%ioctl,n0			; get count
+		move	n0,-(sp)
+		trap	0
+		lea	16(sp),sp
+		ifcc
+		then	moveq	1,n0
+			movea	(r2),rr
+			lea	1(rr,rr),rr
+			return(rr)
+		end
+		movea	n0,rr
+		moveq	1,n0
+		lea	1(rr,rr),rr
+		_erstr(rr)
+		signal	not_possible(rr)
+	end
+	signal	not_possible("cannot read from this _chan")
+	end pend_count
+
+buf_count = proc (ch: cvt) returns (int) signals (not_possible(string))
+	ifge	move	ch%wr(rr),n1			; get file desc
+	then	lea	obuf,r2
+		move	r2,-(sp)			; buffer
+		move	%tiocoutq,-(sp)
+		move	n1,-(sp)
+		clr	-(sp)
+		moveq	%ioctl,n0			; get count
+		move	n0,-(sp)
+		trap	0
+		lea	16(sp),sp
+		ifcc
+		then	moveq	1,n0
+			movea	(r2),rr
+			lea	1(rr,rr),rr
+			return(rr)
+		end
+		movea	n0,rr
+		moveq	1,n0
+		lea	1(rr,rr),rr
+		_erstr(rr)
+		signal	not_possible(rr)
+	end
+	signal	not_possible("cannot write to this _chan")
+	end buf_count
+
+putc = proc (ch: cvt, c: char, image: bool) signals (not_possible(string))
+	movea	ch,r1
+	iflt	move	ch%wr(r1),n1			; can write?
+	then	signal	not_possible("cannot write to this _chan")
+	end
+	move	rr,n2					; image?
+	bne	check
+norm:	qloop
+		move	n0,-(sp)			; count
+		pea	11(ep)				; address of c
+		move	n1,-(sp)			; file desc
+		clr	-(sp)
+		move	%write,n0			; write byte
+		move	n0,-(sp)
+		trap	0
+		lea	16(sp),sp			; pop stack
+		bcc	next
+		move	n0,n1
+		moveq	1,n0				; restore 0
+		cmpib	%eintr,n1			; interrupted?
+		beq	this
+		movea	n1,rr
+		lea	1(rr,rr),rr
+		_erstr(rr)
+		signal	not_possible(rr)
+	end
+	moveq	1,n0
+	return
+check:	tstb	ch%typ(r1)				; tty?
+	bne	norm
+	move	%llitout,-(sp)				; no output translation
+	move	sp,-(sp)				; buffer
+	move	%tioclbis,-(sp)				; set bit
+	move	n1,-(sp)
+	clr	-(sp)
+	move	%ioctl,n0
+	move	n0,-(sp)
+	trap	0
+	pea	11(ep)					; buffer
+	moveq	1,n0
+	move	n0,-(sp)				; count
+	move	n1,-(sp)				; file desc
+	clr	-(sp)
+	moveq	%write,n0				; write byte
+	move	n0,-(sp)
+	trap	0
+	lea	16(sp),sp				; pop stack
+	move	%tioclbic,8(sp)				; clear bit
+	moveq	%ioctl,n0
+	move	n0,-(sp)
+	trap	0
+	lea	20(sp),sp				; pop stack
+	moveq	1,n0
+	end putc
+
+puti = proc (ch: cvt, i: int, image: bool) signals (not_possible(string))
+	var	c
+	movea	ch,r1
+	iflt	move	ch%wr(r1),n1			; can write?
+	then	signal	not_possible("cannot write to this _chan")
+	end
+	move	i,n2
+	asr	1,n2
+	moveb	n2,c
+	move	rr,n2					; image?
+	bne	check
+norm:	qloop
+		move	n0,-(sp)			; count
+		pea	-8(ep)				; address of c
+		move	n1,-(sp)			; file desc
+		clr	-(sp)
+		move	%write,n0			; write byte
+		move	n0,-(sp)
+		trap	0
+		lea	16(sp),sp			; pop stack
+		bcc	next
+		move	n0,n1
+		moveq	1,n0				; restore 0
+		cmpib	%eintr,n1			; interrupted?
+		beq	this
+		movea	n1,rr
+		lea	1(rr,rr),rr
+		_erstr(rr)
+		signal	not_possible(rr)
+	end
+	moveq	1,n0
+	return
+check:	tstb	ch%typ(r1)				; tty?
+	bne	norm
+	move	%llitout,-(sp)				; no output translation
+	move	sp,-(sp)				; buffer
+	move	%tioclbis,-(sp)				; set bit
+	move	n1,-(sp)
+	clr	-(sp)
+	move	%ioctl,n0
+	move	n0,-(sp)
+	trap	0
+	pea	-8(ep)					; buffer
+	moveq	1,n0
+	move	n0,-(sp)				; count
+	move	n1,-(sp)				; file desc
+	clr	-(sp)
+	moveq	%write,n0				; write byte
+	move	n0,-(sp)
+	trap	0
+	lea	16(sp),sp				; pop stack
+	move	%tioclbic,8(sp)				; clear bit
+	moveq	%ioctl,n0
+	move	n0,-(sp)
+	trap	0
+	lea	20(sp),sp				; pop stack
+	moveq	1,n0
+	end puti
+
+puts = proc (ch: cvt, s: string, image: bool) signals (not_possible(string))
+	movem	s,r1/r2
+	iflt	move	ch%wr(r2),n1			; can write?
+	then	signal	not_possible("cannot write to this _chan")
+	end
+	move	(r1),n2
+	asr	1,n2
+	move	rr,n3
+	bne	check
+norm:	qloop
+		move	n2,-(sp)			; count
+		pea	4(r1)				; buffer
+		move	n1,-(sp)			; file desc
+		clr	-(sp)
+		move	%write,n0			; write bytes
+		move	n0,-(sp)
+		trap	0
+		lea	16(sp),sp			; pop stack
+		bcc	next
+		cmpib	%eintr,n0			; interrupted?
+		beq	this
+		movea	n0,rr
+		moveq	1,n0				; restore 0
+		lea	1(rr,rr),rr
+		_erstr(rr)
+		signal	not_possible(rr)
+	end
+	clr	-8(sp)
+	moveq	1,n0
+	return
+check:	tstb	ch%typ(r2)
+	bne	norm
+	move	%llitout,-(sp)				; no output translation
+	move	sp,-(sp)				; buffer
+	move	%tioclbis,-(sp)				; set bit
+	move	n1,-(sp)
+	clr	-(sp)
+	move	%ioctl,n0
+	move	n0,-(sp)
+	trap	0
+	move	n2,-(sp)				; count
+	pea	4(r1)					; buffer
+	move	n1,-(sp)				; file desc
+	clr	-(sp)
+	move	%write,n0				; write bytes
+	move	n0,-(sp)
+	trap	0
+	lea	16(sp),sp				; pop stack
+	clr	-8(sp)
+	move	%tioclbic,8(sp)				; clear bit
+	moveq	%ioctl,n0
+	move	n0,-(sp)
+	trap	0
+	lea	20(sp),sp				; pop stack
+	moveq	1,n0
+	end puts
+
+putb = proc (ch: cvt, bv: _bytevec, low, high: int, image: bool)
+				signals (bounds, not_possible(string))
+	movem	high,n2/n3/r1/r2
+	iflt	move	ch%wr(r2),n1
+	then	signal	not_possible("cannot write to this _chan")
+bnds:		signal	bounds
+	end
+	cmp	(r1),n3					; check bounds
+	bgt	bnds
+	asr	1,n3
+	ble	bnds
+	ifgt	cmp	(r1),n2				; get true stop index
+	then	move	(r1),n2
+	end
+	asr	1,n2
+	sub	n3,n2
+	ifgt	addq	1,n2				; any to do?
+	then	move	rr,n4
+		bne	check
+norm:		qloop
+			move	n2,-(sp)		; yes, byte count
+			pea	3(r1,n3)		; chars
+			move	n1,-(sp)		; file desc
+			clr	-(sp)
+			moveq	%write,n0		; write bytes
+			move	n0,-(sp)
+			trap	0
+			lea	16(sp),sp		; pop stack
+			bcc	next
+			cmpib	%eintr,n0		; interrupted?
+			beq	this
+			movea	n0,rr
+			moveq	1,n0			; restore 0
+			lea	1(rr,rr),rr
+			_erstr(rr)
+			signal	not_possible(rr)
+		end
+		clr	-8(sp)
+		moveq	1,n0				; restore 0
+	end
+	return
+check:	tstb	ch%typ(r2)
+	bne	norm
+	move	%llitout,-(sp)				; no output translation
+	move	sp,-(sp)				; buffer
+	move	%tioclbis,-(sp)				; set bit
+	move	n1,-(sp)
+	clr	-(sp)
+	move	%ioctl,n0
+	move	n0,-(sp)
+	trap	0
+	move	n2,-(sp)				; count
+	pea	3(r1,n3)				; chars
+	move	n1,-(sp)				; file desc
+	clr	-(sp)
+	move	%write,n0				; write bytes
+	move	n0,-(sp)
+	trap	0
+	lea	16(sp),sp				; pop stack
+	clr	-8(sp)
+	move	%tioclbic,8(sp)				; clear bit
+	moveq	%ioctl,n0
+	move	n0,-(sp)
+	trap	0
+	lea	20(sp),sp				; pop stack
+	moveq	1,n0					; restore 0
+	end putb
+
+putw = proc (ch: cvt, wv: _wordvec, low, high: int, image: bool)
+				signals (bounds, not_possible(string))
+	movem	high,n2/n3/r1/r2
+	iflt	move	ch%wr(r2),n1
+	then	signal	not_possible("cannot write to this _chan")
+bnds:		signal	bounds
+	end
+	cmp	(r1),n3					; check bounds
+	bgt	bnds
+	asr	1,n3
+	ble	bnds
+	ifgt	cmp	(r1),n2				; get true stop index
+	then	move	(r1),n2
+	end
+	asr	1,n2
+	sub	n3,n2
+	ifgt	addq	1,n2				; any to do?
+	then	move	rr,n4
+		bne	check
+norm:		qloop
+			move	n2,-(sp)		; yes, byte count
+			pea	3(r1,n3)		; chars
+			move	n1,-(sp)		; file desc
+			clr	-(sp)
+			moveq	%write,n0		; write bytes
+			move	n0,-(sp)
+			trap	0
+			lea	16(sp),sp		; pop stack
+			bcc	next
+			cmpib	%eintr,n0		; interrupted?
+			beq	this
+			movea	n0,rr
+			moveq	1,n0			; restore 0
+			lea	1(rr,rr),rr
+			_erstr(rr)
+			signal	not_possible(rr)
+		end
+		clr	-8(sp)
+		moveq	1,n0				; restore 0
+	end
+	return
+check:	tstb	ch%typ(r2)
+	bne	norm
+	move	%llitout,-(sp)				; no output translation
+	move	sp,-(sp)				; buffer
+	move	%tioclbis,-(sp)				; set bit
+	move	n1,-(sp)
+	clr	-(sp)
+	move	%ioctl,n0
+	move	n0,-(sp)
+	trap	0
+	move	n2,-(sp)				; count
+	pea	3(r1,n3)				; chars
+	move	n1,-(sp)				; file desc
+	clr	-(sp)
+	move	%write,n0				; write bytes
+	move	n0,-(sp)
+	trap	0
+	lea	16(sp),sp				; pop stack
+	clr	-8(sp)
+	move	%tioclbic,8(sp)				; clear bit
+	moveq	%ioctl,n0
+	move	n0,-(sp)
+	trap	0
+	lea	20(sp),sp				; pop stack
+	moveq	1,n0					; restore 0
+	end putw
+
+put = proc (ch: cvt, bvec: _bytevec, low, high: int, s: string, image: bool)
+		returns (int, int) signals (bounds, not_possible(string))
+	movem	high,n1/n2/r1/r2
+	iflt	tst	ch%wr(r2)			; can write?
+	then	signal	not_possible("cannot write to this _chan")
+	end
+	move	(r1),n3					; get buffer size
+	ifgt	asr	1,n3				; must be non-empty
+		beq	this
+		asr	1,n2				; check low
+		ble	this
+		subq	1,n2
+		cmp	n3,n2
+		bge	this
+		asr	1,n1				; check high
+		cmp	n2,n1
+		blt	this
+		cmp	n3,n1
+	then	signal	bounds
+	end
+	add	r1,n3					; get end of bvec
+	addq	4,n3
+	lea	4(r1,n1),rr				; index into bvec
+	movea	s,r3
+	move	(r3)+,n4				; get string size
+	asr	1,n4
+	beq	done
+	add	r3,n4					; get end of string
+	tstb	ch%typ(r2)				; terminal?
+	bne	norm
+	moveq	'\n',n5					; yes
+	qloop
+		ifeq	cmp	rr,n3			; buffer full?
+		then	bsr	bufout			; yes, output buffer
+		end
+		moveb	(r3),(rr)+			; move next byte
+		ifeq	cmpb	(r3)+,n5		; newline?
+		then	bsr	bufout			; yes, output buffer
+		end
+		cmp	r3,n4				; any more chars?
+		bne	this
+	end
+	bra	done
+norm:	loop
+		cmp	rr,n3				; buffer full?
+		beq	next
+		moveb	(r3)+,(rr)+			; no, move another byte
+		cmp	r3,n4				; any more chars?
+		bne	this
+		bra	done				; no
+	end
+	bsr	bufout					; output buffer
+	move	n4,n5					; get number left
+	sub	r3,n5
+	move	(r1),n6					; get buffer size
+	asr	1,n6
+	moveq	0,n1
+	qloop
+		add	n6,n1				; another whole buffer?
+		cmp	n5,n1
+		ble	this
+	end
+	ifgt	sub	n6,n1				; whole buffers?
+	then	movea	n1,rr				; yes
+		movea	r3,r1
+		adda	n1,r3				; n1 is changed by dobuf
+		bsr	dobuf				; write them
+	end
+	cmp	r3,n4					; any left?
+	beq	done
+	qloop
+		moveb	(r3)+,(rr)+			; move another byte
+		cmp	r3,n4				; any more chars?
+		bne	this
+	end
+done:	ifeq	cmp	rr,n3				; buffer full?
+	then	bsr	bufout				; yes, output buffer
+	end
+	suba	r1,rr					; get new high
+	lea	-7(rr,rr),rr
+	movea	n0,r3
+	return(low, rr)
+bufout:	move	low,n1					; get low
+	asr	1,n1
+	lea	3(r1,n1),r1				; get start addr
+	suba	r1,rr					; get count
+dobuf:	ifne	tst	image				; image?
+		beq	this
+		tstb	ch%typ(r2)			; tty?
+	then	qloop
+			move	rr,-(sp)		; count
+			move	r1,-(sp)		; buffer
+			move	ch%wr(r2),-(sp)		; file desc
+			clr	-(sp)
+			moveq	%write,n0		; write bytes
+			move	n0,-(sp)
+			trap	0
+			lea	16(sp),sp
+			bcc	next
+			cmpib	%eintr,n0
+			beq	this
+			movea	n0,rr
+			moveq	1,n0			; restore 0
+			movea	n0,r1
+			movea	n0,r3
+			_erstr(rr)
+			signal	not_possible(rr)
+		end
+		clr	-8(sp)
+	else	move	%llitout,-(sp)			; no output translation
+		move	sp,-(sp)			; buffer
+		move	%tioclbis,-(sp)			; set bit
+		move	n1,-(sp)
+		clr	-(sp)
+		move	%ioctl,n0
+		move	n0,-(sp)
+		trap	0
+		move	rr,-(sp)			; count
+		move	r1,-(sp)			; buffer
+		move	ch%wr(r2),-(sp)			; file desc
+		clr	-(sp)
+		move	%write,n0			; write bytes
+		move	n0,-(sp)
+		trap	0
+		lea	16(sp),sp			; pop stack
+		clr	-8(sp)
+		move	%tioclbic,8(sp)			; clear bit
+		moveq	%ioctl,n0
+		move	n0,-(sp)
+		trap	0
+		lea	20(sp),sp			; pop stack
+	end
+	moveq	1,n0					; restore 0
+	movea	bvec,r1
+	lea	4(r1),rr
+	moveq	3,n1
+	move	n1,low					; reset low
+	rts
+	end put
+
+send = proc (ch: cvt, buf: _wordvec, len, flags: int)
+					signals (bounds, not_possible(string))
+	;; send the message in the first len bytes of buf
+	;; flags are as in send Unix system call
+	;; signals bounds if len < 0
+	movea	ch, r1
+	ifge	move	ch%wr(r1), n3		;; File desc.
+	then	move	len, n1
+		ifls	movea	buf, r1
+			cmp	(r1), n1	;; Check len.
+		then	asr	1, n1		;; De-integerize len.
+			move	rr, n2
+			asr	1, n2		;; De-integerize flags.
+			movem	n2/n1, -(sp)	;; Push flags and len.
+			pea	4(r1)		;; Push buffer addr.
+			move	n3, -(sp)	;; Push file desc.
+			clr	-(sp)		;; Hack pc.
+			qloop
+				moveq	%send, n0
+				move	n0, -(sp)
+				ifcs	trap	0
+				then	cmpi	%eintr, n0	;; Interrupted?
+					beq	this
+					sf	n1
+				else	st	n1
+					end
+
+				addq	8, sp	;; Clean up. Pop pc and desc.
+				clr	(sp)+	;; Pop and clear other args.
+				clr	(sp)+
+				clr	(sp)+
+
+				tstb	n1	;; Did the call succeed?
+				bne	next
+				_erstr(rr)	;; No.
+				movea	n0, rr
+				lea	1(rr, rr), rr	;; Save  error code.
+				moveq	1, n0	;; Restore n0	
+				signal	not_possible(rr)
+				end
+			moveq	1, n0	 	;; Yes, restore n0 and return.
+			return
+			end
+		signal	bounds
+		end
+	signal	not_possible ("cannot write to this _chan")
+	end send
+
+sendto = proc (ch: cvt, buf: _wordvec, len, flags: int, 
+		addr: _wordvec, alen: int)
+				signals (bounds, not_possible(string))
+	;; send the message in the first len bytes of buf to the address
+	;;   in the first alen bytes of addr
+	;; flags are as in sendto Unix system call
+	;; signals bounds if len < 0 or alen < 0
+	movea	ch, r1
+	ifge	move	ch%wr(r1), n3		;; File desc.
+	then	ifls	move	len, n1	 	;; Check len.
+			movea	buf, r1
+			cmp	(r1), n1
+			bhi	next
+			move	rr, n2	 	;; Check alen.
+			movea	addr, r2
+			cmp	(r2), n2 	;; and <= addr length.
+		then	asr	1, n1		;; De-integerize len.
+			asr	1, n2	     	;; De-integerize alen.
+			move	n2, -(sp)	;; Push alen.
+			pea	4(r2)	 	;; Push addr address.
+			move	flags, n4
+			asr	1, n4		;; De-integerize flags.
+			movem	n4/n1, -(sp)	;; Push flags and len.
+			pea	4(r1)		;; Push buf address.
+			move	n3, -(sp)	;; Push file desc.
+			clr	-(sp)		;; Hack pc.
+			qloop
+				move	%sendto, n0
+				move	n0, -(sp)
+				ifcs	trap	0
+				then	cmpi	%eintr, n0	;; Interrupted?
+					beq	this
+					sf	n1
+				else	st	n1
+					end
+
+				addq	8, sp	;; Clean up. Pop pc and desc.
+				clr	(sp)+	;; Pop and clear other args.
+				clr	(sp)+
+				clr	(sp)+
+				clr	(sp)+
+				clr	(sp)+
+
+				tstb	n1	;; Did the call succeed?
+				bne	next
+				_erstr(rr)	;; No.
+				movea	n0, rr
+				lea	1(rr, rr), rr	;; Save  error code.
+				moveq	1, n0	;; Restore n0	
+				signal	not_possible(rr)
+				end
+			moveq	1, n0	 	;; Yes, restore n0 and return.
+			return
+			end
+		signal	bounds
+		end
+	signal	not_possible ("cannot write to this _chan")
+	end sendto
+
+read_wait = proc (ch: cvt, millis: int) returns (bool)
+					signals (not_possible(string))
+	movea	ch,r1
+	ifge	move	ch%rd(r1),n6
+	then	moveq	0,n3
+		bset	n6,n3
+		move	n3,n4
+		move	rr,n7
+		ifle	asr	1,n7
+		then	moveq	0,n1
+			moveq	0,n2
+		elflt	cmpi	1000,n7
+		then	moveq	0,n1
+			move	n7,n2
+			mulu	1000,n2			; get microseconds
+		else	swap	n7			; get seconds
+			moveq	0,n2
+			movew	n7,n2
+			swap	n7
+			divu	1000,n2
+			move	n2,n1
+			movew	n7,n2
+			divu	1000,n2
+			swap	n1
+			movew	n2,n1
+			swap	n2
+			mulu	1000,n2			; get microseconds
+		end
+		lea	obuf,r1
+		move	r1,-(sp)			; timeout
+		pea	12(r1)				; excepts
+		pea	16(r1)				; writes
+		pea	8(r1)				; reads
+		movem	n1/n2/n3/n4,(r1)
+		clr	16(r1)
+		addq	1,n6
+		move	n6,-(sp)			; count
+		clr	-(sp)
+		moveq	%select,n0
+		move	n0,-(sp)
+		trap	0
+		lea	24(sp),sp			; pop stack
+		ifcc
+		then	move	n0,n1
+			sne	n1
+			moveq	1,n0			; restore 0
+			return(n1)
+		end
+		ifeq	cmpib	4,n0			; EINTR
+		then	moveq	1,n0
+			return(false)
+		end
+		movea	n0,rr
+		moveq	1,n0				; restore 0
+		lea	1(rr,rr),rr
+		_erstr(rr)
+		signal	not_possible(rr)
+	end
+	signal	not_possible("cannot read from this _chan")
+	end read_wait
+
+write_wait = proc (ch: cvt, millis: int) returns (bool)
+					 signals (not_possible(string))
+	movea	ch,r1
+	ifge	move	ch%wr(r1),n6
+	then	moveq	0,n3
+		bset	n6,n3
+		move	n3,n4
+		move	rr,n7
+		ifle	asr	1,n7
+		then	moveq	0,n1
+			moveq	0,n2
+		elflt	cmpi	1000,n7
+		then	moveq	0,n1
+			move	n7,n2
+			mulu	1000,n2			; get microseconds
+		else	swap	n7			; get seconds
+			moveq	0,n2
+			movew	n7,n2
+			swap	n7
+			divu	1000,n2
+			move	n2,n1
+			movew	n7,n2
+			divu	1000,n2
+			swap	n1
+			movew	n2,n1
+			swap	n2
+			mulu	1000,n2			; get microseconds
+		end
+		lea	obuf,r1
+		move	r1,-(sp)			; timeout
+		pea	12(r1)				; excepts
+		pea	8(r1)				; writes
+		pea	16(r1)				; reads
+		movem	n1/n2/n3/n4,(r1)
+		clr	16(r1)
+		addq	1,n6
+		move	n6,-(sp)			; count
+		clr	-(sp)
+		moveq	%select,n0
+		move	n0,-(sp)
+		trap	0
+		lea	24(sp),sp			; pop stack
+		ifcc
+		then	move	n0,n1
+			sne	n1
+			moveq	1,n0			; restore 0
+			return(n1)
+		end
+		ifeq	cmpib	4,n0			; EINTR
+		then	moveq	1,n0
+			return(false)
+		end
+		movea	n0,rr
+		moveq	1,n0				; restore 0
+		lea	1(rr,rr),rr
+		_erstr(rr)
+		signal	not_possible(rr)
+	end
+	signal	not_possible("cannot write to this _chan")
+	end write_wait
+
+wait = proc (reads, writes: sequence[_chan], millis: int) returns (int)
+					 signals (not_possible(string))
+	moveq	0,n6
+	moveq	0,n3
+	movea	reads,r1
+	move	(r1)+,n1				; read count
+	ifne	asr	2,n1
+	then	qloop
+			movea	(r1)+,r2		; get next _chan
+			move	ch%rd(r2),n5		; file desc
+			blt	roops
+			bset	n5,n3			; set bit
+			ifgt	cmp	n6,n5		; get max
+			then	move	n5,n6
+			end
+			subq	1,n1			; count down
+			bgt	this
+		end
+	end
+	moveq	0,n4
+	movea	writes,r1
+	move	(r1)+,n1				; write count
+	ifne	asr	2,n1
+	then	qloop
+			movea	(r1)+,r2		; get next _chan
+			move	ch%wr(r2),n5		; file desc
+			blt	woops
+			bset	n5,n4			; set bit
+			ifgt	cmp	n6,n5		; get max
+			then	move	n5,n6
+			end
+			subq	1,n1			; count down
+			bgt	this
+		end
+	end
+	move	rr,n7
+	ifle	asr	1,n7
+	then	moveq	0,n1
+		moveq	0,n2
+	elflt	cmpi	1000,n7
+	then	moveq	0,n1
+		move	n7,n2
+		mulu	1000,n2			; get microseconds
+	else	swap	n7			; get seconds
+		moveq	0,n2
+		movew	n7,n2
+		swap	n7
+		divu	1000,n2
+		move	n2,n1
+		movew	n7,n2
+		divu	1000,n2
+		swap	n1
+		movew	n2,n1
+		swap	n2
+		mulu	1000,n2			; get microseconds
+	end
+	lea	obuf,r1
+	move	r1,-(sp)			; timeout
+	pea	16(r1)				; excepts
+	pea	12(r1)				; writes
+	pea	8(r1)				; reads
+	move	n3,n5
+	or	n4,n5
+	movem	n1/n2/n3/n4/n5,(r1)
+	addq	1,n6
+	move	n6,-(sp)			; count
+	clr	-(sp)
+	moveq	%select,n0
+	move	n0,-(sp)
+	trap	0
+	lea	24(sp),sp			; pop stack
+	movea	n0,rr
+	ifcc
+	then	moveq	1,n0			; restore 0
+		lea	1(rr,rr),rr
+		return(rr)
+	end
+	ifeq	cmpib	4,n0			; EINTR
+	then	moveq	1,n0
+		return(0)
+	end
+	moveq	1,n0				; restore 0
+	lea	1(rr,rr),rr
+	_erstr(rr)
+	signal	not_possible(rr)
+roops:	suba	r1,r1
+	signal	not_possible("cannot read from _chan")
+woops:	suba	r1,r1
+	signal	not_possible("cannot write to _chan")
+	end wait
+
+listen = proc (ch: cvt, backlog: int) signals (not_possible(string))
+	;; allow socket connections
+	;; backlog is as in listen Unix system call
+	movea	ch, r1
+	ifge	move	ch%rd(r1), n2
+		bge	this
+		move	ch%wr(r1), n2
+	then	move	rr, n3
+		asr	1, n3		;; De-integerize backlog.
+		sub	n1, n1		;; Hack pc.
+		moveq	%listen, n0
+		movem	n3/n2/n1/n0, -(sp)	;; Push desc and backlog.
+		ifcc	trap	0
+		then	addq	4, sp	;; Pop pc.
+			clr	(sp)+	;; Pop and clear args.
+			clr	(sp)+
+			moveq	1, n0
+			return
+			end
+		addq	4, sp		;; Pop pc.
+		clr	(sp)+		;; Pop and clear args.
+		clr	(sp)+
+		movea	n0, rr
+		lea	1(rr, rr), rr	;; Save and integerize error code.
+		moveq	1, n0		;; Restore n0.
+		_erstr(rr)
+		signal	not_possible(rr)
+		end
+	signal	not_possible ("_chan is closed")
+	end listen
+
+accept = proc (ch: cvt, addr: _wordvec) returns (cvt, int)
+					signals (not_possible(string))
+	;; accept a connection on the socket
+	;; the address of the connector is stored in addr
+	;; returns a new socket and the length of the address stored in addr
+
+	var	s, z
+	movea	ch, r1
+	ifge	move	ch%rd(r1), n2
+		bge	this
+		move	ch%wr(r1), n2
+	then	lea	obuf, r1	;; Push buffer to receive length.
+		addq	4, rr		;; Push addr address.
+		sub	n1, n1		;; Hack pc.
+		movem	r1/rr/n2/n1, -(sp)	;; Push args and pc.
+		qloop
+			moveq	%accept, n0
+			move	n0, -(sp)
+			trap	0
+			bcc	next
+			cmpi	%eintr, n0	;; Interrupted?
+			beq	this
+			addq	4, sp	;; Pop pc.
+			clr	(sp)+	;; Pop and clear args.
+			clr	(sp)+
+			movea	n0, rr
+			lea	1(rr, rr), rr	;; Save and integerize error.
+			moveq	1, n0	;; Restore n0.
+			_erstr(rr)
+			signal	not_possible(rr)
+			end
+		move	n0, s		;; Save file desc.
+		moveq	1, n0		;; Restore n0.
+		addq	4, sp		;; Pop pc
+		clr	(sp)+		;; Pop and clear args.
+		clr	(sp)+
+		movea	obuf, r1
+		lea	1(r1, r1), r1	;; Integerize length
+		move	r1, z		;; and save it.
+		file_name$parse("/dev/socket")
+		movea	rr, r1		;; Save file name.
+		moveq	ch%hd, n1
+		moveq	ch%blen, n2
+		movea	heaphi, rr		;; Create a new _chan object.
+		iflt	sub	n2, freecnt
+		then	jsr	memout
+			end
+		add	n2, heaphi
+		move	n1, (rr)		;; Store header.
+		move	r1, ch%fn(rr)		;; Fill in the _chan.
+		moveb	%oth, ch%typ(rr)
+		move	s, ch%rd(rr)
+		move	s, ch%wr(rr)
+		return (rr, z)
+		end
+	signal	not_possible("_chan is closed")
+	end accept
+
+bind = proc (ch: cvt, name: _wordvec, len: int)
+					signals (bounds, not_possible(string))
+	;; bind a name to a socket
+	;; len is the length of the name in name
+
+	movea	ch, r1
+	ifge	move	ch%rd(r1), n2	;; File desc.
+		bge	this
+		move	ch%wr(r1), n2
+	then	movea	name, r1
+		ifls	cmpa	(r1), rr;; Check len.
+		then	move	rr, n4	;; Ok.
+			asr	1, n4	;; De-integerize length.
+			move	r1, n3
+			addq	4, n3	;; Get name addr.
+			sub	n1, n1	;; Hack pc.
+			moveq	%bind, n0
+			movem	n4/n3/n2/n1/n0, -(sp)	;; Push everything.
+			ifcc	trap	0
+			then	addq	8, sp	;; Pop pc and file desc.
+				clr	(sp)+	;; Pop and clear other args.
+				clr	(sp)+
+				moveq	1, n0	;; Restore n0.
+				return
+				end
+			addq	8, sp
+			clr	(sp)+
+			clr	(sp)+
+			movea	n0, rr
+			lea	1(rr, rr), rr	;; Save and integerize error.
+			moveq	1, n0		;; Restore n0.
+			_erstr(rr)
+			signal	not_possible(rr)
+			end
+		signal	bounds
+		end
+	signal	not_possible("_chan is closed")
+	end bind
+
+connect = proc (ch: cvt, addr: _wordvec, len: int)
+					signals (bounds, not_possible(string))
+	;; connect an address to the socket
+	;; len is the length of the address in addr
+	movea	ch, r1
+	ifge	move	ch%rd(r1), n2
+		bge	this
+		move	ch%wr(r1), n2
+	then	movea	addr, r1
+		ifls	cmpa	(r1), rr;; Check len.
+		then	move	rr, n4
+			asr	1, n4	;; De-integerize length.
+			move	r1, n3
+			addq	4, n3	;; addr address.
+			sub	n1, n1	;; Hack pc.
+			moveq	%connect, n0
+			movem	n4/n3/n2/n1/n0, -(sp)	;; Push everything.
+			ifcc	trap	0
+			then	addq	8, sp	;; Pop pc and desc.
+				clr	(sp)+	;; Pop and clear other args.
+				clr	(sp)+
+				moveq	1, n0	;; Restore n0.
+				return
+				end
+			movea	n0, rr
+			lea	1(rr, rr), rr	;; Save and integerize error.
+			moveq	1, n0		;; Restore n0.
+			addq	8, sp
+			clr	(sp)+
+			clr	(sp)+
+			_erstr(rr)
+			signal	not_possible(rr)
+			end
+		signal	bounds
+		end
+	signal	not_possible("_chan is closed")
+	end connect
+
+shutdown = proc (ch: cvt, how: int) signals (not_possible(string))
+	;; shut down part of a connection
+	;; how is as in shutdown Unix system call
+	movea	ch, r1
+	ifge	move	ch%rd(r1), n2	;; File desc.
+		bge	this
+		move	ch%wr(r1), n2
+	then	move	rr, n3
+		asr	1, n3		;; De-integerize how.
+		sub	n1, n1		;; Hack pc.
+		move	%shutdown, n0
+		movem	n3/n2/n1/n0, -(sp)	;; Push everything.
+		ifcc	trap	0
+		then	addq	8, sp	;; Pop pc and file desc.
+			clr	(sp)+	;; Pop arg.
+			moveq	1, n0	;; Restore n0.
+			return
+			end
+		movea	n0, rr
+		lea	1(rr, rr), rr	;; Save and integerize error code.
+		moveq	1, n0		;; REstore 0.
+		addq	8, sp
+		clr	(sp)+
+		_erstr(rr)
+		signal	not_possible(rr)
+		end
+	signal	not_possible("_chan is closed")
+	end shutdown
+
+peername = proc (ch: cvt, addr: _wordvec) returns (int)
+					signals (not_possible(string))
+	;; store name of connected peer in addr
+	;; returns length of stored name
+	movea	ch, r1
+	ifge	move	ch%rd(r1), n2
+		bgt	this
+		move	ch%wr(r1), n2
+	then	addq	4, rr		;; addr address.
+		lea	obuf, r1	;; Buffer to receive name len.
+		sub	n1, n1		;; Hack pc.
+		move	%getpeername, n0
+		movem	r1/rr/n2/n1/n0, -(sp)	;; Push everything.
+		ifcc	trap	0
+		then	addq	8, sp	;; Pop pc and file desc.
+			clr	(sp)+	;; Pop and clear other args.
+			clr	(sp)+
+			moveq	1, n0	;; Restore n0.
+			movea	obuf, rr
+			lea	1(rr, rr), rr	;; Integerize and return len.
+			return (rr)
+			end
+		movea	n0, rr
+		lea	1(rr, rr), rr	;; Save and integerize error code.
+		moveq	1, n0		;; Restore n0.
+		addq	8, sp
+		clr	(sp)+
+		clr	(sp)+
+		_erstr(rr)
+		signal	not_possible(rr)
+		end
+	signal	not_possible("_chan is closed")
+	end peername
+
+sockname = proc (ch: cvt, addr: _wordvec) returns (int)
+					signals (not_possible(string))
+	;; store name of socket in addr
+	;; returns length of stored name
+	movea	ch, r1
+	ifge	move	ch%rd(r1), n2
+		bge	this
+		move	ch%wr(r1), n2
+	then	addq	4, rr		;; addr address.
+		lea	obuf, r1	;; Buffer to receive name len.
+		sub	n1, n1		;; Hack pc.
+		move	%getsockname, n0
+		movem	r1/rr/n2/n1/n0, -(sp)	;; Push everything.
+		ifcc	trap	0
+		then	addq	8, sp	;; Pop pc and file desc.
+			clr	(sp)+	;; Pop and clear other args.
+			clr	(sp)+
+			moveq	1, n0	;; Restore n0.
+			movea	obuf, rr
+			lea	1(rr, rr), rr	;; Integerize and return len.
+			return (rr)
+			end
+		movea	n0, rr
+		lea	1(rr, rr), rr	;; Save and integerize error code.
+		moveq	1, n0		;; Restore n0.
+		addq	8, sp
+		clr	(sp)+
+		clr	(sp)+
+		_erstr(rr)
+		signal	not_possible(rr)
+		end
+	signal	not_possible("_chan is closed")
+	end sockname
+
+getsockopt = proc (ch: cvt, level, option: int) returns (int)
+						signals (not_possible(string))
+	;; get socket option
+	;; level and option are as in getsockopt Unix system call
+	;; returns value (assumed to be an int)
+	movea	ch, r1
+	ifge	move	ch%rd(r1), n2
+		bge	this
+		move	ch%wr(r1), n2
+	then	move	rr, n4
+		asr	1, n4		;; De-integerize option
+		move	level, n3
+		asr	1, n3		;; De-integerize level
+		lea	obuf, rr	;; optval buffer.
+		move	rr, n5
+		addq	4, rr		;; optlen buffer.
+		move	4, (rr)		;; initialized to 4.
+		sub	n1, n1		;; Hack pc
+		moveq	%getsockopt, n0
+		movem	rr/n5/n4/n3/n2/n1/n0, -(sp)	;; Push everything.
+		trap	0
+		scc	n1
+		addq	8, sp		;; Pop pc and desc.
+		clr	(sp)+
+		clr	(sp)+
+		clr	(sp)+
+		clr	(sp)+
+		ifne	tstb	n1
+		then	movea	obuf, rr
+			lea	1(rr, rr), rr	;; Integerize result.
+			moveq	1, n0	 	;; Restore n0.
+			return (rr)
+			end
+		movea	n0, rr
+		lea	1(rr, rr), rr	;; Save and integerize error code.
+		moveq	1, n0		;; Restore n0.
+		_erstr(rr)
+		signal	not_possible(rr)
+		end
+	signal	not_possible("_chan is closed")			
+	end getsockopt
+
+setsockopt = proc (ch: cvt, level, option, value: int)
+						signals (not_possible(string))
+	;; set socket option
+	;; level and option are as in setsockopt Unix system call
+	movea	ch, r1
+	ifge	move	ch%rd(r1), n2
+		bge	this
+		move	ch%wr(r1), n2
+	then	move	option, n4
+		asr	1, n4		;; De-integerize option
+		move	level, n3
+		asr	1, n3		;; De-integerize level
+		move	rr, n0		;; Save value.
+		lea	obuf, rr	;; optval buffer.
+		asr	1, n0		;; De-integerize value.
+		move	n0, (rr)	;; and store it.
+		sub	n1, n1		;; Hack pc.
+		movea	n1, r1		;; optlen = 4.
+		addq	4, r1
+		moveq	%setsockopt, n0
+		movem	r1/rr/n4/n3/n2/n1/n0, -(sp)	;; Push everything.
+		trap	0
+		scc	n1
+		addq	8, sp		;; Pop pc and desc.
+		clr	(sp)+
+		clr	(sp)+
+		clr	(sp)+
+		clr	(sp)+
+		ifne	tstb	n1
+		then	moveq	1, n0	 ;; Restore n0.
+			return
+			end
+		movea	n0, rr
+		lea	1(rr, rr), rr	;; Save and integerize error code.
+		moveq	1, n0		;; Restore n0.
+		_erstr(rr)
+		signal	not_possible(rr)
+		end
+	signal	not_possible("_chan is closed")			
+	end setsockopt
+
+
+get_name = qproc (ch: cvt) returns (file_name) signals (not_possible(string))
+	movea	ch%fn(rr),rr
+	return(rr)
+	end get_name
+
+get_date = proc (ch: cvt) returns (date) signals (not_possible(string))
+	ifge	move	ch%rd(rr),n2
+		bge	this
+		move	ch%wr(rr),n2
+	then	lea	obuf,r1
+		moveq	0,n1
+		moveq	%fstat,n0			; get status
+		movem	r1/n2/n1/n0,-(sp)
+		trap	0
+		lea	12(sp),sp
+		ifcc
+		then	moveq	1,n0			; restore 0
+			moveaw	st%wrt(r1),rr		; last modification
+			pea	1(rr,rr)
+			moveaw	st%wrt+2(r1),rr
+			lea	1(rr,rr),rr
+			_local_time(*, rr)		; convert it
+			return(rr)
+		end
+		movea	n0,rr
+		lea	1(rr,rr),rr
+		moveq	1,n0				; restore 0
+		_erstr(rr)
+		signal	not_possible(rr)
+	end
+	signal	not_possible("_chan is closed")
+	end get_date
+
+get_speeds = proc (ch: cvt) returns (int, int) signals (not_possible(string))
+	ifne	tstb	ch%typ(rr)			; tty?
+	then	signal	not_possible("not a terminal _chan")
+	end
+	iflt	move	ch%rd(rr),n1
+		bge	next
+		move	ch%wr(rr),n1
+	then
+none:		signal	not_possible("speeds unknown")
+	end
+	lea	obuf,r2
+	move	r2,-(sp)				; buffer
+	move	%tiocgetp,-(sp)				; get status
+	move	n1,-(sp)
+	clr	-(sp)
+	moveq	%ioctl,n0
+	move	n0,-(sp)
+	trap	0
+	lea	16(sp),sp
+	ifcs
+	then	clr	-12(sp)
+		movea	n0,rr
+		moveq	1,n0				; restore 0
+		_erstr(rr)
+		signal	not_possible(rr)
+	end
+	clr	-12(sp)
+	moveb	(r2)+,n0
+	moveb	(r2)+,n1
+	move	n0,n2
+	moveq	1,n0					; restore 0
+	cmpib	1,n2					; check range
+	blt	none
+	cmpib	15,n2
+	bgt	none
+	cmpib	1,n1					; check range
+	blt	none
+	cmpib	15,n1
+	bgt	none
+	lea	speeds,rr
+	asl	2,n1
+	asl	2,n2
+	move	(rr,n2),-(sp)				; decode
+	movea	(rr,n1),rr
+	return(*, rr)
+	end get_speeds
+
+get_block_size = proc (ch: cvt) returns (int) signals (not_possible(string))
+	ifge	move	ch%rd(rr),n2
+		bge	this
+		move	ch%wr(rr),n2
+	then	lea	obuf,r1
+		moveq	0,n1
+		moveq	%fstat,n0			; get status
+		movem	r1/n2/n1/n0,-(sp)
+		trap	0
+		lea	12(sp),sp
+		ifcc
+		then	movea	st%bsz(r1),rr		; get size
+			lea	1(rr,rr),rr
+			moveq	1,n0			; restore 0
+			return(rr)
+		end
+		movea	n0,rr
+		lea	1(rr,rr),rr
+		moveq	1,n0				; restore 0
+		_erstr(rr)
+		signal	not_possible(rr)
+	end
+	signal	not_possible("_chan is closed")
+	end get_block_size
+
+stat = proc (ch: cvt, buf: _wordvec) signals (bounds, not_possible(string))
+	movea	ch,r1
+	ifge	move	ch%rd(r1),n1
+		bge	this
+		move	ch%wr(r1),n1
+	then	ifge	cmpi	129,(rr)
+		then	pea	4(rr)			; buffer
+			move	n1,-(sp)		; file desc
+			clr	-(sp)
+			moveq	%fstat,n0		; get status
+			move	n0,-(sp)
+			trap	0
+			lea	12(sp),sp		; pop stack
+			ifcc
+			then	clr	-12(sp)
+				moveq	1,n0		; restore 0
+				return
+			end
+			movea	n0,rr
+			lea	1(rr,rr),rr
+			moveq	1,n0
+			_erstr(rr)
+			signal	not_possible(rr)
+		end
+		signal	bounds
+	end
+	signal	not_possible("_chan is closed")
+	end stat
+
+get_access = proc (ch: cvt) returns (int) signals (not_possible(string))
+	ifge	move	ch%rd(rr),n1
+		bge	this
+		move	ch%wr(rr),n1
+	then	move	n0,-(sp)			; from current loc
+		clr	-(sp)				; zero offset
+		move	n1,-(sp)			; file desc
+		clr	-(sp)
+		moveq	%lseek,n0			; get it
+		move	n0,-(sp)
+		trap	0
+		lea	16(sp),sp
+		movea	n0,rr
+		lea	1(rr,rr),rr
+		ifcc
+		then	moveq	1,n0			; restore 0
+			return(rr)
+		end
+		moveq	1,n0				; restore 0
+		_erstr(rr)
+		signal	not_possible(rr)
+	end
+	signal	not_possible("_chan is closed")
+	end get_access
+
+set_access = proc (ch: cvt, pos: int) signals (not_possible(string))
+	movea	ch,r1
+	ifge	move	ch%rd(r1),n2
+		bge	this
+		move	ch%wr(r1),n2
+	then	clr	-(sp)				; from base
+		move	rr,n3
+		asr	1,n3
+		moveq	0,n1
+		moveq	%lseek,n0			; get it
+		movem	n3/n2/n1/n0,-(sp)
+		trap	0
+		lea	16(sp),sp
+		ifcc
+		then	moveq	1,n0			; restore 0
+			return
+		end
+		movea	n0,rr
+		lea	1(rr,rr),rr
+		moveq	1,n0				; restore 0
+		_erstr(rr)
+		signal	not_possible(rr)
+	end
+	signal	not_possible("_chan is closed")
+	end set_access
+
+get_length = proc (ch: cvt) returns (int) signals (not_possible(string))
+	ifge	move	ch%rd(rr),n2
+		bge	this
+		move	ch%wr(rr),n2
+	then	lea	obuf,r1
+		moveq	0,n1
+		moveq	%fstat,n0			; get status
+		movem	r1/n2/n1/n0,-(sp)
+		trap	0
+		lea	12(sp),sp
+		ifcc
+		then	movea	st%siz(r1),rr		; get size
+			lea	1(rr,rr),rr
+			moveq	1,n0			; restore 0
+			return(rr)
+		end
+		movea	n0,rr
+		lea	1(rr,rr),rr
+		moveq	1,n0				; restore 0
+		_erstr(rr)
+		signal	not_possible(rr)
+	end
+	signal	not_possible("_chan is closed")
+	end get_length
+
+set_length = proc (ch: cvt, len: int) signals (not_possible(string))
+	movea	ch,r1
+	ifge	move	ch%rd(r1),n2		; file desc
+		bge	this
+		move	ch%wr(r1),n2
+	then	move	rr,n3			; length
+		asr	1,n3
+		moveq	0,n1
+		moveb	%ftruncate,n0		; set length
+		movem	n3/n2/n1/n0,-(sp)
+		trap	0
+		lea	12(sp),sp		; pop stack
+		ifcc
+		then	moveq	1,n0		; restore 0
+			return
+		end
+		movea	n0,rr
+		lea	1(rr,rr),rr
+		moveq	1,n0			; restore 0
+		_erstr(rr)
+		signal	not_possible(rr)
+	end
+	signal	not_possible("_chan is closed")
+	end set_length
+
+equal = qproc (ch1, ch2: cvt) returns (bool)
+	moveq	0,n1
+	cmpa	ch1,rr
+	seq	n1
+	return(n1)
+	end equal
+
+similar = qproc (ch1, ch2: cvt) returns (bool)
+	moveq	0,n1
+	cmpa	ch1,rr
+	seq	n1
+	return(n1)
+	end similar
+
+copy = qproc (ch: cvt) returns (cvt)
+	return(rr)
+	end copy
+
+get_read_channel = qproc (ch: cvt, img: bool) returns (int)
+					      signals (not_possible(string))
+	movea	ch,r1
+	ifge	move	ch%rd(r1),n1		; can read?
+	then	movea	n1,rr			; yes
+		lea	1(rr,rr),rr
+		return(rr)
+	end
+	signal	not_possible("cannot read from this _chan")
+	end get_read_channel
+
+get_write_channel = qproc (ch: cvt, img: bool) returns (int)
+					      signals (not_possible(string))
+	movea	ch,r1
+	ifge	move	ch%wr(r1),n1		; can write?
+	then	movea	n1,rr			; yes
+		lea	1(rr,rr),rr
+		return(rr)
+	end
+	signal	not_possible("cannot write to this _chan")
+	end get_write_channel
+
+get_def_mode = qproc () returns (int)
+	movea	defmod,rr
+	lea	1(rr,rr),rr
+	return(rr)
+	end get_def_mode
+
+set_def_mode = qproc (mode: int)
+	move	rr,n1
+	asr	1,n1
+	move	n1,defmod
+	end set_def_mode
+
+close_all = qproc ()
+	clr	-(sp)
+	moveq	%getdtablesize,n0
+	move	n0,-(sp)
+	trap	0
+	move	n0,n2
+	clr	-(sp)
+	moveq	%close,n3
+	loop
+		subq	1,n2
+		cmpib	2,n2			; done?
+		beq	next
+		cmp	rdpipe,n2		; ignore debug pipes
+		beq	this
+		cmp	wrpipe,n2
+		beq	this
+		move	n2,4(sp)
+		move	n3,-(sp)		; close it
+		trap	0
+	end
+	addq	8,sp
+	moveq	1, n0			;; Restore  n0.
+	end close_all
+
+end _chan

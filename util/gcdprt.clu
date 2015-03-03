@@ -1,0 +1,51 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+start_up = proc ()
+    ac = array[char]
+    as = array[string]
+    fname = file_name
+    po: stream := stream$primary_output()
+    jcl: string := get_jcl()
+    if string$empty(jcl)
+       then pi: stream := stream$primary_input()
+	    stream$puts(po, "FILE = ")
+	    jcl := stream$getl(pi)
+       end
+    line: ac := string$s2ac(jcl)
+    outfs: string := get_output_part(line)
+       except when none: outfs := "/dev/p" end
+    st: stream := stream$open(fname$parse(outfs), "write")
+       except when bad_format, not_possible (*): st := po end
+    pp: pstream := pstream$create(st, 100, 100)
+    for fns: string in as$elements(get_input_parts(line)) do
+	fn: fname := fname$parse(fns)
+	   except when bad_format:
+		       stream$puts(po, "bad format file name: ")
+		       stream$putl(po, fns)
+		       continue
+		  end
+	if string$empty(fn.suffix)
+	   then nfn: fname := file_name_fill(fn, "bin")
+		if ~file_exists(nfn)
+		   then nfn := file_name_fill(fn, "gcd")
+			if ~file_exists(nfn)
+			   then nfn := file_name_fill(fn, "lib")
+				if ~file_exists(nfn)
+				   then nfn := fn end
+			   end
+		   end
+		fn := nfn
+	   end
+	stream$puts(st, fname$unparse(fn))
+	stream$puts(st, ": ")
+	x: _obj := gc_read[_obj](fn)
+	   except when not_possible (why: string):
+		       stream$putl(po, why)
+		       continue
+		  end
+	stream$puts(st, "\n\n")
+	_obj$print(x, pp)
+	pstream$pause(pp, "")
+	stream$putc(st, '\n')
+	end
+    stream$close(st)
+    end start_up

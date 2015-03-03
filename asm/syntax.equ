@@ -1,0 +1,284 @@
+%	SYNTAX EQUATE
+% Copyright Massachusetts Institute of Technology 1980, 1989
+%	MC68000 Assembler: Abstract Syntax Equates
+
+str		= string
+name		= string
+namelist	= sequence[name]
+idnlist		= sequence[idn]
+typelist	= sequence[typespec]
+stmtlist	= sequence[stmt]
+exprlist	= sequence[expr]
+equatelist	= sequence[equate]
+ai		= array[int]
+qi		= sequence[int]
+
+%	IDN SUPPORT
+
+idnkind		= oneof[epvar:   int,		% EP offset
+			spvar:   int,		% SP offset
+			rown:    mref,		% routine own #
+			cown:    mref,		% cluster own #
+			prown:   mref,		% p-routine own #
+			pcown:   mref,		% p-cluster own #
+			rparm:   mref,		% routine parm #
+			cparm:   mref,		% cluster parm #
+			wvec:	 mref,		% word vector
+			expr:    expr,		% equate
+			perm:	 expr,		% permanent equate
+			dreg:    int,		% data register
+			areg:    int,		% address register
+			usp:	 null,		% user stack pointer
+			ccr:	 null,		% condition code register
+			sr:	 null,		% status register
+			pc:      null,		% program counter
+			text:    int,		% permanent text address
+			data:    int,		% permanent data address
+			flabel:  ai,		% forward label
+			label:   int,		% resolved label
+			tos:     null,		% top of stack
+			unknown: null]
+
+mref		= oneof[ref, val: int]		% reference or integer
+
+%	TYPESPEC SUPPORT
+
+exception	= record[name:  name,
+			 types: typelist]
+exceptionlist	= sequence[exception]
+applytype	= record[gen:  name,
+			 args: typelist,
+			 vals: typelist,
+			 sigs: exceptionlist]
+clutype		= record[gen:   name,
+			 parms: exprlist]
+fieldspec	= record[sel:    name,
+			 type_:  typespec]
+fieldspeclist	= sequence[fieldspec]
+seltype		= record[gen:   name,
+			 parms: fieldspeclist]
+typeabs		= oneof[cluster_: clutype,
+			select:   seltype,
+			apply:    applytype,
+			idn:      idn,
+			any_:	  null,
+			cvt_:     null,
+			seltype:  null,
+			unknown:  null]
+
+%	MODULE SUPPORT
+
+equate		= record[idn:  idn,
+			 expr: expr,
+			 line: int]
+decl		= record[idns:  idnlist,
+			 type_: typespec]
+decllist	= sequence[decl]
+vardecl		= record[idns: idnlist,
+			 line: int]
+varlist		= sequence[vardecl]
+wvecdef		= record[idns: idnlist,
+			 size: expr,
+			 line: int]
+wveclist	= sequence[wvecdef]
+_is_iter	= 0
+_is_qproc	= 1
+_is_proc	= 2
+_is_selproc	= 3
+_is_qselproc	= 4
+applydefn	= record[name:    name,
+			 kind:    int,
+			 parms:   decllist,
+			 args:    decllist,
+			 vals:    typelist,
+			 sigs:    exceptionlist,
+			 equates: equatelist,
+			 wvecs:   wveclist,
+			 owns:    varlist,
+			 vars:    varlist,
+			 labels:  idnlist,
+			 body:    stmtlist,
+			 line:    int]
+applydefnlist	= sequence[applydefn]
+typedefn	= record[name:    name,
+			 select:  bool,
+			 parms:   decllist,
+			 ops:     namelist,
+			 equates: equatelist,
+			 wvecs:   wveclist,
+			 owns:    varlist,
+			 body:    applydefnlist,
+			 line:    int]
+definition	= oneof[equates:   equatelist,
+			apply:     applydefn,
+			cluster_:  typedefn]
+
+%	STMT SUPPORT
+
+assnstmt	= record[var:  idn,
+			 expr: expr]
+massnstmt	= record[vars: idnlist,
+			 call: invoke]
+invoke		= record[apply:  expr,
+			 args:   exprlist]
+loopstmt	= record[quick: bool,
+			 body:  stmtlist]
+forstmt		= record[quick: bool,
+			 vars:  idnlist,
+			 call:  invoke,
+			 body:  stmtlist]
+_if		= 0
+_if_true	= 1
+_if_false	= 2
+_if_cc		= BCS
+_if_cs		= BCC
+_if_eq		= BNE
+_if_ge		= BLT
+_if_gt		= BLE
+_if_hi		= BLS
+_if_le		= BGT
+_if_ls		= BHI
+_if_lt		= BGE
+_if_mi		= BPL
+_if_ne		= BEQ
+_if_pl		= BMI
+_if_vc		= BVS
+_if_vs		= BVC
+ifarm		= record[kind: int,
+			 test: stmtlist,
+			 body: stmtlist]
+ifarmlist	= sequence[ifarm]
+mbody		= oneof[none: null,
+			body: stmtlist]
+ifstmt		= record[arms:  ifarmlist,
+			 else_: mbody]
+condition	= record[name: name,
+			 vals: exprlist]
+labelstmt	= record[idn:  idn,
+			 stmt: stmt]
+handler		= record[names: namelist,
+			 vars:  idnlist,
+			 body:  stmtlist,
+			 line:  int]
+handlerlist	= sequence[handler]
+midn		= oneof[none: null,
+			idn:  idn]
+othersarm	= record[var:  midn,
+			 body: stmtlist,
+			 line: int]
+mothersarm	= oneof[none: null,
+			arm:  othersarm]
+exceptstmt	= record[stmt:    stmt,
+			 arms:    handlerlist,
+			 others_: mothersarm]
+resignalstmt	= record[stmt:   stmt,
+			 resigs: namelist]
+instpair	= record[reg:  idn,
+			 disp: expr]
+instquad	= record[reg:  idn,
+			 idx:  idn,
+			 long: bool,
+			 disp: expr]
+rspecpair	= record[from: idn,
+			 to:   idn]
+rspeclist	= sequence[rspecpair]
+instval		= oneof[none:   null,
+			indir:  idn,
+			pincr:  idn,
+			pdecr:  idn,
+			idisp:  instpair,
+			index:  instquad,
+			rlist:  rspeclist,
+			expr:   expr,
+			this:   null,
+			next:   null]
+operpair	= record[reg:  int,
+			 disp: int]
+rangepair	= record[from: int,
+			 to:   int]
+rangelist	= sequence[rangepair]
+intpair		= record[left:  int,
+			 right: int]
+operand		= oneof[none:   null,
+			datad:  int,
+			addrd:  int,
+			indir:  int,
+			pincr:  int,
+			pdecr:  int,
+			idisp:  operpair,
+			index:  operpair,
+			usp:	null,
+			ccr:	null,
+			sr:	null,
+			pcdsp:  int,
+			pcidx:  int,
+			label:  idn,
+			var:    idn,
+			int_:   int,
+			pair:   intpair,
+			rlist:  rangelist,
+			expr:   expr,
+			text:   int,
+			data:   int,
+			this:   null,
+			next:   null]
+igentype	= proctype (g_env, int, operand, operand) returns (bool)
+opcodeform	= record[opcode: int,
+			 opgen:  igentype,
+			 str:    str]
+instform	= record[opcode: opcodeform,
+			 src:    instval,
+			 dst:    instval]
+stmtabs		= oneof[assn:      assnstmt,
+			massn:     massnstmt,
+			stack:     exprlist,
+			unstack:   idnlist,
+			invoke:    invoke,
+			loop:      loopstmt,
+			for_:      forstmt,
+			if_:       ifstmt,
+			return_:   exprlist,
+			yield_:    exprlist,
+			signal_:   condition,
+			break_:    null,
+			continue_: null,
+			body:      stmtlist,
+			label:     labelstmt,
+			resignal_: resignalstmt,
+			except_:   exceptstmt,
+			inst:      instform,
+			expr:      expr,
+			bad:       null]
+
+%	EXPR SUPPORT
+
+clusterop	= record[type_: typespec,
+			 name:  name,
+			 parms: exprlist]
+mexpr		= oneof[none: null,
+			expr: expr]
+exprpair	= record[left:  expr,
+			 right: expr]
+tagcons		= record[tag_: expr,
+			 val:  expr]
+exprabs		= oneof[star:     null,
+			null_:	  null,
+			bool_:    bool,
+			int_:     int,
+			real_:    real,
+			char_:    char,
+			str:      str,
+			xstr:     qi,
+			idn:      idn,
+			select:   int,
+			selnames: null,
+			type_:    typespec,
+			apply:	  clutype,
+			op:	  clusterop,
+			selops:	  name,
+			vec:      exprlist,
+			tagcell:  tagcons,
+			pair:     exprpair,
+			minus:    expr,
+			sum:      exprpair,
+			bad:      null]

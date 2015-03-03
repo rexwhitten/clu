@@ -1,0 +1,12 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+Output_Symbol_Section = proc (Env: lnk_env, Get_Times: bool);
+    if (Env.Options.Symbols_Wanted)
+       then Setup_Special_Symbols(Env);
+       end;
+    out_link_chan$Start_Symbol_Section(Env.Output);
+    for A_Symb: a_symbol in a_symbols$Elements(Env.Mach_Dependent.A_Symbols) do
+	a_symbol$Output(A_Symb, Env);
+	end;
+    out_link_chan$End_Symbol_Section(Env.Output);
+    end Output_Symbol_Section;

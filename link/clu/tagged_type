@@ -1,0 +1,50 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+tagged_type = cluster is
+	get_type_desc, get_tag_name, similar,
+	bind, instantiate, print, unparse, _gcd;
+
+    rep = record[ a_Tag:  string,
+		  b_Type: type_desc];
+
+    Get_Type_Desc = proc (Tg_T: cvt) returns (type_desc);
+	return (Tg_T.b_Type);
+	end Get_Type_Desc;
+
+    Get_Tag_Name = proc (Tg_T: cvt) returns (string);
+	return (Tg_T.a_Tag);
+	end Get_Tag_Name;
+
+    Similar = proc (Tg_T1, Tg_T2: cvt) returns (bool);
+	return ( rep$Similar(Tg_T1, Tg_T2) );
+	end Similar;
+
+    Bind = proc (Tg_T: cvt, R_D: rtn_desc, Env: lnk_env) returns (cvt)
+	     signals (error(string));
+	return ( rep${ a_Tag:	 Tg_T.a_Tag,
+		       b_Type:	 type_desc$Bind(Tg_T.b_Type, R_D, Env)
+		      } );
+	   resignal Error;
+	end Bind;
+
+    Instantiate = proc (T: cvt, Env: lnk_env) returns (cvt)
+		    signals (error(string));
+	T.a_Tag := Name_Instantiate(T.a_Tag, Env);
+	T.b_Type := type_desc$Instantiate(T.b_Type, Env);
+	   resignal Error;
+	return (T);
+	end Instantiate;
+
+    Print = proc (T: cvt, S: pstream);
+	rep$Print(T, S);
+	end Print;
+
+    Unparse = proc (T: cvt) returns (string);
+	return ( T.a_Tag || ": " || type_desc$Unparse(T.b_Type) );
+	end Unparse;
+
+    _gcd = proc (TT: cvt, Tab: gcd_tab) returns (int);
+	return (rep$_gcd(TT, Tab));
+	end _gcd;
+
+    end tagged_type;

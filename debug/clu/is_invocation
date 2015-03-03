@@ -1,0 +1,14 @@
+%copyright Barbara Massachusetts Institute of Technology , 1989
+
+#extend
+
+is_invocation = proc(x: _obj) returns (bool)
+
+    jsr_long =  0047271             %% jump to proc: jsr rtn
+
+    instr: int := _get_word( x, 0)
+    if (instr = jsr_long) 
+       then return (true)
+       else return (false)
+       end
+    end is_invocation

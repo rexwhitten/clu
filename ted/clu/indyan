@@ -1,0 +1,176 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+indyan = proc (e: env, c: char) signals (errmsg(string), stop(env, string))
+    help_text = "A: display last result\n" ||
+		"B: insert last result into buffer\n" ||
+		"C: compile current file\n" ||
+		"D: R current file for Diablo output\n" ||
+		"E: Scribe current file\n" ||
+		"G: split current file into separate module files\n" ||
+		"H: type check current file\n" ||
+		"I: indent current file\n" ||
+		"J: run compiler with commands (#=0: don't write file)\n" ||
+		"K: keep/kill an inferior compiler\n" ||
+		"L: R current file for LPT output\n" ||
+		"M: Makefile (#=0: don't write file)\n" ||
+		"N: set compiler name\n" ||
+		"O: optimize current file\n" ||
+		"P: R current file for Press output\n" ||
+		"Q: indent # units starting at right of cursor\n" ||
+		"R: run R with commands (#=0: don't write file)\n" ||
+		"S: send current file contents as mail\n" ||
+		"U: run compiler on changed/all files\n" ||
+		"V: R current file for Varian output\n" ||
+		"W: change working directory\n" ||
+		"X: R current file for XGP output\n" ||
+		"Y: run \"progy_name\" on current file contents\n" ||
+		"Z: run \"progz_name\" (#=1: on current file, #~=1: with jcl)"
+    arg: int, opt: char := get_option(e,
+				      "Compile/Format/Send/Run",
+				      "",
+				      help_text,
+				      false)
+       resignal errmsg
+    result: buf
+    curfns: string := get_frame_name(e)
+    curfn: fname := fname$parse(curfns)
+       except when bad_format:
+		   curfns := ""
+		   curfn := fname$parse("")
+	      end
+    if string$indexc(opt, "CDEHJPRLOVXZ") > 0 cand
+       ((e.buffer.changed cand (string$indexc(opt, "JMR") = 0 cor arg ~= 0)) cor
+	(string$empty(curfns) cand string$indexc(opt, "JMR") = 0))
+       then % write out the current file if there are changes
+	    write_file(e, curfn, false, false)
+	       resignal errmsg
+	    e.buffer.changed := false
+	    curfns := get_frame_name(e)
+	    curfn := fname$parse(curfns)
+       end
+    if opt = 'A' then % just type out the last result
+       name: string := env$fetch_str(e, "last_result", "Result")
+       result := bufset$fetch(name)
+	  except when bad_name: return end
+       type_sub_buf(e, "---- Buffer: " || name, result, 1, buf$size(result), false, false)
+       return
+     elseif opt = 'B' then % insert the last result
+       env$insert_buf1(e, bufset$fetch(env$fetch_str(e, "last_result", "Result")))
+	  except when bad_name: end
+       return
+     elseif opt = 'G' then % split into separate modules
+       split_modules(e)
+       return
+     elseif opt = 'I' then % indent current file
+       result := spiffy(e, -1)
+     elseif opt = 'Q' then % indent # units
+       result := spiffy(e, arg)
+     elseif opt = 'C' cor opt = 'O' cor opt = 'J' cor opt = 'H' then % compile
+       result := compile_file(e, opt, curfn, curfns)
+     elseif opt = 'U' then % compile
+       result := compile_files(e, opt)
+     elseif opt = 'K' then % Kill/Keep
+       run_compiler(e, "", true)
+	  except when done: end
+       return
+     elseif opt = 'N' then
+       env$store_str(e, "compiler_name",
+		     get_string_arg(e, "Compiler name",
+				    env$fetch_str(e, "compiler_name", "clu")))
+       return
+     elseif opt = 'S' then % Send buffer as mail.
+       nam, jcl: string := program_name(e, "mail_name", "/usr/lib/sendmail")
+       jcl := jcl || rem_newlines(get_string_arg(e, "Send buffer to", ""))
+       top_display(e, string$append(nam, ' ') || jcl)
+       result := run_lower_job(e, nam, jcl, true)
+     elseif opt = 'W' then % Change working dir
+       set_connected_dir(
+	   logical_name(e, get_string_arg
+			       (e, "Working directory", connected_dir())))
+	  except when not_possible (why: string): signal errmsg(why)
+		 when bad_format: signal errmsg("bad format directory")
+		 end
+       return
+     elseif opt = 'Y' then % run random program
+       nam, jcl: string := program_name(e, "progy_name", "")
+       jcl := jcl || command_line(e, "Command line", "")
+       top_display(e, string$append(nam, ' ') || jcl)
+       result := run_lower_job(e, nam, jcl, true)
+     elseif opt = 'Z' then % run random program
+       nam, jcl: string := program_name(e, "progz_name", "")
+       jcl := jcl || curfns
+       if arg ~= 1
+	  then jcl := command_line(e, "Command line", jcl) end
+       top_display(e, string$append(nam, ' ') || jcl)
+       result := run_lower_job(e, nam, jcl, false)
+     elseif opt = 'M' then
+       % Makefile
+       jcl: string := command_line(e, "Make", curfn.name)
+       top_display(e, "make " || jcl)
+       result := run_lower_job(e, "make", jcl, false)
+     elseif opt = 'E' then
+	nam, jcl: string := program_name(e, "scribe_name", "scribe")
+	jcl := jcl || string$rest(curfns, _last_indexc('/', curfns) + 1)
+	odir: string := connected_dir()
+	begin
+	    set_connected_dir(curfn.dir)
+	    top_display(e, string$append(nam, ' ') || jcl)
+	    result := run_lower_job(e, nam, jcl, false)
+	    end except when not_possible, errmsg (why: string):
+			    set_connected_dir(odir)
+			    signal errmsg(why)
+		       end
+	set_connected_dir(odir)
+     elseif string$indexc(opt, "DLPRVX") > 0 then
+       % run R (or other formatter) on current file
+       nam, jcl: string := program_name(e, "r_name", "r")
+       jcl := jcl || curfns
+       if opt = 'R'
+	  then jcl := command_line(e, "R Commands", jcl)
+	  else jcl := jcl || string$append(" -", opt)
+	       if opt = 'D' then jcl := string$append(jcl, 'I') end
+	  end
+       top_display(e, string$append(nam, ' ') || jcl)
+       result := run_lower_job(e, nam, jcl, false)
+     else signal errmsg("Bad ^\\ option!")
+     end resignal errmsg
+    if buf$empty(result)
+       then top_display(e, "Done.")
+       else name: string := "Result"
+	    cnt: int := 0
+	    while true do
+		bufset$fetch(name)
+		   except when bad_name: break end
+		for ee: env in winset$displayed() do
+		    if ee.name = name
+		       then cnt := cnt + 1
+			    name := "Result" || int$unparse(cnt)
+			    continue
+		       end
+		    end
+		bufset$kill_buf(e, name)
+		   except when errmsg (*):
+			       cnt := cnt + 1
+			       name := "Result" || int$unparse(cnt)
+			       continue
+			  end
+		break
+		end
+	    bufset$create_buf(name, "", result)
+	    env$store_str(e, "last_result", name)
+	    type_sub_buf(e, "---- Buffer: " || name, result, 1, buf$size(result), false, false)
+       end
+    env$maybe_change(e)
+    end indyan
+
+program_name = proc (e: env, name, default: string) returns (string, string)
+		 signals (errmsg(string))
+    name := env$fetch_str(e, name, default)
+    if string$empty(name) then signal errmsg("No program defined!") end
+    default := ""
+    i: int := string$indexc(' ', name)
+    if i > 0
+       then default := string$append(string$rest(name, i + 1), ' ')
+	    name := string$substr(name, 1, i - 1)
+       end
+    return(logical_name(e, name), default)
+    end program_name

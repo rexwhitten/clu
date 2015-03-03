@@ -1,0 +1,362 @@
+%	GOPT3A	CLU
+% Copyright Massachusetts Institute of Technology 1980, 1989
+%	CLU Compiler Version 3: tagcase optimizations
+
+# extend
+
+g_tagcase1 = proc (e: g_env, s: tagstmt, specs: fieldspeclist, mut, last: bool)
+							returns (bool, qi)
+	count: int, need: bool := g_tag_info(s)
+	me: g_menv := e.menv
+	regs: reglist := me.state
+	if mut
+	   then g_expr(e, s.obj, locate$make_areg(_RR))
+		if need
+		   then xinst(me, MOVEM, _indir_RR)
+			immed(me, 0000600)
+			regs[_addrd_RR] := locate$make_a(nil)
+		   else minst(me, MOVE, datad_N7_, _indir_RR)
+		   end
+	   else g_expr(e, s.obj, locate$make_tos(nil))
+		ainst(me, MOVEQ, _N7, 0)
+		minst(me, MOVEB, datad_N7_, _indir_SP)
+		if ~g_is_compact(specs, false)
+		   then if need
+			   then xinst(me, BNE, 8)
+				ainst(me, MOVEA, _RR, _pincr_SP)
+				xinst(me, MOVEM, _indir_RR)
+				immed(me, 0000600)
+				xinst(me, BRA, 4)
+				xinst(me, CLRB, _indir_SP)
+				ainst(me, MOVEA, _RR, _pincr_SP)
+				regs[_addrd_RR] := locate$make_a(nil)
+			   else diff = _indir - _addrd
+				reg: int := g_choose_areg(regs)
+				xinst(me, BNE, 4)
+				ainst(me, MOVEA, reg - _addrd, _indir_SP)
+				minst(me, MOVE, datad_N7_, reg + diff)
+				ainst(me, ADDQ, 4, _addrd_SP)
+				regs[reg] := locate$make_a(nil)
+			   end
+		elseif need
+		   then xinst(me, CLRB, _indir_SP)
+			ainst(me, MOVEA, _RR, _pincr_SP)
+			regs[_addrd_RR] := locate$make_a(nil)
+		else ainst(me, ADDQ, 4, _addrd_SP) end
+	   end
+	cont: bool
+	arm_ends: qi
+	if 2 * fieldspeclist$size(specs) + 3 <= count  cor
+	   (e.time  cand  count >= 16)
+	   then cont, arm_ends := g_tagarms2(e, s, specs, last)
+	   else cont, arm_ends := g_tagarms1(e, s, specs, last)
+	   end
+	return(cont, arm_ends)
+	end g_tagcase1
+
+g_tag_info = proc (s: tagstmt) returns (int, bool)
+	arms: tagarmlist := s.arms
+	high: int := tagarmlist$size(arms)
+	need: bool := false
+	if mbody$is_none(s.others_)
+	   then need := mdecl$is_decl(tagarmlist$top(arms).var)
+		high := high - 1
+	   end
+	count: int := high
+	for i: int in int$from_to(1, high) do
+		arm: tagarm := arms[i]
+		count := count + 3 * namelist$size(arm.tags)
+		if mdecl$is_decl(arm.var)
+		   then need := true end
+		end
+	return(count, need)
+	end g_tag_info
+
+g_type_int = proc (t: typespec) returns (bool)
+    tagcase t.abs
+        tag cluster_ (clut: clutype):
+	    return (clut.gen.unique = "int")
+	others:
+	    return (false)
+        end
+    end g_type_int
+
+%%% Return true if there's a possibility that a oneof with the given
+%%% fieldspeclist could be compact.
+g_maybe_compact = proc (specs: fieldspeclist) returns (bool)
+    for spec: fieldspec in fieldspeclist$elements(specs) do
+        if g_type_info(spec.type_, false) cor g_type_int (spec.type_)
+	   then return (true)
+	   end
+    end
+    return (false)
+end g_maybe_compact
+
+%%% Return true if a oneof with the given fieldspeclist will always be
+%%% compact.
+g_is_compact = proc (specs: fieldspeclist, eq: bool) returns (bool)
+	for spec: fieldspec in fieldspeclist$elements(specs) do
+		if ~g_type_info(spec.type_, eq)
+		   then return(false) end
+       		end
+
+	return(true)
+	end g_is_compact
+
+g_tagarms1 = proc (e: g_env, s: tagstmt, specs: fieldspeclist, last: bool)
+							returns (bool, qi)
+	me: g_menv := e.menv
+	oregs: reglist := me.state
+	tregs: reglist := g_menv$begin_state(me, false)
+	cont: bool := false
+	arm_ends: qi := qi$new()
+	arms: tagarmlist := s.arms
+	high: int := tagarmlist$size(arms)
+	is_others: bool := false
+	is_real_others: bool := false
+	ocomp: bool := false
+	others_: body
+	tagcase s.others_
+	   tag body (b: body):
+		others_ := b
+		is_others := true
+		is_real_others, ocomp := g_is_quick_arm(e, b)
+	   others:
+	   end
+	for i: int in tagarmlist$indexes(arms) do
+		arm: tagarm := arms[i]
+		e.line := arm.line
+		b: body := arm.body
+		is_real_body, comp: bool := g_is_quick_arm(e, b)
+		%%% Computation of switch was here.  (See below)
+		locs: qi := qi$new()
+		loc: int
+		if i < high  cor  is_others
+		   then	%%% Computation of switch moved here from above.
+			%%% See comment at end of this if statement.
+			switch: bool := (comp  cor  ~is_real_body)  cand
+					(i < high  cor  is_real_others  cor
+					 (~last  cand  ~ocomp))
+			sels: namelist := arm.tags
+			z: int := namelist$size(sels)
+			for j: int in int$from_to(1, z) do
+				xinst(me, CMPIW, _datad_N7)
+				immed(me, g_sel(sels[j], specs))
+				if j < z  cor  switch
+				   then locs := qi$addh(locs, binst(me, BEQ))
+				   else loc := binst(me, BNE)
+					for nloc: int in qi$elements(locs) do
+						g_menv$goto(me, nloc)
+						end
+				   end
+				end
+			%%% The following code (down to "%%% End of code")
+			%%% has been moved here (from "%%% Where it used to be")
+			%%% to fix a bug with the over-optimization of
+			%%% a final tag arm that does a single break,
+			%%% continue, or exit (with no args) when a series
+			%%% of conditional branches (rather than jump table)
+			%%% is being used.  The tagarm would be completely
+			%%% removed.  This fix forces the "quick arm"
+			%%% generation to occur only if the arm is not the
+			%%% last arm or is an "others" arm.  There may be
+			%%% a better fix than this, but we will live with
+			%%% this for now.
+			if switch
+			   then if comp
+				   then g_quick_arm(e, b, locs)
+				   else arm_ends := arm_ends || locs
+					cont := g_merge_state(oregs, tregs, cont)
+				   end
+				continue
+			   end
+			%%% End of code.
+		   end
+		%%% Where it used to be.
+		g_menv$begin_vars(me)
+		bregs: reglist := g_menv$begin_state(me, false)
+		tagcase arm.var
+		   tag decl (md: decl):
+			if is_real_body
+			   then dest: locate :=
+					g_menv$init_var(me,
+							idnlist$bottom(md.idns))
+				g_move_src(e, dest, _addrd_RR, 0)
+			   end
+		   others:
+		   end
+		if i < high  cor  last  cor  is_real_others
+		   then locs := g_lbody(e, b)
+			if ~qi$empty(locs)
+			   then arm_ends := arm_ends || locs
+				cont := g_merge_state(oregs, bregs, cont)
+			   end
+		elseif g_body(e, b)
+		   then cont := g_merge_state(oregs, bregs, cont) end
+		g_menv$end_state(me)
+		g_menv$end_vars(me)
+		if i = high  cand  ~is_real_others
+		   then if ~is_others
+			   then break
+			elseif ocomp
+			   then g_quick_arm(e, others_, qi$e2s(loc))
+				break
+			elseif last
+			   then arm_ends := qi$addh(arm_ends, loc)
+				break
+			end
+		   end
+		g_menv$goto(me, loc)
+		end
+	g_menv$begin_vars(me)
+	if ~is_real_others
+	   then if ~ocomp
+		   then cont := g_merge_state(oregs, tregs, cont) end
+	elseif last
+	   then locs: qi := g_lbody(e, others_)
+		if ~qi$empty(locs)
+		   then arm_ends := arm_ends || locs
+			cont := g_merge_state(oregs, tregs, cont)
+		   end
+	elseif g_body(e, others_)
+	   then cont := g_merge_state(oregs, tregs, cont) end
+	g_menv$end_vars(me)
+	g_menv$end_state(me)
+	if last
+	   then return(false, arm_ends) end
+	for loc: int in qi$elements(arm_ends) do
+		g_menv$goto(me, loc)
+		end
+	return(cont, qi$new())
+	end g_tagarms1
+
+g_tagarms2 = proc (e: g_env, s: tagstmt, specs: fieldspeclist, last: bool)
+							returns (bool, qi)
+	me: g_menv := e.menv
+	cont: bool := false
+	oregs: reglist := me.state
+	tregs: reglist := g_menv$begin_state(me, false)
+	arm_ends: qi := qi$new()
+	arms: tagarmlist := s.arms
+	high: int := tagarmlist$size(arms)
+	z: int := fieldspeclist$size(specs)
+	ainst(me, LSLW, 2, _N7)
+	xinst(me, JMP, _pcidx)
+	loc: int := g_menv$next_loc(me)
+	immed(me, 0070376)
+	for i: int in int$from_to(1, z) do
+		xinst(me, JMP, _pcdsp)
+		pcrel(me)
+		end
+	flags: flaglist := flaglist$fill(1, z, true)
+	is_real_others: bool
+	tagcase s.others_
+	   tag body (b: body):
+		is_real_others := ~stmtlist$empty(b.stmts)
+	   tag none:
+		is_real_others := false
+	   end
+	for i: int in tagarmlist$indexes(arms) do
+		arm: tagarm := arms[i]
+		e.line := arm.line
+		stmts: stmtlist := arm.body.stmts
+		if stmtlist$empty(stmts)
+		   then for sel: name in namelist$elements(arm.tags) do
+				j: int := g_sel(sel, specs)
+				flags[j] := false
+				arm_ends := qi$addh(arm_ends, loc + 2 * j)
+				end
+			cont := g_merge_state(oregs, tregs, cont)
+			continue
+		   end
+		if stmtlist$size(stmts) = 1
+		   then tagcase stmtlist$bottom(stmts).abs
+			   tag break_:
+				if ~g_env$in_for(e)
+				   then for sel: name in namelist$elements(arm.tags) do
+						j: int := g_sel(sel, specs)
+						flags[j] := false
+						g_env$add_break(e, loc + 2 * j)
+						end
+					continue
+				   end
+			   tag continue_:
+				if ~g_env$in_for(e)
+				   then for sel: name in namelist$elements(arm.tags) do
+						j: int := g_sel(sel, specs)
+						flags[j] := false
+						g_menv$store_offset(me, loc + 2 * j, e.loop_disp)
+						end
+					continue
+				   end
+			   tag exit_ (cond: condition):
+				if exprlist$empty(cond.args)
+				   then for sel: name in namelist$elements(arm.tags) do
+						j: int := g_sel(sel, specs)
+						flags[j] := false
+						g_env$add_exit(e, cond.name, loc + 2 * j)
+						end
+					continue
+				   end
+			   others:
+			   end
+		   end
+		for sel: name in namelist$elements(arm.tags) do
+			j: int := g_sel(sel, specs)
+			flags[j] := false
+			g_menv$goto(me, loc + 2 * j)
+			end
+		g_menv$begin_vars(me)
+		bregs: reglist := g_menv$begin_state(me, false)
+		tagcase arm.var
+		   tag decl (md: decl):
+			dest: locate := g_menv$init_var(me,
+							idnlist$bottom(md.idns))
+			g_move_src(e, dest, _addrd_RR, 0)
+		   others:
+		   end
+		if i < high  cor  last  cor  is_real_others
+		   then locs: qi := g_lbody(e, arm.body)
+			if ~qi$empty(locs)
+			   then arm_ends := arm_ends || locs
+				cont := g_merge_state(oregs, bregs, cont)
+			   end
+		elseif g_body(e, arm.body)
+		   then cont := g_merge_state(oregs, bregs, cont) end
+		g_menv$end_state(me)
+		g_menv$end_vars(me)
+		end
+	tagcase s.others_
+	   tag body (out_: body):
+		if is_real_others
+		   then for j: int in int$from_to(1, z) do
+				if flags[j]
+				   then g_menv$goto(me, loc + 2 * j) end
+				end
+			g_menv$begin_vars(me)
+			if last
+			   then locs: qi := g_lbody(e, out_)
+				if ~qi$empty(locs)
+				   then arm_ends := arm_ends || locs
+					cont := g_merge_state(oregs, tregs, cont)
+				   end
+			elseif g_body(e, out_)
+			   then cont := g_merge_state(oregs, tregs, cont) end
+			g_menv$end_vars(me)
+		   else for j: int in int$from_to(1, z) do
+				if flags[j]
+				   then arm_ends := qi$addh(arm_ends, loc + 2 * j)
+				   end
+				end
+			cont := g_merge_state(oregs, tregs, cont)
+		   end
+	   others:
+	   end
+	g_menv$end_state(me)
+	if last
+	   then return(false, arm_ends) end
+	for loc in qi$elements(arm_ends) do
+		g_menv$goto(me, loc)
+		end
+	return(cont, qi$new())
+	end g_tagarms2

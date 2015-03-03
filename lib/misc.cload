@@ -1,0 +1,16 @@
+~CLU/lib/clu/os
+~CLU/lib/clu/_int_range
+~CLU/lib/clu/dparse
+~CLU/lib/clu/bigint
+~CLU/lib/clu/scase
+~CLU/lib/heap
+~CLU/lib/clu/lex_scan
+~CLU/lib/clu/string_ops
+~CLU/lib/clu/parse_line
+~CLU/lib/clu/quick_sort
+~CLU/lib/clu/quicksort
+~CLU/lib/random.spc
+~CLU/lib/clu/split_line
+~CLU/lib/clu/string_lindexs
+~CLU/lib/clu/strim
+~CLU/lib/clu/xref

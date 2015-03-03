@@ -1,0 +1,12 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+Update_Signals_Addresses = proc (Env: lnk_env);
+    I_Sgs: inst_signals := Env.Inst_Signals;
+    Loc: locate := Env.Locates.Sigs;
+    Instantiate_Exception("", Env);	%% Put in null string for Others.
+    for Sg: sig, I_Sg: inst_signal in inst_signals$Elements(I_Sgs) do
+	if (inst_signal$Is_New(I_Sg))
+	   then I_Sg.Address := locate$Address_Advance(Loc, 1);
+	   end;
+	end;
+    end Update_Signals_Addresses;

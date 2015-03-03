@@ -1,0 +1,18 @@
+%% Copyright Massachusetts Institute of Technology 1980, 1989
+
+%%%% Bind_List
+
+Bind_List = proc [t: type] (T_List: sequence[t], R_D: rtn_desc, Env: lnk_env)
+	      returns (sequence[t]) signals (error(string))
+	    where t has bind: proctype (t, rtn_desc, lnk_env) returns (t)
+				signals (error(string));
+
+    Bound_T_List: sequence[t] := sequence[t]$New();
+
+    for E: t in sequence[t]$Elements(T_List) do
+	Bound_T_List := sequence[t]$AddH(Bound_T_List, t$Bind(E, R_D, Env));
+	   resignal Error;
+	end;
+
+    return (Bound_T_List);
+    end Bind_List;

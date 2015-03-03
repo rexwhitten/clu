@@ -1,0 +1,41 @@
+; Copyright Massachusetts Institute of Technology 1985, 1989
+
+_calc_hpos = qproc (s: string, max: int) returns (int)
+	move	rr,n3
+	asr	1,n3
+	ifle	subq	1,n3
+	then	return(0)
+	end
+	moveq	0,n1
+	movea	s,r1
+	move	(r1)+,n2
+	ifle	asr	1,n2
+	then	return(0)
+	end
+	ifgt	cmp	n2,n3
+	then	move	n2,n3
+	end
+	subq	1,n3
+	loop
+		moveb	(r1)+,n2
+		iflt	cmpib	' ',n2
+			blt	next
+			cmpib	'\177',n2
+		then	addq	1,n1
+			dbra	n3,this
+		else	addq	2,n1
+			ifeq	cmpib	'\t',n2
+			then	addq	6,n1
+				andib	-8,n1
+			end
+			dbra	n3,this
+		end
+		swap	n3
+		subqw	1,n3
+		blt	next
+		swap	n3
+	end
+	movea	n1,rr
+	lea	1(rr,rr),rr
+	return(rr)
+	end _calc_hpos

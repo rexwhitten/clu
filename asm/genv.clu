@@ -1,0 +1,583 @@
+%	GENV CLU
+% Copyright Massachusetts Institute of Technology 1980, 1989
+%	MC68000 Assembler: master generator environment
+
+g_env = cluster is create,		% stream, file_name -> g_env
+		   reset,		% g_env, stream, file_name ->
+		   end_all,		% g_env ->
+		   is_err,		% g_env -> bool
+		   set_line,		% g_env, int ->
+		   get_line,		% g_env -> int
+		   err,			% g_env, string ->
+		   get_tenv,		% g_env -> g_tenv
+		   get_menv,		% g_env -> g_menv
+		   define,		% g_env, idn, idnkind ->
+		   undefined,		% g_env, name ->
+		   begin_routine,	% g_env, mref, mref, int ->
+		   set_rparm_count,	% g_env, int ->
+		   get_rparm_count,	% g_env -> int
+		   set_arg_count,	% g_env, int ->
+		   get_arg_count,	% g_env -> int
+		   set_arg_names,	% g_env, mref ->
+		   set_var_count,	% g_env, int ->
+		   set_var_names,	% g_env, mref ->
+		   set_own_names,	% g_env, mref ->
+		   set_result,		% g_env, mref ->
+		   set_res_count,	% g_env, int ->
+		   get_res_count,	% g_env -> int
+		   set_rown_count,	% g_env, int ->
+		   in_iter,		% g_env -> bool
+		   in_qproc,		% g_env -> bool
+		   end_routine,		% g_env ->
+		   begin_type,		% g_env, mref ->
+		   set_cparm_count,	% g_env, int ->
+		   get_cparm_count,	% g_env -> int
+		   get_cown_count,	% g_env -> int
+		   set_cown_count,	% g_env, int ->
+		   set_cown_names,	% g_env, mref ->
+		   in_cluster,		% g_env -> bool
+		   set_up_type,		% g_env, typespec ->
+		   get_up_type,		% g_env -> typespec
+		   set_xsignals,	% g_env, exceptionlist ->
+		   get_xsignals,	% g_env -> exceptionlist
+		   end_type,		% g_env ->
+		   begin_loop,		% g_env ->
+		   begin_for,		% g_env, bool -> int, int
+		   begin_test,		% g_env ->
+		   in_for,		% g_env -> bool
+		   in_qfor,		% g_env -> bool
+		   in_loop,		% g_env -> bool
+		   for_env,		% g_env, int -> int
+		   get_iter_env,	% g_env -> int
+		   add_this,		% g_env, int ->
+		   add_next,		% g_env, int ->
+		   end_loop,		% g_env ->
+		   end_for,		% g_env ->
+		   end_test,		% g_env -> ai
+		   add_fixup,		% g_env, int ->
+		   pop_fixups		% g_env -> ai
+
+rep        = record[errst:       stream,	% error stream
+		    line:        int,		% current line number
+		    iserr:       bool,		% true => error
+		    reset:       bool,		% reset flag
+		    tenv:	 g_tenv,
+		    menv:        g_menv,
+		    empty_vec:	 mref,		% empty vec
+		    cell2:	 mref,		% <2: 0>
+		    in_type:	 bool,		% true if in cluster
+		    defs:	 idnrow,	% current scope
+		    okinds:      kindrow,
+		    undefs:      xref,
+		    globals:	 idnrow,	% largest scope
+		    gokinds:     kindrow,
+		    templates:	 av,		% all clusters/routines
+		    ctemplate:	 ctemplate,	% current cluster (if any)
+		    rtemplate:	 rtemplate,	% current routine
+		    blocks:      blklist,	% loop/for/test
+		    fixups:      ai]		% SP fixup locs
+ctemplate  = record[name:     mref,
+		    uptype:   typespec,
+		    xsignals: exceptionlist,
+		    parms:    int,
+		    owns:     int,
+		    names:    mref,
+		    defs:     idnrow,
+		    okinds:   kindrow,
+		    routines: av]
+rtemplate  = record[name:    mref,
+		    sname:   mref,
+		    kind:    int,
+		    parms:   int,
+		    args:    int,
+		    anames:  mref,
+		    vars:    int,
+		    vnames:  mref,
+		    onames:  mref,
+		    result:  mref,
+		    results: int,
+		    owns:    int,
+		    defs:    idnrow,
+		    okinds:  kindrow]
+idnrow     = array[idn]
+kindrow    = array[idnkind]
+blklist	   = array[blkent]
+blkent	   = oneof[loop: looprec,
+		   for_: forrec,
+		   qfor: ai,
+		   test: testrec]
+looprec    = record[start:  int,
+		    breaks: ai]
+forrec	   = record[iter_env: int,
+		    for_env:  int,
+		    breaks:   ai]
+testrec    = record[thises: ai,
+		    nexts:  ai]
+tabsize    = 300
+
+create = proc (errst: stream, binfn: file_name) returns (cvt)
+	unkt: typespec := typespec$create(typeabs$make_unknown(nil))
+	e: rep := rep${errst:       errst,
+		       line:        0,
+		       iserr:       false,
+		       reset:       true,
+		       tenv:	    g_tenv$create(errst, binfn),
+		       menv:        g_menv$create(errst, binfn),
+		       empty_vec:   mref$make_val(0),
+		       cell2:       mref$make_val(0),
+		       in_type:     false,
+		       defs:	    idnrow$new(),
+		       okinds:      kindrow$new(),
+		       globals:     idnrow$predict(1, 25),
+		       gokinds:     kindrow$predict(1, 25),
+		       undefs:      xref$create(),
+		       templates:   av$predict(1, 25),
+		       ctemplate:   ctemplate${name:     mref$make_val(0),
+					       uptype:   unkt,
+					       xsignals: exceptionlist$new(),
+					       parms:    0,
+					       owns:     0,
+					       names:    mref$make_val(0),
+					       defs:     idnrow$predict(1, 25),
+					       okinds:   kindrow$predict(1, 25),
+					       routines: av$predict(1, 10)},
+		       rtemplate:   rtemplate${name:    mref$make_val(0),
+					       sname:   mref$make_val(0),
+					       kind:    _is_proc,
+					       parms:   0,
+					       args:    0,
+					       anames:  mref$make_val(0),
+					       vars:    0,
+					       vnames:  mref$make_val(0),
+					       onames:  mref$make_val(0),
+					       result:  mref$make_val(0),
+					       results: 0,
+					       owns:    0,
+					       defs:    idnrow$predict(1, 25),
+					       okinds:  kindrow$predict(1, 25)},
+		       blocks:	    blklist$predict(1, 10),
+		       fixups:      ai$create(0)}
+	e.empty_vec := g_tenv$store_vec(e.tenv, qv$[])
+	e.cell2 := g_tenv$oneof2(e.tenv)
+	return(e)
+	end create
+
+reset = proc (e: cvt, errst: stream, binfn: file_name)
+	e.errst := errst
+	e.line := 0
+	e.iserr := false
+	g_tenv$reset(e.tenv, errst, binfn)
+	g_menv$reset(e.menv, errst, binfn)
+	e.empty_vec := g_tenv$store_vec(e.tenv, qv$[])
+	e.cell2 := g_tenv$oneof2(e.tenv)
+	if ~e.reset
+	   then e.reset := true
+		e.in_type := false
+		idnrow$trim(e.globals, 1, 0)
+		kindrow$trim(e.gokinds, 1, 0)
+		e.defs := e.globals
+		e.okinds := e.gokinds
+		av$trim(e.templates, 1, 0)
+		av$trim(e.ctemplate.routines, 1, 0)
+		e.ctemplate.parms := 0
+		e.ctemplate.owns := 0
+		idnrow$trim(e.ctemplate.defs, 1, 0)
+		kindrow$trim(e.ctemplate.okinds, 1, 0)
+		idnrow$trim(e.rtemplate.defs, 1, 0)
+		kindrow$trim(e.rtemplate.okinds, 1, 0)
+		xref$flush(e.undefs)
+		blklist$trim(e.blocks, 1, 0)
+		ai$trim(e.fixups, 0, 0)
+	   end
+	end reset
+
+end_all = proc (e: cvt)
+	g_menv$end_all(e.menv, e.tenv)
+	defs: idnrow := e.globals
+	okinds: kindrow := e.gokinds
+	for i: int in idnrow$indexes(defs) do
+		defs[i].kind := okinds[i]
+		end
+	begin
+	stream$puts(e.errst, "\n")
+	xref$output(e.undefs, "External", "Line #", e.errst)
+	stream$puts(e.errst, "\n")
+	end except when not_possible (*): end
+	end end_all
+
+is_err = proc (e: cvt) returns (bool)
+	return(e.iserr  cor  g_tenv$is_err(e.tenv)  cor  g_menv$is_err(e.menv))
+	end is_err
+
+set_line = proc (e: cvt, i: int)
+	e.line := i
+	end set_line
+
+get_line = proc (e: cvt) returns (int)
+	return(e.line)
+	end get_line
+
+err = proc (e: cvt, s: str)
+	st: stream := e.errst
+	e.iserr := true
+	begin
+	if e.line > 0
+	   then stream$puts(st, int$unparse(e.line))
+		stream$puts(st, ":\t")
+	   end
+	stream$putl(st, s)
+	end except when not_possible (*): end
+	end err
+
+get_tenv = proc (e: cvt) returns (g_tenv)
+	return(e.tenv)
+	end get_tenv
+
+get_menv = proc (e: cvt) returns (g_menv)
+	return(e.menv)
+	end get_menv
+
+define = proc (e: cvt, id: idn, kind: idnkind)
+	okind: idnkind := id.kind
+	tagcase okind
+	   tag unknown:
+	   others:
+		err(up(e), "redefinition of '" || id.str || "'")
+	   end
+	kindrow$addh(e.okinds, okind)
+	id.kind := kind
+	idnrow$addh(e.defs, id)
+	end define
+
+undefined = proc (e: cvt, undef: name)
+	xref$add_ref(e.undefs, undef, int$unparse(e.line))
+	end undefined
+
+begin_routine = proc (e: cvt, nval, sval: mref, kind: int)
+	e.reset := false
+	g_tenv$start(e.tenv, e.in_type)
+	e.rtemplate.name := nval
+	e.rtemplate.sname := sval
+	e.rtemplate.kind := kind
+	e.defs := e.rtemplate.defs
+	e.okinds := e.rtemplate.okinds
+	idnrow$trim(e.defs, 1, 0)
+	kindrow$trim(e.okinds, 1, 0)
+	end begin_routine
+
+set_rparm_count = proc (e: cvt, parms: int)
+	e.rtemplate.parms := parms
+	end set_rparm_count
+
+get_rparm_count = proc (e: cvt) returns (int)
+	return(e.rtemplate.parms)
+	end get_rparm_count
+
+set_arg_count = proc (e: cvt, args: int)
+	e.rtemplate.args := args
+	end set_arg_count
+
+get_arg_count = proc (e: cvt) returns (int)
+	return(e.rtemplate.args)
+	end get_arg_count
+
+set_arg_names = proc (e: cvt, val: mref)
+	e.rtemplate.anames := val
+	end set_arg_names
+
+set_var_count = proc (e: cvt, vars: int)
+	e.rtemplate.vars := vars
+	end set_var_count
+
+set_var_names = proc (e: cvt, val: mref)
+	e.rtemplate.vnames := val
+	end set_var_names
+
+set_own_names = proc (e: cvt, val: mref)
+	e.rtemplate.onames := val
+	end set_own_names
+
+set_result = proc (e: cvt, res: mref)
+	e.rtemplate.result := res
+	end set_result
+
+set_res_count = proc (e: cvt, cnt: int)
+	e.rtemplate.results := cnt
+	end set_res_count
+
+get_res_count = proc (e: cvt) returns (int)
+	return(e.rtemplate.results)
+	end get_res_count
+
+set_rown_count = proc (e: cvt, rowns: int)
+	e.rtemplate.owns := rowns
+	end set_rown_count
+
+in_iter = proc (e: cvt) returns (bool)
+	return(e.rtemplate.kind = _is_iter)
+	end in_iter
+
+in_qproc = proc (e: cvt) returns (bool)
+	return(e.rtemplate.kind = _is_qproc  cor
+	       e.rtemplate.kind = _is_qselproc)
+	end in_qproc
+
+end_routine = proc (e: cvt)
+	codoff, codsiz: int := g_menv$end_routine(e.menv)
+	te: g_tenv := e.tenv
+	puses, uses: mref := g_tenv$end_routine(te)
+	temp: rtemplate := e.rtemplate
+	results: mref
+	if temp.kind = _is_iter
+	   then results := mref$make_val(-(temp.results + 1))
+	   else results := mref$make_val(temp.results)
+	   end
+	val: mref := g_tenv$store_vec(te,
+				qv$[temp.name,
+				    mref$make_val(temp.parms),
+				    temp.anames,
+				    temp.result,
+				    mref$make_val(temp.owns),
+				    puses,
+				    uses,
+				    mref$make_val(codoff),
+				    mref$make_val(codsiz),
+				    temp.vnames,
+				    temp.onames,
+				    results,
+				    mref$make_val(temp.args),
+				    mref$make_val(temp.vars),
+				    temp.sname,
+				    e.cell2,
+				    e.empty_vec,
+				    mref$make_val(0)])
+	defs: idnrow := e.defs
+	okinds: kindrow := e.okinds
+	for i: int in idnrow$indexes(defs) do
+		defs[i].kind := okinds[i]
+		end
+	if e.in_type
+	   then av$addh(e.ctemplate.routines, val)
+		e.defs := e.ctemplate.defs
+		e.okinds := e.ctemplate.okinds
+	   else val := g_tenv$store_cell(te, _temp_routine, val)
+		g_tenv$add_template(te, val)
+		e.defs := e.globals
+		e.okinds := e.gokinds
+	   end
+	end end_routine
+
+begin_type = proc (e: cvt, nval: mref)
+	e.reset := false
+	g_tenv$start(e.tenv, false)
+	e.in_type := true
+	e.ctemplate.name := nval
+	e.defs := e.ctemplate.defs
+	e.okinds := e.ctemplate.okinds
+	idnrow$trim(e.defs, 1, 0)
+	kindrow$trim(e.okinds, 1, 0)
+	end begin_type
+
+set_cparm_count = proc (e: cvt, parms: int)
+	e.ctemplate.parms := parms
+	end set_cparm_count
+
+get_cparm_count = proc (e: cvt) returns (int)
+	return(e.ctemplate.parms)
+	end get_cparm_count
+
+set_cown_count = proc (e: cvt, cowns: int)
+	e.ctemplate.owns := cowns
+	end set_cown_count
+
+get_cown_count = proc (e: cvt) returns (int)
+	return(e.ctemplate.owns)
+	end get_cown_count
+
+set_cown_names = proc (e: cvt, val: mref)
+	e.ctemplate.names := val
+	end set_cown_names
+
+in_cluster = proc (e: cvt) returns (bool)
+	return(e.in_type)
+	end in_cluster
+
+set_up_type = proc (e: cvt, t: typespec)
+	e.ctemplate.uptype := t
+	end set_up_type
+
+get_up_type = proc (e: cvt) returns (typespec)
+	return(e.ctemplate.uptype)
+	end get_up_type
+
+set_xsignals = proc (e: cvt, sigs: exceptionlist)
+	e.ctemplate.xsignals := sigs
+	end set_xsignals
+
+get_xsignals = proc (e: cvt) returns (exceptionlist)
+	return(e.ctemplate.xsignals)
+	end get_xsignals
+
+end_type = proc (e: cvt)
+	e.in_type := false
+	temp: ctemplate := e.ctemplate
+	ops: mref := g_tenv$store_avec(e.tenv, temp.routines)
+	av$trim(temp.routines, 1, 0)
+	val: mref := g_tenv$store_vec(e.tenv,
+				     qv$[temp.name,
+					 mref$make_val(temp.parms),
+					 mref$make_val(temp.owns),
+					 temp.names,
+					 ops,
+					 e.empty_vec])
+	val := g_tenv$store_cell(e.tenv, _temp_cluster, val)
+	g_tenv$add_template(e.tenv, val)
+	temp.parms := 0
+	temp.owns := 0
+	temp.names := e.empty_vec
+	defs: idnrow := e.defs
+	okinds: kindrow := e.okinds
+	for i: int in idnrow$indexes(defs) do
+		defs[i].kind := okinds[i]
+		end
+	e.defs := e.globals
+	e.okinds := e.gokinds
+	end end_type
+
+begin_loop = proc (e: cvt)
+	loc: int := g_menv$next_loc(e.menv)
+	blklist$addh(e.blocks, blkent$make_loop(looprec${start:  loc,
+							 breaks: ai$new()}))
+	end begin_loop
+
+begin_for = proc (e: cvt, quick: bool) returns (int, int)
+	if quick
+	   then blklist$addh(e.blocks, blkent$make_qfor(ai$new()))
+		return(0, 0)
+	   else fenv: int := g_menv$alloc_var(e.menv)
+		ienv: int := g_menv$alloc_var(e.menv)
+		blklist$addh(e.blocks,
+			     blkent$make_for_(forrec${iter_env: ienv,
+						      for_env:  fenv,
+						      breaks:   ai$new()}))
+		return(ienv, fenv)
+	   end
+	end begin_for
+
+begin_test = proc (e: cvt)
+	blklist$addh(e.blocks, blkent$make_test(testrec${thises: ai$new(),
+							 nexts:  ai$new()}))
+	end begin_test
+
+in_loop = proc (e: cvt) returns (bool)
+	return(blkent$is_loop(blklist$top(e.blocks)))
+	end in_loop
+
+in_for = proc (e: cvt) returns (bool)
+	return(blkent$is_for_(blklist$top(e.blocks)))
+	end in_for
+
+in_qfor = proc (e: cvt) returns (bool)
+	return(blkent$is_qfor(blklist$top(e.blocks)))
+	end in_qfor
+
+for_env = proc (e: cvt, skip: int) returns (int)
+	blocks: blklist := e.blocks
+	for i: int in int$from_to_by(blklist$size(blocks) - skip, 1, -1) do
+		tagcase blocks[i]
+		   tag for_ (rec: forrec):
+			return(rec.for_env)
+		   others:
+		   end
+		end
+	return(0)
+	end for_env
+
+get_iter_env = proc (e: cvt) returns (int)
+	tagcase blklist$top(e.blocks)
+	   tag for_ (rec: forrec):
+		return(rec.iter_env)
+	   tag qfor:
+		return(0)
+	   others:
+		return(0)
+	   end
+	end get_iter_env
+
+add_this = proc (e: cvt, loc: int)
+	tagcase blklist$top(e.blocks)
+	   tag loop (rec: looprec):
+		g_menv$store_offset(e.menv, loc, rec.start)
+	   tag for_, qfor:
+		err(up(e), "illegal use of THIS in FOR")
+	   tag test (rec: testrec):
+		ai$addh(rec.thises, loc)
+	   end except when bounds: err(up(e), "use of THIS outside legal scope") end
+	end add_this
+
+add_next = proc (e: cvt, loc: int)
+	tagcase blklist$top(e.blocks)
+	   tag loop (rec: looprec):
+		ai$addh(rec.breaks, loc)
+	   tag for_ (rec: forrec):
+		ai$addh(rec.breaks, loc)
+	   tag qfor (breaks: ai):
+		ai$addh(breaks, loc)
+	   tag test (rec: testrec):
+		ai$addh(rec.nexts, loc)
+	   end except when bounds: err(up(e), "use of THIS outside legal scope") end
+	end add_next
+
+end_loop = proc (e: cvt)
+	tagcase blklist$remh(e.blocks)
+	   tag loop (rec: looprec):
+		me: g_menv := e.menv
+		nxtstmt: int := g_menv$next_loc(me)
+		for loc: int in ai$elements(rec.breaks) do
+			g_menv$store_offset(me, loc, nxtstmt)
+			end
+	   others:
+	   end
+	end end_loop
+
+end_for = proc (e: cvt)
+	locs: ai
+	me: g_menv := e.menv
+	tagcase blklist$remh(e.blocks)
+	   tag for_ (rec: forrec):
+		locs := rec.breaks
+	   tag qfor (breaks: ai):
+		locs := breaks
+	   others:
+		return
+	   end
+	nxtstmt: int := g_menv$next_loc(me)
+	for loc: int in ai$elements(locs) do
+		g_menv$store_offset(me, loc, nxtstmt)
+		end
+	end end_for
+
+end_test = proc (e: cvt) returns (ai)
+	tagcase blklist$remh(e.blocks)
+	   tag test (rec: testrec):
+		me: g_menv := e.menv
+		nxtstmt: int := g_menv$next_loc(me)
+		for loc: int in ai$elements(rec.thises) do
+			g_menv$store_offset(me, loc, nxtstmt)
+			end
+		return(rec.nexts)
+	   others:
+	   end
+	end end_test
+
+add_fixup = proc (e: cvt, loc: int)
+	ai$addh(e.fixups, loc)
+	end add_fixup
+
+pop_fixups = proc (e: cvt) returns (ai)
+	fixups: ai := e.fixups
+	e.fixups := ai$create(0)
+	return(fixups)
+	end pop_fixups
+
+end g_env

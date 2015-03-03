@@ -1,0 +1,1368 @@
+;; Copyright Massachusetts Institute of Technology 1985, 1989
+
+ch%rd	= 8				;; Channel read file descriptor (or -1)
+ch%wr	= 12				;; Channel write file desc. (or -1)
+
+f%setfd = 2				;; "Set close-on-exec" code for fcntl
+
+%tiocspgrp = #8004,,#7476
+
+;; Offsets in sigvec structure.
+sv%handler	= 0
+sv%mask 	= 4
+sv%onstack	= 8
+
+SIG_DFL = 0				;; "Default" signal handler value.
+SIG_IGN = 1				;; "Ignore" signal handler value. 
+
+;; Signal numbers.
+SIGFPE	= 8
+SIGPIPE = 13
+SIGCONT = 19
+SIGCHLD = 20
+SIGTTOU = 22
+
+_job = cluster is cons, cons1, cone, cone1, exec, exece, 
+		  fork, run, sig, sig_group, dead,
+		  wait, wait0, any_wait, any_wait0,
+		  self, get_pid, get_group, set_group, control_tty,
+		  get_group_mode, set_group_mode,
+		  equal, similar, copy
+
+;; rep = int
+
+wvec	buf{1}				;; Random buffer.
+wvec	vec{3}				;; For sigvec calls.
+wvec	ovec{3}				;; For sigvec calls.
+wvec	errcod{1}
+
+own	deadcnt				;; Count of SIGCHLDs.
+own	grpmod				;; Group mode.
+
+cons = proc (fn: file_name, jcl: string,
+		pri, pro, ero: _chan, save: sequence[_chan])
+				returns (cvt) signals (not_possible(string))
+	; fork process to execute FN with given JCL
+	; If JCL does not contain nuls, spaces and tabs will be converted
+	; PRI, PRO, and ERO become primary input, output, and error output
+	; SAVE is a list of _chans that should not be closed in the new process
+
+	move	fn, -(sp)
+	move	jcl, -(sp)
+
+	movea	pri, r1
+	iflt	move	ch%rd(r1), n1
+	then	signal	not_possible("cannot read from input _chan")
+		end
+	add	n1, n1
+	addqb	1, n1			;; integerize
+	move	n1, -(sp)
+
+	movea	pro, r1
+	iflt	move	ch%wr(r1), n1
+	then	signal	not_possible("cannot write to output _chan")
+		end
+	add	n1, n1
+	addqb	1, n1			;; integerize
+	move	n1, -(sp)
+
+	movea	ero, r1
+	iflt	move	ch%wr(r1), n1
+	then	signal	not_possible("cannot write to error _chan")
+		end
+	add	n1, n1
+	addqb	1, n1			;; integerize
+	move	n1, -(sp)
+
+	_job$cons0(*, *, *, *, *, rr)
+		resignal not_possible
+	return (rr)
+	end cons
+
+cons1 = proc (fn: file_name, jcl: string, save: sequence[_chan]) returns (cvt)
+						signals (not_possible(string))
+	; fork process to execute FN with given JCL
+	; If JCL does not contain nuls, spaces and tabs will be converted
+	; current primary input, output, and error output are retained
+	; SAVE is a list of _chans that should not be closed in the new process
+
+	_job$cons0 (fn, jcl, 0, 1, 2, rr)
+		resignal not_possible
+	return (rr)
+	end cons1
+
+cons0 = proc (fn: file_name, jcl: string, 
+		pri, pro, ero: int, save: sequence[_chan]) returns (cvt)
+						signals (not_possible(string))
+	;; Init grpmod if it hasn't been touched yet.
+	ifeq	tst	grpmod
+	then	move	1, grpmod	;; Initialize to CLU 0.
+		end
+	_job$%dead_set()		;; Set up to count SIGCHLD.
+	_job_stuff (fn, jcl)		;; Get process name and arguments.
+		resignal not_possible
+
+	;; Save results from _job_stuff call.
+	move	(sp)+, n2
+	addq	3, n2			;; Save bytevec of argument strings + 3
+	move	(sp)+, n3
+	addq	4, n3			;; Save wordvec of arg offsets + 4
+	clr	errcod
+	clr	-(sp)			;; Push hack pc.
+	moveq	%vfork, n0
+	move	n0, -(sp)		;; Create fork.
+	ifcs	trap	0
+	then	movea	n0, rr
+		moveq	1, n0		;; Restore n0.
+		_erstr (rr)
+		signal	not_possible(rr)
+		end
+
+	;; The vfork succeeded. Decide whether we're the parent or the child
+	;; and continue accordingly. If n1 = 0 then we're the parent (and
+	;; n0 will contain the pid of the child).
+	ifeq	tst	n1
+
+	;;--------
+	;; Parent
+	;;--------
+
+	then	movea	n0, rr		;; Save child's pid.
+		ifeq	tst	errcod	;; Everything ok?
+		then	moveq	1, n0	;; Restore n0.
+			lea	1(rr, rr), rr	;; Yes, integerize child's pid.
+			return (rr)	;; and return it.
+			end
+
+		;; An error occurred in the vfork. Have to wait for
+		;; the child zombie process.
+		clr	-(sp)		;; Hack pc for system calls.
+		qloop
+			moveq	1, n0	;; WNOHANG
+			clr	n1
+			move	%wait, -(sp)
+			orib	#1f, ccr;; Make this a wait3. Blech!
+			ifcc	trap	0	;; Wait.
+			then	cmpa	n0, rr	;; The one we wanted?
+				beq	next
+				tst	n0	;; No more?
+				beq	next
+				bra	this	;; More. Wait again.
+				end
+			cmp	4, n0	;; EINTR?
+			beq	this
+			end
+		addq	4, sp		;; De-allocate stack space for hack pc.
+
+		iflt	cmpi	1, grpmod;; Set tty control (grpmod<0)?
+		then	lea	vec, r1	;; Set up to change SIGTTOU sigvec.
+			move	SIG_IGN, sv%handler(r1)	;; Ignore SIGTTOU.
+			clr	sv%mask(r1)
+			clr	sv%onstack(r1)
+			pea	ovec	;; Buf to receive old sigvec.
+			pea	vec	;; New sigvec.
+			move	SIGTTOU, -(sp)
+			clr	-(sp)	;; Hack pc.
+			moveq	%sigvec, n0
+			move	n0, -(sp)
+			trap	0	;; Change it.
+
+			clr	4(sp)	;; Pid (0 => current process).
+			moveq	%getpgrp, n0
+			move	n0, -(sp)
+			trap	0
+			lea	buf, r1
+			move	n0, (r1)	;; Process group.
+			move	r1, 12(sp)	;; Put ptr to pgrp on stack.
+			move	%tiocspgrp, 8(sp)	;; Put request # on stack.
+			clr	4(sp)	;; descriptor.
+			moveq	%ioctl, n0
+			move	n0, -(sp)
+			trap	0
+
+			clr	12(sp)	;; Put back SIGTTOU handler.
+			lea	ovec, r1
+			move	r1, 8(sp)
+			move	SIGTTOU, 4(sp)
+			moveq	%sigvec, n0
+			move	n0, -(sp)
+			trap	0
+
+			addq	4, sp	;; Pop hack pc.
+			clr	(sp)+	;; Pop and clear args.
+			clr	(sp)+
+			clr	(sp)+
+			end
+
+		;; Signal the error.
+		moveq	1, n0		;; Restore n0.
+		movea	errcod, rr
+		lea	1(rr, rr), rr
+		_erstr(rr)
+		signal	not_possible(rr)
+		end
+
+	;;-------
+	;; Child
+	;;-------
+
+	;; Set group stuff if necessary (grpmod != CLU 0)
+	ifne	cmpi	1, grpmod	;; Set group?
+	then	clr	-(sp)		;; Hack pc.
+		moveq	%getpid, n0
+		move	n0, -(sp)
+		trap	0		;; Get pid.
+		move	n0, (sp)	;; 2 args.
+		move	n0, -(sp)
+		clr	-(sp)
+		moveq	%setpgrp, n0
+		move	n0, -(sp)
+	trap	0		;; Set process group.
+		iflt	tst	grpmod	;; Set tty control?
+		then	lea	buf, r1
+			move	4(sp), (r1)		;; Group
+			move	r1, 8(sp)		;; Ptr to pgroup.
+			move	%tiocspgrp, 4(sp)	;; Request.
+			clr	(sp)			;; Descriptor.
+			clr	-(sp)		;; Hack pc.
+			moveq	%ioctl, n0
+			move	n0, -(sp)
+			trap	0	;; Set tty pgroup.
+			addq	4, sp
+			end
+		lea	12(sp), sp	;; De-allocate sys call args on stack.
+		end
+
+	;; Set sigvecs for SIGFPE and SIGPIPE back to their defaults
+	;; (_start had set them to be ignored and thus the execve
+	;; won't reset them.)
+	clr	-(sp)			;; ovec = 0
+	lea	vec, r1
+	move	SIG_DFL, sv%handler(r1)	;; Default.
+	clr	sv%mask(r1)
+	clr	sv%onstack(r1)
+	pea	vec			;; Push vec.
+	move	SIGFPE, -(sp)		;; Push signal number.
+	clr	-(sp)			;; Hack pc.
+	moveq	%sigvec, n0
+	move	n0, -(sp)
+	trap	0
+	move	SIGPIPE, 4(sp)		;; SIGPIPE signal number
+	moveq	%sigvec, n0
+	move	n0, -(sp)
+	trap	0
+	addq	4, sp			;; Pop pc.
+	;; (Leave 3 spaces on stack for next section).
+
+	;; Make primary input, primary output and error output be
+	;; file descriptors 0, 1, and 2 respectively.
+	clr	(sp)			;; Hack pc (make sure its 0).
+	ifgt	move	pri, n1		;; Primary input.
+		asr	1, n1
+	then	move	n1, 4(sp)
+		clr	8(sp)		;; 0.
+		moveq	%dup2, n0
+		move	n0, -(sp)
+		trap	0		;; Dup it.
+		bcs	oops
+		end
+	ifne	move	pro, n1		;; Primary output.
+		asr	1, n1
+		cmpi	1, n1
+	then	move	n1, 4(sp)
+		move	1, 8(sp)	;; 1.
+		moveq	%dup2, n0
+		move	n0, -(sp)
+		trap	0		;; Dup it.
+		bcs	oops
+		end
+	ifne	move	ero, n1		;; Error output.
+		asr	1, n1
+		cmpi	2, n1
+	then	move	n1, 4(sp)
+		move	2, 8(sp)	;; 2.
+		moveq	%dup2, n0
+		move	n0, -(sp)
+		trap	0		;; Dup it.
+		bcs	oops
+		end
+	;; (Don't deallocate the 3 spaces for stack args and pc  - next section
+	;; will use them).
+
+	;; For each file (descriptor >= 3) which was specified in the save
+	;; sequence, set the close-on-exec flag in its descriptor to 0.
+	;; Set the close flag for all other files to 1.
+	moveq	%getdtablesize, n0
+	move	n0, -(sp)
+	trap	0			;; Get the max number of files.
+	move	n0, n4			;; Save it.
+	clr	-(sp)			;; Hack pc. (Need 1 additional stack
+					;; space more than prev. section.)
+	move	f%setfd, 8(sp)		;; Command.
+	move	3, n5			;; Keep current descriptor number in a reg.
+	qloop
+		move	n5, 4(sp)	;; Put next descriptor number in stack.
+		clr	12(sp)		;; Start with close-on-exec flag = 0.
+		movea	save, r1
+		move	(r1)+, n1
+		asr	2, n1		;; Number of files in sequence.
+		beq	closeit
+		qloop
+			movea	(r1)+, r3			
+			cmp	ch%rd(r3), n5
+			beq	doit
+			cmp	ch%wr(r3), n5
+			beq	doit
+			subq	1, n1	;; Any more files to check in save?
+			bgt	this
+			end
+closeit:	move	1, 12(sp)	;; Close the file
+doit:		moveq	%fcntl, n0
+		move	n0, -(sp)
+		trap	0
+		addq	1, n5		;; Increment cur. descriptor number.
+		cmp	n4, n5
+		ble	this		;; Up to max.
+		end
+	;; (Don't deallocate the stack argument space at this point, the
+	;; next section will need it).
+
+	;; Prepare to do the execve.
+	movea	n3, r3			;; Use results of _job_stuff() that
+ 					;; were saved.
+	move	(r3)+, n4		;; Get count.
+	move	r3, 8(sp)		;; Store (what will be) "argv" address.
+	qloop				;; Create the argv array in the wordvec
+		add	n2, (r3)+
+		subq	1, n4
+		bgt	this
+		end
+	lea	4(rr), rr		;; rr still contains the program name
+					;; (from the _job_stuff() call).
+	move	rr, 4(sp)		;; Put prog name in stack as 1st arg.
+	movea	environ, r1		;; Setup envp addr.
+	clr	n1
+	movew	2(r1), n1		;; Number to skip.
+	asl	2, n1			;; Number of bytes to skip.
+	lea	8(r1, n1), r1
+	move	r1, 12(sp)
+	moveq	%execve, n0
+	move	n0, -(sp)
+	trap	0			;; Do the exec.
+	cmpi	8, n0			;; ENOEXEC? (invalid magic # => shell script).
+	bne	oops			;; Other errors get signalled
+	move	"/bin/sh"+4, 4(sp)	;; Yes, try again running shell.
+	movea	8(sp), r1
+	subq	4, r1			;; Move back argv.
+	move	rr, (r1)		;; Put prog name in argv.
+	move	r1, 8(sp)		;; Put new argv addr in stack.
+	moveq	%execve, n0		;; Try exec call again.
+	move	n0, -(sp)
+	trap	0
+oops:	move	n0, errcod
+	move	15, 4(sp)		;; Unrecoverable error occurred in a 
+ 					;; system call so exit.
+	moveq	%exit, n0
+	move	n0, -(sp)
+	trap	0
+	end cons0
+
+
+cone = proc (fn: file_name, jcl: string, envs: array[string],
+		pri, pro, ero: _chan, save: sequence[_chan])
+				returns (cvt) signals (not_possible(string))
+	; fork process to execute FN with given JCL
+	; If JCL does not contain nuls, spaces and tabs will be converted
+	; PRI, PRO, and ERO become primary input, output, and error output
+	; SAVE is a list of _chans that should not be closed in the new process
+
+	move	fn, -(sp)
+	move	jcl, -(sp)
+	move	envs, -(sp)
+
+	movea	pri, r1
+	iflt	move	ch%rd(r1), n1
+	then	signal	not_possible("cannot read from input _chan")
+		end
+	add	n1, n1
+	addqb	1, n1			;; integerize
+	move	n1, -(sp)
+
+	movea	pro, r1
+	iflt	move	ch%wr(r1), n1
+	then	signal	not_possible("cannot write to output _chan")
+		end
+	add	n1, n1
+	addqb	1, n1			;; integerize
+	move	n1, -(sp)
+
+	movea	ero, r1
+	iflt	move	ch%wr(r1), n1
+	then	signal	not_possible("cannot write to error _chan")
+		end
+	add	n1, n1
+	addqb	1, n1			;; integerize
+	move	n1, -(sp)
+
+	_job$cone0(*, *, *, *, *, *, rr)
+		resignal not_possible
+	return (rr)
+	end cone
+
+cone1 = proc (fn: file_name, jcl: string, envs: array[string], save: sequence[_chan]) returns (cvt)
+						signals (not_possible(string))
+	; fork process to execute FN with given JCL
+	; If JCL does not contain nuls, spaces and tabs will be converted
+	; current primary input, output, and error output are retained
+	; SAVE is a list of _chans that should not be closed in the new process
+
+	_job$cone0 (fn, jcl, envs, 0, 1, 2, rr)
+		resignal not_possible
+	return (rr)
+	end cone1
+
+cone0 = proc (fn: file_name, jcl: string, envs: array[string],
+		pri, pro, ero: int, save: sequence[_chan]) returns (cvt)
+						signals (not_possible(string))
+	;; Init grpmod if it hasn't been touched yet.
+	var 	envp
+	ifeq	tst	grpmod
+	then	move	1, grpmod	;; Initialize to CLU 0.
+		end
+	_job$%dead_set()		;; Set up to count SIGCHLD.
+	new_environment(envs)
+	move	rr,envp
+	_job_stuff (fn, jcl)		;; Get process name and arguments.
+		resignal not_possible
+
+	;; Save results from _job_stuff call.
+	move	(sp)+, n2
+	addq	3, n2			;; Save bytevec of argument strings + 3
+	move	(sp)+, n3
+	addq	4, n3			;; Save wordvec of arg offsets + 4
+	clr	errcod
+	clr	-(sp)			;; Push hack pc.
+	moveq	%vfork, n0
+	move	n0, -(sp)		;; Create fork.
+	ifcs	trap	0
+	then	movea	n0, rr
+		moveq	1, n0		;; Restore n0.
+		_erstr (rr)
+		signal	not_possible(rr)
+		end
+
+	;; The vfork succeeded. Decide whether we're the parent or the child
+	;; and continue accordingly. If n1 = 0 then we're the parent (and
+	;; n0 will contain the pid of the child).
+	ifeq	tst	n1
+
+	;;--------
+	;; Parent
+	;;--------
+
+	then	movea	n0, rr		;; Save child's pid.
+		ifeq	tst	errcod	;; Everything ok?
+		then	moveq	1, n0	;; Restore n0.
+			lea	1(rr, rr), rr	;; Yes, integerize child's pid.
+			return (rr)	;; and return it.
+			end
+
+		;; An error occurred in the vfork. Have to wait for
+		;; the child zombie process.
+		clr	-(sp)		;; Hack pc for system calls.
+		qloop
+			moveq	1,n0	;; WNOHANG
+			clr	n1
+			move	%wait, -(sp)
+			orib	#1f, ccr;; Make this a wait3. Blech!
+			ifcc	trap	0	;; Wait.
+			then	cmpa	n0, rr	;; The one we wanted?
+				beq	next
+				tst	n0	;; No more?
+				beq	next
+				bra	this	;; More. Wait again.
+				end
+			cmp	4, n0	;; EINTR?
+			beq	this
+			end
+		addq	4, sp		;; De-allocate stack space for hack pc.
+
+		iflt	cmpi	1, grpmod;; Set tty control (grpmod<0)?
+		then	lea	vec, r1	;; Set up to change SIGTTOU sigvec.
+			move	SIG_IGN, sv%handler(r1)	;; Ignore SIGTTOU.
+			clr	sv%mask(r1)
+			clr	sv%onstack(r1)
+			pea	ovec	;; Buf to receive old sigvec.
+			pea	vec	;; New sigvec.
+			move	SIGTTOU, -(sp)
+			clr	-(sp)	;; Hack pc.
+			moveq	%sigvec, n0
+			move	n0, -(sp)
+			trap	0	;; Change it.
+
+			clr	4(sp)	;; Pid (0 => current process).
+			moveq	%getpgrp, n0
+			move	n0, -(sp)
+			trap	0
+			lea	buf, r1
+			move	n0, (r1)	;; Process group.
+			move	r1, 12(sp)	;; Put ptr to pgrp on stack.
+			move	%tiocspgrp, 8(sp)	;; Put request # on stack.
+			move	pri,n1
+			asr	1,n1
+			move	n1,4(sp)	;; Descriptor.
+			moveq	%ioctl, n0
+			move	n0, -(sp)
+			trap	0
+
+			clr	12(sp)	;; Put back SIGTTOU handler.
+			lea	ovec, r1
+			move	r1, 8(sp)
+			move	SIGTTOU, 4(sp)
+			moveq	%sigvec, n0
+			move	n0, -(sp)
+			trap	0
+
+			addq	4, sp	;; Pop hack pc.
+			clr	(sp)+	;; Pop and clear args.
+			clr	(sp)+
+			clr	(sp)+
+			end
+
+		;; Signal the error.
+		moveq	1, n0		;; Restore n0.
+		movea	errcod, rr
+		lea	1(rr, rr), rr
+		_erstr(rr)
+		signal	not_possible(rr)
+		end
+
+	;;-------
+	;; Child
+	;;-------
+
+	;; Set group stuff if necessary (grpmod != CLU 0)
+	ifne	cmpi	1, grpmod	;; Set group?
+	then	clr	-(sp)		;; Hack pc.
+		moveq	%getpid, n0
+		move	n0, -(sp)
+		trap	0		;; Get pid.
+		move	n0, (sp)	;; 2 args.
+		move	n0, -(sp)
+		clr	-(sp)
+		moveq	%setpgrp, n0
+		move	n0, -(sp)
+		trap	0		;; Set process group.
+		iflt	tst	grpmod	;; Set tty control?
+		then	lea	buf, r1
+			move	4(sp), (r1)		;; Group
+			move	r1, 8(sp)		;; Ptr to pgroup.
+			move	%tiocspgrp, 4(sp)	;; Request.
+			move	pri,n1
+			asr	1,n1
+			move	n1,(sp)			;; Descriptor.
+			clr	-(sp)		;; Hack pc.
+			moveq	%ioctl, n0
+			move	n0, -(sp)
+			trap	0	;; Set tty pgroup.
+			addq	4, sp
+			end
+		lea	12(sp), sp	;; De-allocate sys call args on stack.
+		end
+
+	;; Set sigvecs for SIGFPE and SIGPIPE back to their defaults
+	;; (_start had set them to be ignored and thus the execve
+	;; won't reset them.)
+	clr	-(sp)			;; ovec = 0
+	lea	vec, r1
+	move	SIG_DFL, sv%handler(r1)	;; Default.
+	clr	sv%mask(r1)
+	clr	sv%onstack(r1)
+	pea	vec			;; Push vec.
+	move	SIGFPE, -(sp)		;; Push signal number.
+	clr	-(sp)			;; Hack pc.
+	moveq	%sigvec, n0
+	move	n0, -(sp)
+	trap	0
+	move	SIGPIPE, 4(sp)		;; SIGPIPE signal number
+	moveq	%sigvec, n0
+	move	n0, -(sp)
+	trap	0
+	addq	4, sp			;; Pop pc.
+	;; (Leave 3 spaces on stack for next section).
+
+	;; Make primary input, primary output and error output be
+	;; file descriptors 0, 1, and 2 respectively.
+	clr	(sp)			;; Hack pc (make sure its 0).
+	ifgt	move	pri, n1		;; Primary input.
+		asr	1, n1
+	then	move	n1, 4(sp)
+		clr	8(sp)		;; 0.
+		moveq	%dup2, n0
+		move	n0, -(sp)
+		trap	0		;; Dup it.
+		bcs	oops
+		end
+	ifne	move	pro, n1		;; Primary output.
+		asr	1, n1
+		cmpi	1, n1
+	then	move	n1, 4(sp)
+		move	1, 8(sp)	;; 1.
+		moveq	%dup2, n0
+		move	n0, -(sp)
+		trap	0		;; Dup it.
+		bcs	oops
+		end
+	ifne	move	ero, n1		;; Error output.
+		asr	1, n1
+		cmpi	2, n1
+	then	move	n1, 4(sp)
+		move	2, 8(sp)	;; 2.
+		moveq	%dup2, n0
+		move	n0, -(sp)
+		trap	0		;; Dup it.
+		bcs	oops
+		end
+	;; (Don't deallocate the 3 spaces for stack args and pc  - next section
+	;; will use them).
+
+	;; For each file (descriptor >= 3) which was specified in the save
+	;; sequence, set the close-on-exec flag in its descriptor to 0.
+	;; Set the close flag for all other files to 1.
+	moveq	%getdtablesize, n0
+	move	n0, -(sp)
+	trap	0			;; Get the max number of files.
+	move	n0, n4			;; Save it.
+	clr	-(sp)			;; Hack pc. (Need 1 additional stack
+					;; space more than prev. section.)
+	move	f%setfd, 8(sp)		;; Command.
+	move	3, n5			;; Keep current descriptor number in a reg.
+	qloop
+		move	n5, 4(sp)	;; Put next descriptor number in stack.
+		clr	12(sp)		;; Start with close-on-exec flag = 0.
+		movea	save, r1
+		move	(r1)+, n1
+		asr	2, n1		;; Number of files in sequence.
+		beq	closeit
+		qloop
+			movea	(r1)+, r3			
+			cmp	ch%rd(r3), n5
+			beq	doit
+			cmp	ch%wr(r3), n5
+			beq	doit
+			subq	1, n1	;; Any more files to check in save?
+			bgt	this
+			end
+closeit:	move	1, 12(sp)	;; Close the file
+doit:		moveq	%fcntl, n0
+		move	n0, -(sp)
+		trap	0
+		addq	1, n5		;; Increment cur. descriptor number.
+		cmp	n4, n5
+		ble	this		;; Up to max.
+		end
+	;; (Don't deallocate the stack argument space at this point, the
+	;; next section will need it).
+
+	;; Prepare to do the execve.
+	movea	n3, r3			;; Use results of _job_stuff() that
+ 					;; were saved.
+	move	(r3)+, n4		;; Get count.
+	move	r3, 8(sp)		;; Store (what will be) "argv" address.
+	qloop				;; Create the argv array in the wordvec
+		add	n2, (r3)+
+		subq	1, n4
+		bgt	this
+		end
+	lea	4(rr), rr		;; rr still contains the program name
+					;; (from the _job_stuff() call).
+	move	rr, 4(sp)		;; Put prog name in stack as 1st arg.
+	move	envp,n1			;; Setup envp addr.
+	addq	4,n1
+	move	n1,12(sp)		;; Use n1 to adjust envp contents
+	movea	n1,r3
+	loop
+		tst	(r3)
+		beq	next
+		add	n1, (r3)+
+		end
+	moveq	%execve, n0
+	move	n0, -(sp)
+	trap	0			;; Do the exec.
+	cmpi	8, n0			;; ENOEXEC? (invalid magic # => shell script).
+	bne	oops			;; Other errors get signalled
+	move	"/bin/sh"+4, 4(sp)	;; Yes, try again running shell.
+	movea	8(sp), r1
+	subq	4, r1			;; Move back argv.
+	move	rr, (r1)		;; Put prog name in argv.
+	move	r1, 8(sp)		;; Put new argv addr in stack.
+	moveq	%execve, n0		;; Try exec call again.
+	move	n0, -(sp)
+	trap	0
+oops:	move	n0, errcod
+	move	15, 4(sp)		;; Unrecoverable error occurred in a 
+ 					;; system call so exit.
+	moveq	%exit, n0
+	move	n0, -(sp)
+	trap	0
+	end cone0
+
+%dead_set = qproc ()
+	;; Set up a signal handler to count SIGCHLD signals. The count
+	;; is kept in the own variable deadcnt and can be retrieved with
+	;; the _job$dead() routine.
+	
+	lea	vec, r2
+	lea	death, r1
+	move	r1, sv%handler(r2)
+	move	#ff7b,,#f0e0, sv%mask(r2)
+	move	1, sv%onstack(r2)
+	clr	-(sp)			;; Push ovec (= 0)
+	move	r2, -(sp)		;; Push vec buffer.
+	move	SIGCHLD, -(sp)		;; Push signal number
+	clr	-(sp)			;; Hack pc.
+	moveq	%sigvec, n0
+	move	n0, -(sp)
+	trap	0			;; Set up the signal vector.
+	addq	4, sp			;; Pop pc.
+	clr	(sp)+			;; Pop args.
+	clr	(sp)+
+	clr	(sp)+
+	moveq	1, n0			;; Restore n0.
+	movea	n0, r1			;; Make registers valid refs.
+	movea	n0, r2
+	return
+
+death:	ifeq	tst	deadcnt		;; Any yet?
+	then	move	3, deadcnt	;; CLU 1.
+	else	addq	2, deadcnt	;; Increment to get deadcnt+1 as a CLU int.
+		end
+
+ 	addq	4, sp			;; Clean up and return from handler.
+	move	139, (sp)
+	trap	0	
+	end %dead_set
+
+
+exec = proc (fn: file_name, jcl: string, save: sequence[_chan])
+						signals (not_possible(string))
+	; execute FN with given JCL in current process
+	; If JCL does not contain nuls, spaces and tabs will be converted
+	; current primary input, output, and error output are retained
+	; SAVE is a list of _chans that should not be closed
+
+	_job_stuff (fn, jcl)
+		resignal not_possible
+	;; Save results of _job_stuff call.
+	move	(sp)+, n2
+	addq	3, n2
+	move	(sp)+, n3
+	addq	4, n3
+
+	;; For each file (descriptor >= 3) which was specified in the save
+	;; sequence, set the close-on-exec flag in its descriptor to 0.
+	;; Set the close flag for all other files to 1.
+	clr	-(sp)			;; Hack pc.
+	moveq	%getdtablesize, n0
+	move	n0, -(sp)
+	trap	0			;; Get the max number of files.
+	move	n0, n4			;; Save it.
+	subq	4, sp			;; 3rd arg (low bit is used to set flag)
+	move	f%setfd, (sp)		;; Command.
+	move	3, -(sp)		;; Initial file descriptor.
+	move	3, n5			;; Keep current descriptor number in a reg.
+	clr	-(sp)			;; Hack pc.
+	qloop
+		move	n5, 4(sp)	;; Put next descriptor number in stack.
+		clr	12(sp)		;; Start with close-on-exec flag = 0.
+		movea	save, r1
+		move	(r1)+, n1
+		asr	2, n1		;; Number of files in sequence.
+		beq	closeit
+		qloop
+			movea	(r1)+, r3			
+			cmp	ch%rd(r3), n5
+			beq	doit
+			cmp	ch%wr(r3), n5
+			beq	doit
+			subq	1, n1	;; Any more files to check in save?
+			bgt	this
+			end
+closeit:	move	1, 12(sp)	;; Close the file
+doit:		moveq	%fcntl, n0
+		move	n0, -(sp)
+		trap	0
+		addq	1, n5		;; Increment cur. descriptor number.
+		cmp	n4, n5
+		ble	this		;; Up to max.
+		end
+
+	;; (Don't deallocate the stack argument space at this point, the
+	;; next section will need it).
+
+	;; Prepare to do the execve.
+	movea	n3, r3			;; Use results of _job_stuff() that
+ 					;; were saved.
+	move	(r3)+, n4		;; Get count.
+	move	r3, 8(sp)		;; Store (what will be) "argv" address.
+	qloop				;; Create the argv array in the wordvec
+		add	n2, (r3)+
+		subq	1, n4
+		bgt	this
+		end
+	lea	4(rr), rr		;; rr still contains the program name
+					;; (from the _job_stuff() call).
+	move	rr, 4(sp)		;; Put prog name in stack as 1st arg.
+	movea	environ, r1		;; Setup envp addr.
+	clr	n1
+	movew	2(r1), n1		;; Number to skip.
+	asl	2, n1			;; Number of bytes to skip.
+	lea	8(r1, n1), r1
+	move	r1, 12(sp)
+	moveq	%execve, n0
+	move	n0, -(sp)
+	trap	0			;; Do the exec.
+	cmpi	8, n0			;; ENOEXEC? (invalid magic # => shell script).
+	bne	oops			;; Other errors get signalled
+	move	"/bin/sh"+4, 4(sp)	;; Yes, try again running shell.
+	movea	8(sp), r1
+	subq	4, r1			;; Move back argv.
+	move	rr, (r1)		;; Put prog name in argv.
+	move	r1, 8(sp)
+	moveq	%execve, n0		;; Try exec call again.
+	move	n0, -(sp)
+	trap	0			;; (If we make it to the next 
+ 					;; instruction then an error occurred).
+oops:	addq	4, sp			;; Pop pc.
+	clr	(sp)+			;; Clear and pop stack args.
+	clr	(sp)+
+	clr	(sp)+
+	movea	n0, rr
+	lea	1(rr, rr), rr		;; Save and integerize error code.
+	moveq	1, n0			;; Restore n0
+	movea	n0, r1			;; Make r-regs valid refs.
+	movea	n0, r3
+	_erstr(rr)
+	signal	not_possible(rr)
+	end exec
+
+exece = proc (fn: file_name, jcl: string, envs: array[string], save: sequence[_chan])
+						signals (not_possible(string))
+	; execute FN with given JCL in current process
+	; If JCL does not contain nuls, spaces and tabs will be converted
+	; current primary input, output, and error output are retained
+	; SAVE is a list of _chans that should not be closed
+
+	var	envp
+	new_environment(envs)
+	move	rr,envp
+	_job_stuff (fn, jcl)
+		resignal not_possible
+	;; Save results of _job_stuff call.
+	move	(sp)+, n2
+	addq	3, n2
+	move	(sp)+, n3
+	addq	4, n3
+
+	;; For each file (descriptor >= 3) which was specified in the save
+	;; sequence, set the close-on-exec flag in its descriptor to 0.
+	;; Set the close flag for all other files to 1.
+	clr	-(sp)			;; Hack pc.
+	moveq	%getdtablesize, n0
+	move	n0, -(sp)
+	trap	0			;; Get the max number of files.
+	move	n0, n4			;; Save it.
+	subq	4, sp			;; 3rd arg (low bit is used to set flag)
+	move	f%setfd, (sp)		;; Command.
+	move	3, -(sp)		;; Initial file descriptor.
+	move	3, n5			;; Keep current descriptor number in a reg.
+	clr	-(sp)			;; Hack pc.
+	qloop
+		move	n5, 4(sp)	;; Put next descriptor number in stack.
+		clr	12(sp)		;; Start with close-on-exec flag = 0.
+		movea	save, r1
+		move	(r1)+, n1
+		asr	2, n1		;; Number of files in sequence.
+		beq	closeit
+		qloop
+			movea	(r1)+, r3			
+			cmp	ch%rd(r3), n5
+			beq	doit
+			cmp	ch%wr(r3), n5
+			beq	doit
+			subq	1, n1	;; Any more files to check in save?
+			bgt	this
+			end
+closeit:	move	1, 12(sp)	;; Close the file
+doit:		moveq	%fcntl, n0
+		move	n0, -(sp)
+		trap	0
+		addq	1, n5		;; Increment cur. descriptor number.
+		cmp	n4, n5
+		ble	this		;; Up to max.
+		end
+
+	;; (Don't deallocate the stack argument space at this point, the
+	;; next section will need it).
+
+	;; Prepare to do the execve.
+	movea	n3, r3			;; Use results of _job_stuff() that
+ 					;; were saved.
+	move	(r3)+, n4		;; Get count.
+	move	r3, 8(sp)		;; Store (what will be) "argv" address.
+	qloop				;; Create the argv array in the wordvec
+		add	n2, (r3)+
+		subq	1, n4
+		bgt	this
+		end
+	lea	4(rr), rr		;; rr still contains the program name
+					;; (from the _job_stuff() call).
+	move	rr, 4(sp)		;; Put prog name in stack as 1st arg.
+	move	envp,n1			;; Setup envp addr.
+	addq	4,n1
+	move	n1, 12(sp)
+	movea	n1,r3
+	loop
+		tst	(r3)
+		beq	next
+		add	n2,(r3)+
+		end
+	moveq	%execve, n0
+	move	n0, -(sp)
+	trap	0			;; Do the exec.
+	cmpi	8, n0			;; ENOEXEC? (invalid magic # => shell script).
+	bne	oops			;; Other errors get signalled
+	move	"/bin/sh"+4, 4(sp)	;; Yes, try again running shell.
+	movea	8(sp), r1
+	subq	4, r1			;; Move back argv.
+	move	rr, (r1)		;; Put prog name in argv.
+	move	r1, 8(sp)
+	moveq	%execve, n0		;; Try exec call again.
+	move	n0, -(sp)
+	trap	0			;; (If we make it to the next 
+ 					;; instruction then an error occurred).
+oops:	addq	4, sp			;; Pop pc.
+	clr	(sp)+			;; Clear and pop stack args.
+	clr	(sp)+
+	clr	(sp)+
+	movea	n0, rr
+	lea	1(rr, rr), rr		;; Save and integerize error code.
+	moveq	1, n0			;; Restore n0
+	movea	n0, r1			;; Make r-regs valid refs.
+	movea	n0, r3
+	_erstr(rr)
+	signal	not_possible(rr)
+	end exece
+
+fork = proc () returns (cvt, bool) signals (not_possible(string))
+	; fork copy of current process
+	; returns (child, false) in parent process
+	; returns (parent, true) in child process
+	_job$%dead_set()
+	clr	-(sp)			;; Hack pc.
+	moveq	%fork, n0
+	move	n0, -(sp)
+	trap	0			;; Do the fork
+	scc	n2			;; Remember state of carry.
+	addq	4, sp			;; Pop pc.
+	movea	n0, rr
+	lea	1(rr, rr), rr		;; Save and integerize first result.
+	moveq	1, n0			;; Restore n0.
+	ifne	tstb	n2
+	then	move	rr, -(sp)
+		ifeq	tst	n1
+		then	return (*, false)
+		else	return (*, true)
+			end
+		end
+	_erstr(rr)
+	signal	not_possible(rr)
+	end fork
+
+run = proc (j: cvt) returns (int) signals (not_possible(string))
+	; wait for termination of given process
+	; restart process whenever it stops
+	; discard stop or termination of any intervening process
+	; return termination status
+	move	rr, n3
+	asr	1, n3			;; De-integerize job pid.
+	clr	-(sp)		;; Hack pc.
+	qloop
+		moveq	2, n0		;; WUNTRACED
+		clr	n1
+		move	%wait, -(sp)
+		orib	#1f, ccr	;; Make this a wait3. Yuch!
+		ifcc	trap	0	;; Wait.
+		then	cmp	n0, n3	;; The one we wanted?
+			bne	this
+			ifne	cmpib	0177, n1	;; Dead?
+			then	moveq	1, n0
+				addq	4, sp	;; Pop pc.
+				add	n1, n1
+				addqb	1, n1	;; Integerize status.
+				return (n1)
+				end
+			move	SIGCONT, -(sp)	;; Going to restart process.
+			move	n3, -(sp)	;; Pid.
+			clr	-(sp)	;; Hack pc.
+			moveq	%kill, n0
+			move	n0, -(sp)
+			trap	0	;; Send it.
+			scc	n1	;; Remember state of carry.
+			addq	4, sp	;; Pop pc.
+			clr	(sp)+	;; Pop and clear args.
+			clr	(sp)+
+			tstb	n1
+			bne	this
+			break		;; Continue signal was not delivered.
+			end
+		cmpi	4, n0		;; EINTR?
+		beq	this
+		end
+	addq	4, sp			;; Pop pc.
+	movea	n0, rr
+	lea	1(rr, rr), rr		;; Save and integerize error code.
+	moveq	1, n0
+	_erstr(rr)
+	signal	not_possible(rr)	
+	end run
+
+sig = proc (j: cvt, signum: int) signals (not_possible(string))
+	; send signal to given process
+	move	rr, n1
+	asr	1, n1			;; De-integerize signal number.
+	move	n1, -(sp)		;; Push signal number
+	move	j, n1
+	asr	1, n1			;; De-integerize job number.
+	move	n1, -(sp)		;; Push job number
+	clr	-(sp)			;; Hack pc.
+	moveq	%kill, n0
+	move	n0, -(sp)
+	trap	0			;; Send the signal.
+	scc	n1			;; Remember state of carry.
+	addq	4, sp			;; Pop pc.
+	clr	(sp)+			;; Pop and clear args.
+	clr	(sp)+
+	ifne	tstb	n1
+	then	moveq	1, n0		;; Restore n0.
+		return			;; Signal delivered okay.
+		end
+	movea	n0, rr
+	lea	1(rr, rr), rr		;; Save and integerize error code.
+	moveq	1, n0			;; Restore n0.
+	_erstr(rr)
+	signal	not_possible(rr)
+	end sig
+
+sig_group = proc (j: cvt, signum: int) signals (not_possible(string))
+	; send signal to all processes in given process's process group
+	move	j, n1
+	asr	1, n1			;; De-integerize job number.
+	move	n1, -(sp)		;; Push it.
+	clr	-(sp)			;; Hack pc.
+	moveq	%getpgrp, n0
+	move	n0, -(sp)
+	ifcc	trap	0		;; Do the call.
+		bcs	next
+		move	n0, (sp)	;; Put group number in stack.
+		move	rr, n1
+		asr	1, n1		;; De-integerize signal number.
+		move	n1, 4(sp)	;; Put signal number in stack.
+		clr	-(sp)		;; Hack pc.
+		move	%killpg, n0
+		move	n0, -(sp)
+		trap	0		;; Send the signal.
+		addq	4, sp		;; Pop pc.
+	then	clr	(sp)+		;; Pop args.
+		clr	(sp)+
+		moveq	1, n0
+		return
+		end
+	clr	(sp)+			;; Pop stack.
+	clr	(sp)+
+	movea	n0, rr
+	lea	1(rr,rr), rr		;; Save and integerize error code.
+	moveq	1, n0
+	_erstr(rr)
+	signal	not_possible(rr)
+	end sig_group
+
+dead = qproc () returns (int)
+	; return count of processes that have died
+	ifeq	tst	deadcnt
+	then	move	1, deadcnt
+		end
+
+	movea	deadcnt, rr
+	return (rr)
+	end dead
+
+wait = proc (j: cvt) returns (int) signals (not_possible(string))
+	; wait for stop or termination of given process
+	; discard termination of any intervening process
+	; return stop or termination status
+	move	rr, n3
+	asr	1, n3			;; De-integerize job pid.
+	clr	-(sp)			;; Hack pc.
+	qloop
+		moveq	2, n0		;; WUNTRACED
+		clr	n1
+		move	%wait, -(sp)
+		orib	#1f, ccr	;; Make this a wait3. Yuch!
+		ifcc	trap	0	;; Wait.
+		then	cmp	n0, n3	;; The one we wanted?
+			bne	this
+			moveq	1, n0	;; Yes.
+			addq	4, sp	;; Pop pc.
+			add	n1, n1
+			addqb	1, n1	;; Integerize status.
+			return (n1)	;; Return status.
+			end
+		cmpi	4, n0		;; EINTR?
+		beq	this
+		end
+	addq	4, sp			;; Pop pc.
+	movea	n0, rr
+	lea	1(rr, rr), rr		;; Save and integerize error code.
+	moveq	1, n0
+	_erstr(rr)
+	signal	not_possible(rr)
+	end wait
+
+wait0 = proc (j: cvt) returns (int) signals (not_possible(string))
+	; test for stop or termination of given process without hanging
+	; discard termination of any intervening process
+	; return stop or termination status if any, else -1
+	move	rr, n3
+	asr	1, n3			;; De-integerize job pid.
+	clr	-(sp)			;; Hack pc.
+	qloop
+		moveq	1, n0		;; WNOHANG
+		clr	n1
+		move	%wait, -(sp)
+		orib	#1f, ccr	;; Make this a wait3. Gross!
+		ifcc	trap	0	;; Wait.
+		then	ifne	cmp	n0, n3	;; The one we wanted?
+			then	tst	n0	;; No, anything?
+				bne	this
+				moveq	-1, n1	;; Going to return -1.
+			else	add	n1, n1	;; Yes. Going to return status.
+				addqb	1, n1	;; Integerize status.
+				end
+			moveq	1, n0	;; Restore n0.
+			addq	4, sp	;; Pop pc.
+			return (n1)	;; Return status.		
+			end
+		cmpi	4, n0		;; EINTR?
+		beq	this
+		end
+	addq	4, sp			;; Pop pc.
+	movea	n0, rr
+	lea	1(rr, rr), rr		;; Save and integerize error code.
+	moveq	1, n0
+	_erstr(rr)
+	signal	not_possible(rr)	
+	end wait0
+
+any_wait = proc () returns (cvt, int) signals (not_possible(string))
+	; wait for stop or termination of next process
+	; return stop or termination status
+	clr	-(sp)			;; Hack pc.
+	qloop
+		moveq	2, n0		;; WUNTRACED
+		clr	n1
+		move	%wait, -(sp)
+		orib	#1f, ccr	;; Make this a wait3. Gross!
+		ifcc	trap	0	;; Wait.
+		then	movea	n1, rr
+			lea	1(rr, rr), rr	;; Save and integerize status.
+			move	n0, n1
+			add	n1, n1
+			addqb	1, n1	;; Save and integerize pid.
+			moveq	1, n0	;; Restore n0.
+			addq	4, sp	;; Pop pc.
+			return (n1, rr)	;; Return pid, status.
+			end
+		cmpi	4, n0		;; EINTR?
+		beq	this
+		end
+	addq	4, sp			;; Pop pc.
+	movea	n0, rr
+	lea	1(rr, rr), rr		;; Save and integerize error code.
+	moveq	1, n0
+	_erstr(rr)
+	signal	not_possible(rr)
+	end any_wait
+
+any_wait0 = proc () returns (cvt, int) signals (not_possible(string))
+	; test for stop or termination of next process without hanging
+	; return _job (0 if none terminated) and stop or termination status
+	clr	-(sp)			;; Hack pc.
+	qloop
+		moveq	1, n0		;; WNOHANG
+		clr	n1
+		move	%wait, -(sp)
+		orib	#1f, ccr	;; Make this a wait3. Disgusting!
+		ifcc	trap	0	;; Wait.
+		then	movea	n1, rr
+			lea	1(rr, rr), rr	;; Save and integerize status.
+			move	n0, n1
+			add	n1, n1
+			addqb	1, n1	;; Save and integerize pid.
+			moveq	1, n0	;; Restore n0.
+			addq	4, sp	;; Pop pc.
+			return (n1, rr)	;; Return pid, status.
+			end
+		cmpi	4, n0		;; EINTR?
+		beq	this
+		end
+	addq	4, sp			;; Pop pc.
+	movea	n0, rr
+	lea	1(rr, rr), rr		;; Save and integerize error code.
+	moveq	1, n0
+	_erstr(rr)
+	signal	not_possible(rr)
+	end any_wait0
+
+self = qproc () returns (cvt)
+	; return current process
+	clr	-(sp)			;; Hack pc.
+	moveq	%getpid, n0
+	move	n0, -(sp)
+	trap	0			;; Get our pid.
+	addq	4, sp			;; Pop pc.
+	movea	n0, rr
+	lea	1(rr, rr), rr		;; Save and integerize pid.
+	moveq	1, n0			;; Restore n0.
+	return (rr)
+	end self
+
+get_pid = qproc (j: cvt) returns (int)
+	; get process id
+	return (rr)			;; Job rep is the pid.	
+	end get_pid
+
+get_group = proc (j: cvt) returns (int) signals (not_possible(string))
+	; get process group
+	move	rr, n1
+	asr	1, n1			;; De-integerize job number.
+	move	n1, -(sp)		;; Push it.
+	clr	-(sp)			;; Hack pc.
+	moveq	%getpgrp, n0
+	move	n0, -(sp)
+	trap	0
+	scc	n1			;; Remember state of carry.
+	addq	4, sp			;; Pop pc.
+	clr	(sp)+			;; Pop arg.
+	movea	n0, rr
+	lea	1(rr,rr), rr		;; Save and integerize result.
+	moveq	1, n0			;; Restore n0.
+	ifne	tstb	n1
+	then	return (rr)
+		end
+	_erstr(rr)
+	signal	not_possible(rr)
+	end get_group
+
+set_group = proc (j: cvt, g: int) signals (not_possible(string))
+	; set process group
+	move	rr, n1
+	asr	1, n1			;; De-integerize group number
+	move	n1, -(sp)
+	move	j, n1
+	asr	1, n1			;; De-integerize job number.
+	move	n1, -(sp)		;; Push it.
+	clr	-(sp)			;; Hack pc.
+	moveq	%setpgrp, n0
+	move	n0, -(sp)
+	trap	0
+	scc	n1
+	addq	4, sp			;; Pop pc.
+	clr	(sp)+			;; Pop args.
+	clr	(sp)+
+	ifne	tstb	n1
+	then	moveq	1, n0		;; Restore n0.
+		return
+		end
+	movea	n0, rr
+	lea	1(rr,rr), rr		;; Save and integerize result.
+	moveq	1, n0			;; Restore n0.
+	_erstr(rr)
+	signal	not_possible(rr)
+	end set_group
+
+control_tty = proc (j: cvt) signals (not_possible(string))
+	; make this process' group the controlling terminals' group
+	move	rr, n1
+	asr	1, n1			;; De-integerize job number.
+	move	n1, -(sp)		;; Push it.
+	clr	-(sp)			;; Hack pc.
+	moveq	%getpgrp, n0
+	move	n0, -(sp)
+	ifcc	trap	0
+	then	lea	buf, r1
+		move	n0, (r1)	;; Put group id in a buffer.
+		move	r1, 4(sp)	;; Put buffer address in stack.
+		move	%tiocspgrp, (sp);; Push request number.
+		clr	-(sp)		;; Push descriptor (0).
+		clr	-(sp)		;; Hack pc.
+		moveq	%ioctl, n0
+		move	n0, -(sp)
+		trap	0
+		scc	n1
+		addq	4, sp		;; Pop pc.
+		clr	(sp)+		;; Pop 1 arg.
+		ifne	tstb	n1
+		then	moveq	1, n0	;; Restore n0.
+			clr	(sp)+	;; Pop stack.
+			clr	(sp)+
+			return
+			end
+		end
+	clr	(sp)+			;; Pop stack.
+	clr	(sp)+
+	movea	n0, rr
+	lea	1(rr, rr), rr		;; Save and integerize error code.
+	moveq	1, n0			;; Restore n0.
+	_erstr(rr)
+	signal	not_possible(rr)
+	end control_tty
+
+get_group_mode = qproc () returns (int)
+	; get process group mode
+	ifeq	tst	grpmod
+	then	move	1, grpmod
+		end
+	movea	grpmod, rr
+	return (rr)
+	end get_group_mode
+
+set_group_mode = qproc (mode: int)
+	; set process group mode
+	; 0 => do nothing
+	; ~= 0 => cons and cons1 will set process group to be process id
+	; < 0 => cons and cons1 will also change control of file desc 0
+	; to new process group
+	move	rr, grpmod
+	end set_group_mode
+
+
+equal = qproc (j1, j2: cvt) returns (bool)
+	ifeq	cmpa	j1, rr
+	then	return (true)
+		end
+	return (false)
+	end equal
+
+similar = qproc (j1, j2: cvt) returns (bool)
+	ifeq	cmpa	j1, rr
+	then	return (true)
+		end
+	return (false)
+	end similar
+
+copy = qproc (j: cvt) returns (cvt)
+	return (rr)
+	end copy
+
+end _job

@@ -1,0 +1,99 @@
+; Copyright Massachusetts Institute of Technology 1980, 1989
+
+; elements in signal info
+;	number of signal arguments
+;	string name of signal
+;	vector of ranges of exception handlers
+
+; elements in range vector
+;	start of range
+;	end of range
+;	handler address (0 implies resignal)
+
+prefix = "unhandled exception: "	; prefix for failure string argument
+
+_siggy = proc ()
+	own	deathstr
+					; address of signal info is in pp
+	movea	(ep),r1			; use r1 as search ep
+	movem	(pp),n7/rr/r2		; get signal info
+	move	r2,n5			; save copy of chain
+	ifeq	cmpa	fchain,r2	; failure?
+	then	movea	8(ep),rr	; yes, get string argument
+	end
+	; find address of caller of signaller
+	; try twice per frame, once on given chain, once on OTHERS chain
+	; any necessary OTHERS ranges will already be on the given
+	; exception handler range chain
+	qloop
+		moveq	1,n4			; try twice
+		move	4(r1),n1		; get return pc
+		subq	3,n1			; adjust back to area of call
+repeat:		move	(r2)+,n2		; size of chain table
+		subq	2,n2
+		beq	endvec			; check if empty
+		lea	-12(r2,n2),r4		; get high end
+search:		move	r2,n2			; get middle
+		add	r4,n2
+		asr	1,n2
+		ifne	btst	n0,n2
+		then	subq	6,n2
+		end
+		movea	n2,r3
+		ifgt	cmp	4(r3),n1	; check end
+		then	lea	12(r3),r2	; must be higher up
+			cmpa	r3,r4
+			bne	search
+			bra	endvec
+		end
+		iflt	cmp	(r3),n1		; check start
+		then	lea	-12(r3),r4	; must be lower down
+			cmpa	r3,r2
+			bne	search
+			beq	endvec
+		end
+		move	8(r3),n2		; get handler address
+		beq	resig			; resignal?
+		ifeq	cmp	fchain,n5 	; failure
+			bne	next
+			subq	1,n4		; and explicit handler?
+		then	move	rr,8(ep)	; yes, store string
+		end
+		move	(r1),(ep)		; fix our frame
+		move	n2,4(ep)
+		return				; return to handler
+endvec:		movea	ochain,r2		; now try OTHERS chain
+		subqw	1,n4
+		bge	repeat			; if we haven't yet
+		; failed to find handler in this frame
+		ifne	cmp	fchain,n5	; already failure?
+		then	string$concat(prefix, rr) ; create failure arg
+			movea	(ep),r1		; restore search ep
+			moveq	3,n7		; single argument
+			move	fchain,n5	; now use failure chain
+		end
+resig:		movea	n5,r2			; reget range chain
+		movea	(r1),r1			; chain back up
+		move	r1,n1
+		bne	this			; until end of stack
+	end
+	move	rr,deathstr		; completely unhandled exception
+	_unhandled_exception(rr)	; give user a chance
+	    except others: end
+	_chan$_save_tty()
+	movea	deathstr,rr
+	move	(rr),n2
+	asr	1,n2
+	move	n2,-(sp)		; byte count
+	pea	4(rr)			; chars
+	move	n0,-(sp)		; file desc
+	clr	-(sp)
+	moveq	%write,n0		; do it
+	move	n0,-(sp)
+	trap	0
+	moveq	15,n0
+	move	n0,4(sp)
+	moveq	%exit,n0
+	move	n0,-(sp)
+	trap	0
+	end _siggy

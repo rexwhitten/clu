@@ -1,0 +1,157 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+srec = record[aln, aps: int,	% start of record
+	      bln, bps: int,    % start of key
+	      eln, eps: int,    % end of key
+	      zln, zps: int]    % end of record
+
+reclist = array[srec]
+
+sort_buffer = proc (e: env, c: char)
+		signals (errmsg(string), stop(env, string))
+    enddef = c2s(ctrle)
+    nxtdef = c2s(ctrlf)
+    rev: bool := e.this_arg < 0
+    key_start: string := get_string_arg(e, "To start of key", "")
+       resignal errmsg
+    key_end: string := get_string_arg(e, "To end of key", enddef)
+       resignal errmsg
+    rec_start: string := get_string_arg(e, "To next record", nxtdef)
+       resignal errmsg
+    top_display(e, "Sorting")
+    case: int := env$fetch_num(e, "ignore_case", 0)
+    recs: reclist := reclist$new()
+    b: buf := e.buffer
+    lln, mln: int := buf$get_frame(b)
+    mps: int := string$size(b[mln]) + 1
+    buf$set_cursor(b, lln, 1)
+    chars: string := _flush_macro_chars()
+    aln: int := lln
+    aps: int := 1
+    while aln < mln  cor  (aln = mln  cand  aps < mps) do
+	_push_macro_chars(key_start)
+	while _still_macro() do
+	    env$command(e, _getc())
+	    end
+	bln, bps: int := buf$get_cursor(b)
+	eln: int := mln
+	zln: int := eln
+	eps: int := mps
+	zps: int := eps
+	begin
+	    _push_macro_chars(key_end)
+	    while _still_macro() do
+		env$command(e, _getc())
+		end
+	    eln, eps := buf$get_cursor(b)
+	    if eln > mln
+	       then eln := mln
+		    eps := mps
+	       else _push_macro_chars(rec_start)
+		    while _still_macro() do
+			env$command(e, _getc())
+			end
+		    zln, zps := buf$get_cursor(b)
+		    if zln > mln
+		       then zln := mln
+			    zps := mps
+		       end
+	       end
+	    end except when errmsg (why: string):
+			    if why ~= "Not found!"
+			       then signal errmsg(why) end
+			    _flush_macro_chars()
+		       end
+	low: int := 1
+	z: int := reclist$size(recs)
+	high: int := z
+	while low <= high do
+	    i: int := (low + high) / 2
+	    nrec: srec := recs[i]
+	    ps1: int := bps
+	    ln1: int := bln
+	    s1: string := b[ln1]
+	    ps2: int := nrec.bps
+	    ln2: int := nrec.bln
+	    s2: string := b[ln2]
+	    while true do
+		ok1: bool := ln1 < eln  cor  (ln1 = eln  cand  ps1 < eps)
+		ok2: bool := ln2 < nrec.eln  cor
+			     (ln2 = nrec.eln  cand  ps2 < nrec.eps)
+		if (~rev  cand  ~ok2)  cor  (rev  cand  ~ok1)
+		   then low := i + 1
+			break
+		 elseif (~rev  cand  ~ok1)  cor  (rev  cand  ~ok2)
+		   then high := i - 1
+			break
+		 end
+		c1: char := s1[ps1]
+		   except when bounds: c1 := '\n' end
+		c2: char := s2[ps2]
+		   except when bounds: c2 := '\n' end
+		if c1 ~= c2
+		   then if case ~= 0
+			   then if c1 >= 'A'  cand  c1 <= 'Z'
+				   then c1 := i2c(c2i(c1) + 32) end
+				if c2 >= 'A'  cand  c2 <= 'Z'
+				   then c2 := i2c(c2i(c2) + 32) end
+			   end
+			if (c1 > c2  cand  ~rev)  cor  (c1 < c2  cand  rev)
+			   then low := i + 1
+				break
+			 elseif c1 ~= c2
+			   then high := i - 1
+				break
+			 end
+		   end
+		if c1 = '\n'
+		   then ln1 := ln1 + 1
+			s1 := b[ln1]
+			ps1 := 1
+		   else ps1 := ps1 + 1
+		   end
+		if c2 = '\n'
+		   then ln2 := ln2 + 1
+			s2 := b[ln2]
+			ps2 := 1
+		   else ps2 := ps2 + 1
+		   end
+		end
+	    end
+	rec: srec := srec${aln: aln, aps: aps,
+			   bln: bln, bps: bps,
+			   eln: eln, eps: eps,
+			   zln: zln, zps: zps}
+	reclist$addh(recs, rec)
+	array_shift[srec](recs, low, z - high, 1)
+	recs[low] := rec
+	aln := zln
+	aps := zps
+	if check_for_interrupt()  cand  mconfirm(e, "Quit sorting", false)
+	   then signal errmsg(quit_msg) end
+	end
+       resignal errmsg
+       except when stop (ne: env, why: string):
+		   _push_macro_chars(chars)
+		   signal stop(ne, why)
+	      end
+    nb: buf := buf$create()
+    for rec: srec in reclist$elements(recs) do
+	ln: int := rec.aln
+	if ln = rec.zln
+	   then buf$insert(nb, string$substr(b[ln], rec.aps, rec.zps - rec.aps))
+	   else buf$insert(nb, string$rest(b[ln], rec.aps))
+		for ln in int$from_to(ln + 1, rec.zln - 1) do
+		    buf$addh(nb, b[ln])
+		    end
+		buf$addh(nb, string$substr(b[rec.zln], 1, rec.zps - 1))
+		buf$set_cursor(nb, buf$size(nb), max_int)
+	   end
+	end
+    buf$set_cursor(b, lln, 1)
+    buf$delete(b, mln, mps)
+    buf$insert_buf(b, nb)
+    buf$set_cursor(b, lln, 1)
+    _push_macro_chars(chars)
+    top_display(e, "")
+    env$change_all(e)
+    end sort_buffer

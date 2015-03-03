@@ -1,0 +1,24 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+move_under = proc (e: env, cnt: int)
+    tabs = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t"
+    spaces = "        "
+    b: buf := e.buffer
+    line, pos: int := buf$get_cursor(b)
+    for ln: int in int$from_to_by(line - 1, 1, -1) do
+	s: string := b[ln]
+	opos: int := 1
+	while s[opos] = ' ' cor s[opos] = '\t' do opos := opos + 1 end
+	   except when bounds: continue end
+	hpos: int := int$max(_calc_hpos(s, opos) + cnt, 0)
+	s := b[line]
+	opos := 1
+	while s[opos] = ' ' cor s[opos] = '\t' do opos := opos + 1 end
+	   except when bounds: end
+	env$delete(e, line, 1, line, opos)
+	env$insert1(e, string$substr(tabs, 1, hpos / 8))
+	env$insert1(e, string$substr(spaces, 1, hpos // 8))
+	if pos > opos
+	   then buf$new_cursor(b, 0, pos - opos) end
+	return
+	end
+    end move_under

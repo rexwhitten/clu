@@ -1,0 +1,337 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+#extend
+
+address =  cluster is
+	init, re_init,
+	make_null, make_relative, make_p1_relative,
+	make_specific, make_p1_specific,
+	in_p0, in_p1,
+	advance, fix_address, adjust,
+	a_to_int, a_to_ints, re_locate, is_null,
+	get_addr_area, get_addr_offset,
+	unparse, ounparse, hunparse, equal, le, lt, ge, gt,
+	similar, sub, hasher, print, _gcd;
+
+    rep = int;
+
+    vTest_Point = 2**29
+    %% (addr / vTest_Point) =
+    %%	 0 => specific address in P0 space.
+    %%  -1 => specific address in P1 space. (offset to be subtracted)
+    %%   1 => relative address in P0 space.
+    %%  -2 => relative address in P1 space.
+
+    vP0_Specific = 0		%% Note that tests versus this are special cased.
+    vP0_Relative = 1
+    vP1_Specific = -1
+    vP1_Relative = -2
+
+    vMask_Div  = 2**(29-25);
+    vSep_Point = 2**25;	% ((A / vSep_Point) // vMask_Div)  = Area
+    %		        % (A // vSep_Point) = Offset
+    % P0 is + offset from 0.
+    % P1 is - offset from vP1_Top.
+
+    Null_Addr = -1;	%% OK because this will never be an address that is used.
+
+    vFixed_Area = 0;
+
+    %%vP1_Top = 020000000000;		%% Top of 31-bit address space.
+    vP1_Top_H = 0100000;		%% High word of vP1_Top.
+
+    %% Owns used by Fix_Address, initialized by Init, and Re_Init.
+    own Last_Area: int;
+    own Last_Base: rep;
+
+    Init = proc (Debugging: bool, JCL_Size: int) returns (locates);
+	Locs: locates;
+	Last_Area := vFixed_Area;	%% Initialize Fix_Address's owns.
+	Last_Base := Null_Addr;
+	if (Debugging)
+	   then Locs := locates$Debug_New(JCL_Size);
+	   else Locs := locates$New();
+	   end;
+	return (Locs);
+	end Init;
+
+    Re_Init = proc (Locs: locates);
+	locates$Re_Init(Locs);
+	Last_Area := vFixed_Area;	%% Initialize Fix_Address's owns.
+	Last_Base := Null_Addr;
+	end Re_Init;
+
+    Make_Null = proc () returns (cvt);
+	return (Null_Addr);
+	end Make_Null;
+
+    Make_Relative = proc (Area: int, Offset: int) returns (cvt);
+	return (((vP0_Relative * vMask_Div) +
+		 (Area // vMask_Div)) * vSep_Point +
+		(Offset // vSep_Point));
+	end Make_Relative;
+
+    Make_P1_Relative = proc (Area: int, Offset: int) returns (cvt);
+	return (((vP1_Relative * vMask_Div) +
+		 (Area // vMask_Div)) * vSep_Point +
+		(Offset // vSep_Point));
+	end Make_P1_Relative;
+
+    Make_Specific = proc (Offset: int) returns (cvt);
+	return (
+	    %% Comment out since vP0_Specific = 0 and Optimizer does not remove.
+	    %% (vP0_Specific * (vMask_Div * vSep_Point)) +
+	    (Offset // vSep_Point));
+	end Make_Specific;
+
+    Make_P1_Specific = proc (Offset: int) returns (cvt);
+	return ((vP1_Specific * (vMask_Div * vSep_Point)) +
+		(Offset // vSep_Point));
+	end Make_P1_Specific;
+
+    In_P0 = proc (Addr: cvt) returns (bool) signals (null_address);
+	if (Addr = Null_Addr)
+	   then signal Null_Address;
+	   else %%return ((Addr / vTest_Point) >= vP0_Specific);
+		return (Addr >= 0);
+	   end;
+	end In_P0;
+
+    In_P1 = proc (Addr: cvt) returns (bool) signals (null_address);
+	if (Addr = Null_Addr)
+	   then signal Null_Address;
+	   else %%return ((Addr / vTest_Point) < vP0_Specific);
+		return (Addr < 0);
+	   end;
+	end In_P1;
+
+    Advance = proc (Addr: cvt, I: int) returns (cvt)
+		signals (null_address, overflow);
+	if (Addr = Null_Addr)
+	   then signal Null_Address;
+	   else %%if ((Addr / vTest_Point) >= vP0_Specific)
+		if (Addr  >= 0)
+		   then return (Addr + I);
+		   else return (Addr - I);
+		   end;
+	   end;
+	end Advance;
+
+    Adjust = proc (Addr: cvt, Page_Size: int) returns (cvt)
+	       signals (null_address);
+	if (Addr = Null_Addr)
+	   then signal Null_Address;
+	   else return (((Addr + Page_Size - 1) / Page_Size) * Page_Size);
+	   end;
+	end Adjust;
+
+    Fix_Address = proc (Addr: cvt, Locs: locates) returns (cvt)
+		    signals (not_possible);
+	if (Addr = Null_Addr)
+	   then signal Not_Possible;
+	   end;
+	Tst: int := Addr / vTest_Point;
+	if ((Tst = vP0_Relative) cor
+	    (Tst = vP1_Relative))
+	   then Area: int := (Addr / vSep_Point) // vMask_Div;
+		if (Area ~= Last_Area)
+		   then Loc: locate := locates$Fetch(Locs, Area);
+			if (Loc.Start_Address.Addr_Area ~= vFixed_Area)
+			   then locates$Fix_Base(Locs, Area);
+				   resignal Not_Possible;
+			   end;
+			Last_Area := Area;
+			Last_Base := down(Loc.Start_Address);
+		   end;
+		Addr := Last_Base + (Addr // vSep_Point);
+	   end;
+	   except when Null_Address:
+		       signal Not_Possible;
+		  end;
+	return (Addr);
+	end Fix_Address;
+
+    A_to_Int = proc (Addr: cvt, Locs: locates) returns (int)
+		 signals (overflow, not_possible);
+	Addr := down(Fix_Address(up(Addr), Locs));
+	  resignal Not_Possible;
+	%%if ((Addr / vTest_Point) >= vP0_Specific)
+	if (Addr >= 0)
+	   then return (Addr // vSep_Point);
+	   else signal Overflow;
+	   end;
+	end A_to_Int;
+
+    A_to_Ints = proc (Addr: cvt, Locs: locates) returns (int, int)
+		 signals (not_possible);
+	vWord_Div = 2 ** vBits_per_Word
+	Addr := down(Fix_Address(up(Addr), Locs));
+	  resignal Not_Possible;
+	%%if ((Addr / vTest_Point) >= vP0_Specific)
+	if (Addr >= 0)
+	   then I: int := Addr // vSep_Point;
+		return ((I / vWord_Div), (I // vWord_Div));
+	   else I: int := - (Addr // vSep_Point);
+		return (((I / vWord_Div) // vP1_Top_H), (I // vWord_Div));
+	   end;
+	end A_to_Ints;
+
+    Re_Locate = proc (Addr: cvt, Base: cvt) returns (cvt)
+		  signals (null_address, overflow);
+	if (Addr = Null_Addr)
+	   then signal Null_Address;
+	   else return ((Addr // vSep_Point) + Base);
+	   end;
+	end Re_Locate;
+
+    Is_Null = proc (A: cvt) returns (bool);
+	return (A = Null_Addr);
+	end Is_Null;
+
+    Get_Addr_Area = proc (A: cvt) returns (int) signals (null_address);
+	if (A = Null_Addr)
+	   then signal Null_Address;
+	   else return ((A / vSep_Point) // vMask_Div);
+	   end;
+	end Get_Addr_Area;
+
+    Get_Addr_Offset = proc (A: cvt) returns (int) signals (null_address);
+	if (A = Null_Addr)
+	   then signal Null_Address;
+	   else return (A // vSep_Point);
+	   end;
+	end Get_Addr_Offset;
+
+    Unparse = proc (A: cvt) returns (string);
+	if (A = Null_Addr)
+	   then return ("<null_address>");
+	   else Tst: int := A / vTest_Point;
+		if      (Tst = vP0_Specific)
+		   then return (int$Unparse(A // vSep_Point));
+		 elseif (Tst = vP0_Relative)
+		   then return ("<" || (int$Unparse(
+					    (A / vSep_Point) // vMask_Div)) || ">" ||
+				int$Unparse(A // vSep_Point));
+		 elseif (Tst = vP1_Specific)
+		   then return (int$Unparse( -(A // vSep_Point) ));
+		 else   return ("<" || (int$Unparse(
+					    (A / vSep_Point) // vMask_Div)) || ">" ||
+				int$Unparse(-(A // vSep_Point)));
+		 end;
+	   end;
+	end Unparse
+
+    OUnparse = proc (A: cvt) returns (string);
+	if (A = Null_Addr)
+	   then return ("<null_address>");
+	   else Tst: int := A / vTest_Point;
+		if      (Tst = vP0_Specific)
+		   then return (I_OUnparse(A // vSep_Point));
+		 elseif (Tst = vP0_Relative)
+		   then return ("<" || (I_OUnparse(
+					    (A / vSep_Point) // vMask_Div)) || ">" ||
+				I_OUnparse(A // vSep_Point));
+		 elseif (Tst = vP1_Specific)
+		   then return (I_OUnparse( -(A // vSep_Point) ));
+		 else   return ("<" || (I_OUnparse(
+					    (A / vSep_Point) // vMask_Div)) || ">" ||
+				I_OUnparse(-(A // vSep_Point)));
+		 end;
+	   end;
+	end OUnparse;
+
+    HUnparse = proc (A: cvt) returns (string);
+	if (A = Null_Addr)
+	   then return ("<null_address>");
+	   else Tst: int := A / vTest_Point;
+		if      (Tst = vP0_Specific)
+		   then return (I_HUnparse(A // vSep_Point));
+		 elseif (Tst = vP0_Relative)
+		   then return ("<" || (I_HUnparse(
+					    (A / vSep_Point) // vMask_Div)) || ">" ||
+				I_HUnparse(A // vSep_Point));
+		 elseif (Tst = vP1_Specific)
+		   then return (I_HUnparse( -(A // vSep_Point) ));
+		 else   return ("<" || (I_HUnparse(
+					    (A / vSep_Point) // vMask_Div)) || ">" ||
+				I_HUnparse(-(A // vSep_Point)));
+		 end;
+	   end;
+	end HUnparse;
+
+    Equal = proc (A1, A2: cvt) returns (bool);
+	return (A1 = A2);
+	end Equal;
+
+    LE = proc (A1, A2: cvt) returns (bool) signals (not_possible);
+	if ((A1 / vSep_Point) = (A2 / vSep_Point))
+	   then %%if ((A1 / vTest_Point) >= vP0_Specific)
+		if (A1 >= 0)
+		   then return (A1 <= A2);
+		   else return (A2 <= A1);
+		   end;
+	   else signal Not_Possible;
+	   end;
+	end LE;
+
+    LT = proc (A1, A2: cvt) returns (bool) signals (not_possible);
+	if ((A1 / vSep_Point) = (A2 / vSep_Point))
+	   then %%if ((A1 / vTest_Point) >= vP0_Specific)
+		if (A1 >= 0)
+		   then return (A1 < A2);
+		   else return (A2 < A1);
+		   end;
+	   else signal Not_Possible;
+	   end;
+	end LT;
+
+    GE = proc (A1, A2: cvt) returns (bool) signals (not_possible);
+	if ((A1 / vSep_Point) = (A2 / vSep_Point))
+	   then %%if ((A1 / vTest_Point) >= vP0_Specific)
+		if (A1 >= 0)
+		   then return (A1 >= A2);
+		   else return (A2 >= A1);
+		   end;
+	   else signal Not_Possible;
+	   end;
+	end GE;
+
+    GT = proc (A1, A2: cvt) returns (bool) signals (not_possible);
+	if ((A1 / vSep_Point) = (A2 / vSep_Point))
+	   then %%if ((A1 / vTest_Point) >= vP0_Specific)
+		if (A1 >= 0)
+		   then return (A1 > A2);
+		   else return (A2 > A1);
+		   end;
+	   else signal Not_Possible;
+	   end;
+	end GT;
+
+    Similar = proc (A1, A2: cvt) returns (bool);
+	return (rep$Similar(A1, A2));
+	end Similar;
+
+    Sub = proc (A1, A2: cvt) returns (int) signals (not_possible);
+	if ((A1 / vSep_Point) = (A2 / vSep_Point))
+	   then %%if ((A1 / vTest_Point) >= vP0_Specific)
+		if (A1 >= 0)
+		   then return (A1 - A2);
+		   else return (A2 - A1);
+		   end;
+	   else signal Not_Possible;
+	   end;
+	end Sub;
+
+    Hasher = proc (A: cvt, Size: int) returns (int);
+	return (A // Size);
+	end Hasher;
+
+    Print = proc (A: cvt, S: pstream);
+	pstream$Text(S, OUnparse(up(A)));
+	end Print;
+
+    _gcd = proc (A: cvt, Tab: gcd_tab) returns (int);
+	return (rep$_gcd(A, Tab));
+	end _gcd;
+
+    end address;

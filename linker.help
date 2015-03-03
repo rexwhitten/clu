@@ -1,0 +1,77 @@
+JCL line is
+	{bin_file} {<sep>bin_file} {#option} {^exe_file}
+or
+	@xload_file {#option} {^exe_file}
+
+Bin_files may contain *'s.
+Bin_files may be separated by commas, spaces, or tabs.
+Default bin_file suffix is bin
+Default exe_file name is a.out
+Default xload_file suffix is xload
+Xload_files may contain any number of JCL lines, including xload format.
+Options take effect in recursive descent order except that any options
+(other than debug options) in an xload line take effect after processing
+the xload file.
+Debug options in a line take effect before the line is further processed,
+and the debug flag can only be set once.  Further settings are ignored.
+In an xload file, a line preceeded by a '^d' will be processed only if the
+debug flag is set; a line preceeded by a '^p' will be processed only if the
+debug flag is not set (i.e., Production mode).
+
+Options can be specified with unambiguous prefixes. Preceding any boolean
+option with "-" will negate it (e.g., "-all_list" will set all the "..._list"
+flags to false). Options are parsed left to right and only the latest setting
+is kept. The options are:
+
+		Produce in the output file:
+   symbols	    symbol table for assembly language debugging
+		    (default is true)
+   heap_size: int   Size of heap in 32K byte units
+		    (default is 32)
+   jcl_size: int    Size of JCL+ENVIRON area in 4 byte units
+		    (default is 0, meaning unlimited)
+   stack_size: int  Size of stack in 1K byte units
+		    (default is 12)
+   version: int	    Version to be returned by _get_version()
+		    (default is 0)
+
+		Set the listing file:
+   list_file: file  set listing output to go to this file
+		    (default is primary output)
+
+		Output to the listing file (all default to false):
+   consts_list      constants
+   excepts_list     excepts tables
+   owns_list        own area information
+   refs_list	    constant references
+   routines_list    routine and entry information
+   seg_map_list     memory segment map
+   times_list	    linker timing information
+   uses_list        use lists
+   w_vecs_list      word vectors
+   all_list         list all the above
+
+   main: main       Set the name of the top level routine to "main"
+		    (default is "start_up").
+
+   search: lib_name Set the directory name of the library directory to
+		    be searched for missing modules (the default clu system
+		    library ~CLU/bin will still be searched as a last resort).
+
+   directory:dir    Set the working directory to be "dir".
+		    (default is current working directory)
+		    The new working directory will apply to all file
+		    names in the current (and subsequent) lines.
+		    Working dirs are reestablished when popping out of
+		    xload files.
+
+   debug	    Link a debugging version.  Implicit when using DEBUG
+		    instead of LINK.  This produces symbols,
+		    makes main be "_debugger", links in a number of
+		    debugging routines and all of the built in type
+		    operations, and links all routines in any file that
+		    is loaded.  Unless an output file is specified in the
+		    same command line as #debug, the linked modules are
+		    put in an inferior process which is started when
+		    linking completes.  Takes effect before processing rest
+		    of line.  Can only be set (or cleared) once.

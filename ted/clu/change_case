@@ -1,0 +1,46 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+change_case = proc (e: env, c: char)
+		signals (errmsg(string), stop(env, string))
+    ptype = proctype (string) returns (string)
+    prompt = "Change case"
+    legal = "CLU"
+    help = "C: capitalize marked text\n" ||
+	   "L: lower-case-ify marked text\n" ||
+	   "U: upper-case-ify marked text"
+    i: int, opt: char := get_option(e, prompt, legal, help, false)
+       resignal errmsg
+    b: buf := e.buffer
+    line, pos: int := buf$get_cursor(b)
+    mline, mpos: int := buf$get_mark(b)
+    swapped: bool := false
+    if mline > line cor (mline = line cand mpos > pos)
+       then line, mline := mline, line
+	    pos, mpos := mpos, pos
+	    swapped := true
+       end
+    case: ptype
+    if opt = 'C'
+       then case := make_capitalized
+     elseif opt = 'U'
+       then case := make_upper_case
+     else case := make_lower_case
+     end
+    spos: int := mpos
+    max: int := max_int
+    climit: int := e.change_limit
+    e.change_limit := 0
+    for sline: int in int$from_to(mline, line) do
+	if sline = line
+	   then max := pos end
+	s: string := string$substr(b[sline], spos, max - spos)
+	ns: string := case(s)
+	if s ~= ns cand env$delete(e, sline, spos, sline, max)
+	   then env$insert1(e, ns) end
+	spos := 1
+	end
+    e.change_limit := climit
+    if swapped
+       then buf$set_cursor(b, mline, mpos)
+       else buf$set_cursor(b, line, pos)
+       end
+    end change_case

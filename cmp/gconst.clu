@@ -1,0 +1,347 @@
+%	GCONST CLU
+% Copyright Massachusetts Institute of Technology 1980, 1989
+%	CLU Compiler Version 3: constant generator
+
+g_type = proc (e: g_tenv, t: typespec) returns (mref, int)
+	val: mref
+	pflag: int
+	code: int
+	tagcase t.abs
+	   tag cluster_, type_ (ta: clutype):
+		val, pflag := g_clutype(e, ta)
+		code := _tdesc_cluster
+	   tag select (ta: seltype):
+		val, pflag := g_seltype(e, ta)
+		code := _tdesc_select
+	   tag apply (ta: applytype):
+		val, pflag := g_applytype(e, ta)
+		code := _tdesc_routine
+	   tag idn (ta: idn):
+		tagcase ta.val
+		   tag rparm (num: mref):
+			code := _tdesc_rparm
+			pflag := _rparm
+			val := num
+		   tag cparm (num: mref):
+			code := _tdesc_cparm
+			pflag := _cparm
+			val := num
+		   others:
+		   end
+	   tag any_:
+		xname: mref := g_tenv$store_str(e, "any")
+		parms: mref := g_tenv$store_vec(e, qv$[])
+		val := g_tenv$store_vec(e, qv$[xname, parms])
+		code := _tdesc_cluster
+		pflag := _plain
+	   tag other (ta: othertype):
+		val, pflag := g_othertype(e, ta)
+		code := _tdesc_return
+	   others:
+		g_tenv$comp_err(e, "bad typespec in g_type")
+		return(mref$make_val(0), _plain)
+	   end
+	val := g_tenv$store_cell(e, code, val)
+	return(val, pflag)
+	end g_type
+
+g_clutype = proc (e: g_tenv, dut: clutype) returns (mref, int)
+	parms: mref, pflag: int := g_constlist(e, dut.parms)
+	xname: mref := g_tenv$store_str(e, dut.gen.unique)
+	val: mref := g_tenv$store_vec(e, qv$[xname, parms])
+	return(val, pflag)
+	end g_clutype
+
+g_seltype = proc (e: g_tenv, sel: seltype) returns (mref, int)
+	xname: mref := g_tenv$store_str(e, sel.gen.unique)
+	fields: fieldspeclist := sel.parms
+	size: int := fieldspeclist$size(fields)
+	pflag: int := _plain
+	fwrds: qv := qv$[]
+	for fld: fieldspec in fieldspeclist$elements(fields) do
+		selname: mref := g_tenv$store_str(e, fld.sel)
+		val: mref, pflg: int := g_tenv$store_tdesc(e, fld.type_)
+		if pflg > pflag
+		   then pflag := pflg end
+		fwrds := qv$addh(fwrds, g_tenv$store_vec(e, qv$[selname, val]))
+		end
+	val: mref := g_tenv$store_vec(e, fwrds)
+	val := g_tenv$store_vec(e, qv$[xname, val])
+	return(val, pflag)
+	end g_seltype
+
+g_applytype = proc (e: g_tenv, at: applytype) returns (mref, int)
+	xname: mref := g_tenv$store_str(e, at.gen.unique)
+	args: mref, pflg1: int := g_typelist(e, at.args)
+	vals: mref, pflg2: int := g_typelist(e, at.vals)
+	sigs: mref, pflg3: int := g_exceptionlist(e, at.sigs)
+	val: mref := g_tenv$store_vec(e, qv$[xname, args, vals, sigs])
+	if pflg2 > pflg1
+	   then pflg1 := pflg2 end
+	if pflg3 > pflg1
+	   then pflg1 := pflg3 end
+	return(val, pflg1)
+	end g_applytype
+
+g_constlist = proc (e: g_tenv, exprs: exprlist) returns (mref, int)
+	pflag: int := _plain
+	vals: qv := qv$[]
+	for exp: expr in exprlist$elements(exprs) do
+		val: mref, pflg: int := g_tenv$store_const(e, exp)
+		vals := qv$addh(vals, val)
+		if pflg > pflag
+		   then pflag := pflg end
+		end
+	val: mref := g_tenv$store_vec(e, vals)
+	return(val, pflag)
+	end g_constlist
+
+g_typelist = proc (e: g_tenv, types: typelist) returns (mref, int)
+	pflag: int := _plain
+	vals: qv := qv$[]
+	for t: typespec in typelist$elements(types) do
+		val: mref, pflg: int := g_tenv$store_tdesc(e, t)
+		vals := qv$addh(vals, val)
+		if pflg > pflag
+		   then pflag := pflg end
+		end
+	val: mref := g_tenv$store_vec(e, vals)
+	return(val, pflag)
+	end g_typelist
+
+g_exceptionlist = proc (e: g_tenv, sigs: exceptionlist) returns (mref, int)
+	pflag: int := _plain
+	vals: qv := qv$[]
+	for sig: exception in exceptionlist$elements(sigs) do
+		val: mref, pflg: int := g_tenv$store_edesc(e, sig)
+		vals := qv$addh(vals, val)
+		if pflg > pflag
+		   then pflag := pflg end
+		end
+	val: mref := g_tenv$store_vec(e, vals)
+	return(val, pflag)
+	end g_exceptionlist
+
+g_exception = proc (e: g_tenv, sig: exception) returns (mref, int)
+	xname: mref := g_tenv$store_str(e, sig.name)
+	vals: mref, pflag: int := g_typelist(e, sig.types)
+	val: mref := g_tenv$store_vec(e, qv$[xname, vals])
+	return(val, pflag)
+	end g_exception
+
+g_othertype = proc (e: g_tenv, ot: othertype) returns (mref, int)
+	tagcase ot
+	   tag return_ (t: typespec):
+		tagcase t.abs
+		   tag other (ta: othertype):
+			val: mref, pflag: int := g_returntype(e, ta)
+			return(val, pflag)
+		   others:
+		   end
+		g_tenv$comp_err(e, "bad othertype in g_othertype")
+	   tag du (clut: clutype):
+		g_tenv$err(e, "type_of(" ||
+			      get_clutype_print(clut) || ") unknown")
+	   tag op (cop: clusterop):
+		g_tenv$err(e, "type_of(" ||
+			      get_clusterop_print(cop) || ") unknown")
+	   end
+	return(mref$make_val(0), _plain)
+	end g_othertype
+
+g_returntype = proc (e: g_tenv, ot: othertype) returns (mref, int)
+	tagcase ot
+	   tag du (t: clutype):
+		x: expr := expr$create(exprabs$make_apply(t), e.unknown_type)
+		val: mref, pflag: int := g_tenv$store_rdesc(e, x, -1)
+		return(val, pflag)
+	   tag op (t: clusterop):
+		x: expr := expr$create(exprabs$make_op(t), e.unknown_type)
+		val: mref, pflag: int := g_tenv$store_rdesc(e, x, -1)
+		return(val, pflag)
+	   others:
+		g_tenv$comp_err(e, "bad othertype in g_returntype")
+		return(mref$make_val(0), _plain)
+	   end
+	end g_returntype
+
+g_const = proc (e: g_tenv, x: expr) returns (mref, int)
+	val: mref
+	code: int
+	pflag: int := _plain
+	bad: bool := false
+	tagcase x.abs
+	   tag null_:
+		val := mref$make_ref(0)
+		code := _const_null
+	   tag bool_ (xa: bool):
+		if xa
+		   then val := mref$make_ref(255)
+		   else val := mref$make_ref(0)
+		   end
+		code := _const_bool
+	   tag int_ (xa: int):
+		val := mref$make_val(xa)
+		code := _const_int
+	   tag real_ (xa: real):
+		val := mref$make_val(_cvt[real, int](xa))
+		code := _const_real
+	   tag char_ (xa: char):
+		val := mref$make_ref(char$c2i(xa))
+		code := _const_char
+	   tag str (xa: str):
+		val := g_tenv$store_str(e, xa)
+		code := _const_string
+	   tag type_ (xa: typespec):
+		val, pflag := g_tenv$store_tdesc(e, xa)
+		code := _const_type
+	   tag idn (xa: idn):
+		tagcase xa.val
+		   tag rparm (num: mref):
+			code := _const_rparm
+			pflag := _rparm
+			val := num
+		   tag cparm (num: mref):
+			code := _const_cparm
+			pflag := _cparm
+			val := num
+		   others:
+			bad := true
+		   end
+	   tag invoke (xa: invoke):
+		tagcase xa.apply.abs
+		   tag op (cop: clusterop):
+			tagcase cop.type_.abs
+			   tag select (selt: seltype):
+				if selt.gen.unique = "oneof"  cand
+				   str$indexs("make_", cop.name) = 1
+				   then val, pflag :=
+					   g_oneof_const(e, cop.name,
+							 selt.parms,
+							 exprlist$bottom(xa.args))
+					code := _const_oneof
+				   else bad := true
+				   end
+			   others:
+				bad := true
+			   end
+		   others:
+			bad := true
+		   end
+	   tag a_cons (cons: arraycons):
+		tagcase cons.type_.abs
+		   tag cluster_ (ta: clutype):
+			if ta.gen.unique = "sequence"
+			   then val, pflag := g_seq_const(e, cons.elts)
+				code := _const_seq
+			   else bad := true
+			   end
+		   others:
+			bad := true
+		   end
+	   tag s_cons (cons: selectcons):
+		tagcase cons.type_.abs
+		   tag select (ta: seltype):
+			if ta.gen.unique = "struct"
+			   then val, pflag := g_struct_const(e, ta.parms, cons.fields)
+				code := _const_struct
+			   else bad := true
+			   end
+		   others:
+			bad := true
+		   end
+	   tag apply, op:
+		val, pflag := g_tenv$store_rdesc(e, x, -1)
+		code := _const_routine
+	   others:
+		bad := true
+	   end
+	if bad
+	   then g_tenv$comp_err(e, "bad expr in g_const")
+		return(mref$make_val(0), _plain)
+	   end
+	val := g_tenv$store_cell(e, code, val)
+	return(val, pflag)
+	end g_const
+
+g_oneof_const = proc (e: g_tenv, op: name, specs: fieldspeclist, x: expr)
+							returns (mref, int)
+	val: mref, pflag: int := g_tenv$store_const(e, x)
+	i: int := g_sel(str$rest(op, 6), specs)
+	val := g_tenv$store_vec(e, qv$[mref$make_val(i), val])
+	return(val, pflag)
+	end g_oneof_const
+
+g_seq_const = proc (e: g_tenv, elts: exprlist) returns (mref, int)
+	vec: av := av$predict(1, exprlist$size(elts))
+	pflag: int := _plain
+	for elt: expr in exprlist$elements(elts) do
+		val: mref, pflg: int := g_tenv$store_const(e, elt)
+		if pflg > pflag
+		   then pflag := pflg end
+		av$addh(vec, val)
+		end
+	val: mref := g_tenv$store_avec(e, vec)
+	return(val, pflag)
+	end g_seq_const
+
+g_struct_const = proc (e: g_tenv, spec: fieldspeclist, fields: fieldlist)
+							returns (mref, int)
+	vec: av := av$fill(1, fieldspeclist$size(spec), mref$make_val(0))
+	pflag: int := _plain
+	for f: field in fieldlist$elements(fields) do
+		val: mref, pflg: int := g_tenv$store_const(e, f.val)
+		if pflg > pflag
+		   then pflag := pflg end
+		for sel: name in namelist$elements(f.sels) do
+			pos: int := g_sel(sel, spec)
+			vec[pos] := val
+			end
+		end
+	val: mref := g_tenv$store_avec(e, vec)
+	return(val, pflag)
+	end g_struct_const
+
+g_sel = proc (sel: name, specs: fieldspeclist) returns (int)
+	for i: int in int$from_to(1, fieldspeclist$size(specs)) do
+		if sel = specs[i].sel
+		   then return(i) end
+		end
+	return(0)
+	end g_sel
+
+g_rdesc = proc (e: g_tenv, x: expr, nargs: int) returns (mref, int)
+	val: mref
+	pflag: int
+	xname, parms: mref
+	tagcase x.abs
+	   tag apply (clut: clutype):
+		val := e.no_type
+		xname := g_tenv$store_str(e, clut.gen.unique)
+		parms, pflag := g_constlist(e, clut.parms)
+	   tag op (cop: clusterop):
+		val, pflag := g_tenv$store_tdesc(e, cop.type_)
+		xname := g_tenv$store_str(e, cop.name)
+		pflg: int
+		parms, pflg := g_constlist(e, cop.parms)
+		if pflg > pflag
+		   then pflag := pflg end
+	   others:
+		g_tenv$comp_err(e, "bad expr in g_rdesc")
+		return(mref$make_val(0), _plain)
+	   end
+	nres: int
+	tagcase x.typespec.abs
+	   tag apply (at: applytype):
+		nargs := typelist$size(at.args)
+		nres := typelist$size(at.vals)
+	   others:
+		nres := -1
+	   end
+	val := g_tenv$store_vec(e,  qv$[val,
+					xname,
+					parms,
+					mref$make_val(nargs),
+					mref$make_val(nres)])
+	return(val, pflag)
+	end g_rdesc

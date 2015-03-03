@@ -1,0 +1,77 @@
+%% Copyright Massachusetts Institute of Technology 1984, 1989
+
+reference = cluster is
+	insert_address,
+	insert_bool,
+	insert_char,
+	insert_int,
+	insert_null,
+	insert_real,
+	insert_ref_oneof,
+	insert_type,
+	insert_word,
+	insert_tagged_int;
+
+    rep = any;
+
+    Insert_Address = proc (Input: in_chan, Addr: address, Env: lnk_env)
+		     signals (not_possible);
+	AH, AL: int := address$A_to_Ints(Addr, Env.Locates);
+	   resignal Not_Possible;
+	in_chan$Set_2_Words_in_Block(Input, AH, AL);
+	end Insert_Address;
+
+    Insert_Bool = proc (Input: in_chan, B: bool);
+	R: int;
+	if (B)
+	   then R := 0377;		%% Rep is true  = 0377
+	   else R :=  0;		%%	  false = 0
+	   end;
+	in_chan$Set_Long_in_Block(Input, R);
+	end Insert_Bool;
+
+    Insert_Char = proc (Input: in_chan, Ch: char);
+	in_chan$Set_Long_in_Block(Input, char$C2I(Ch));
+	end Insert_Char;
+
+    Insert_Int = proc (Input: in_chan, I: int);
+	in_chan$Set_Long_in_Block(Input, I+I+1);
+	end Insert_Int;
+
+    Insert_Null = proc (Input: in_chan);
+	in_chan$Set_Long_in_Block(Input, 0);	%% Rep is 0
+	end Insert_Null;
+
+    Insert_Real = proc (Input: in_chan, R: real);
+	%% Reals not yet implemented for 68000
+	%% Simply output 0 for now.
+	in_chan$Set_Long_in_Block(Input, 0);
+	end Insert_Real;
+
+    Insert_Ref_Oneof = proc (Input: in_chan, Tg: int, Val: constant, Env: 
+								     lnk_env)
+			 signals (not_possible);
+	vTag_Mul = 2 ** (vBits_per_Word - vRef_Oneof_Tag_Length);
+	Val_Long: int := constant$Const_to_Long(Val, Env);
+	   except when Invalid:
+		       signal Not_Possible;
+		  end;
+	in_chan$Set_Tagged_Long_in_Block(Input, Tg, Val_Long);
+	end Insert_Ref_Oneof;
+
+    Insert_Type = proc (Input: in_chan, T: type_desc, Env: lnk_env);
+	in_chan$Set_Long_in_Block(Input,
+				  (vType_ID_Base +
+				   ((2 * type_desc$Get_UID(T, Env)) + 1)));
+	end Insert_Type;
+
+    Insert_Word = proc (Input: in_chan, W: word);
+	L, R: int := word$W_to_Is(W);
+	in_chan$Set_2_Words_in_Block(Input, L, R);
+	end Insert_Word;
+
+    Insert_Tagged_Int = proc (Input: in_chan, Tg: int, I: int);
+	in_chan$Set_Tagged_Long_in_Block(Input, Tg, I+I+1);
+	end Insert_Tagged_Int;
+
+    end reference;

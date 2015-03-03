@@ -1,0 +1,114 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+check_spelling = proc (e: env, c: char)
+		   signals (errmsg(string), stop(env, string))
+    own have: bool := false
+    own j: _job
+    own ic, oc: _chan
+    if e.this_arg = 0
+       then if have
+	       then _chan$close(oc)
+		       except when not_possible (*): end
+		    _chan$close(ic)
+		       except when not_possible (*): end
+		    _job$sig_group(j, 9)
+		       except when not_possible (*): end
+		    _job$wait(j)
+		       except when not_possible (*): end
+		    have := false
+	       end
+	    return
+       end
+    b: buf := e.buffer
+    line, pos: int := buf$get_cursor(b)
+    nope: bool := true
+    for c, line, pos in scan_buf_chars(b, line, pos, -1) do
+	if c >= 'A'  cand  c <= 'F'  cand  pos > 1  cand
+	   b[line][pos - 1] = ctrlf
+	   then c := '*' end
+	if in_range_(c, "azAZ''")
+	   then nope := false
+		if pos = 1
+		   then break end
+	 elseif ~nope
+	   then pos := pos + 1
+		break
+	 end
+	end
+    s: string
+    if nope
+       then s := ""
+       else s := b[line]
+	    zpos: int := pos
+	    while true do
+		c := s[zpos]
+		if c = '\''
+		   then if zpos = pos
+			   then pos := pos + 1
+			 elseif ~in_range_(s[zpos + 1], "azAZ")
+			   then break end
+		 elseif ~in_range_(c, "azAZ")
+		   then break end
+		zpos := zpos + 1
+		end except when bounds: end
+	    s := string$substr(s, pos, zpos - pos)
+       end
+    s := get_string_arg(e, "Check spelling of", s)
+       resignal errmsg
+    if string$empty(s) then return end
+    for c in string$chars(s) do
+	if ~in_range_(c, "azAZ''")
+	   then signal errmsg("Illegal character(s) in word!") end
+	end
+    top_display(e, "Checking " || s)
+    if ~have
+       then ioc, oic: _chan
+	    ic, ioc := _chan$pipe()
+	    oic, oc := _chan$pipe()
+	       except when not_possible (why: string):
+			   _chan$close(ic)
+			      except when not_possible (*): end
+			   _chan$close(oic)
+			      except when not_possible (*): end
+			   signal errmsg(why)
+		      end
+	    _job$set_group_mode(1)
+	    j := _job$cons(fname$parse("ispell"), "-a -s",
+			   oic, ioc, ioc, sequence[_chan]$new())
+	       except when not_possible (why: string):
+			   _chan$close(ic)
+			      except when not_possible (*): end
+			   _chan$close(ioc)
+			      except when not_possible (*): end
+			   _chan$close(oc)
+			      except when not_possible (*): end
+			   _chan$close(oic)
+			      except when not_possible (*): end
+			   signal errmsg(why)
+		      end
+	    _chan$close(ioc)
+	       except when not_possible (*): end
+	    _chan$close(oic)
+	       except when not_possible (*): end
+	    have := true
+       else _job$sig_group(j, 19)
+       end except when not_possible (why: string): signal errmsg(why) end
+    _chan$puts(oc, s, false)
+    _chan$putc(oc, '\n', false)
+    ans: string, min, max: int := _chan$get(ic, _io_buf(), 1, 0, "\n", false)
+       except when not_possible (why: string): signal errmsg(why)
+	      when end_of_file: s := ""
+	      end
+    c := ans[1]
+       except when bounds: c := '?' end
+    if c = '*'  cor  c = '+'
+       then top_display(e, "Correct.")
+     elseif c = '#'
+       then top_display(e, "Unknown.")
+     elseif c = '&'
+       then ans := string$substr(ans, 3, string$size(ans) - 3)
+	    pre: string := "Suggest: "
+	    if string$indexc(' ', ans) > 0
+	       then pre := "Maybe: " end
+	    top_display(e, pre || ans)
+     else signal errmsg("Spelling check failed!") end
+    end check_spelling

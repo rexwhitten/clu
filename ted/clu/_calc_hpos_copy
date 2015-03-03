@@ -1,0 +1,38 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+_calc_hpos_copy = proc (s: string, a: act) returns (int, int)
+    pos: int := 0
+    lim: int := -1
+    for c: char in string$chars(s) do
+	if c < ' '
+	   then if c ~= '\t'
+		   then a[pos] := '^'
+			lim := pos
+			pos := pos + 1
+			a[pos] := i2c(c2i(c) + 64)
+			lim := pos
+		   else for pos in int$from_to(pos, pos + 7 - (pos // 8)) do
+			    a[pos] := ' '
+			    end
+		   end
+	 elseif c >= '\177'
+	   then if c = '\177'
+		   then a[pos] := '^'
+			c := '?'
+		elseif c2i(c) < 160  cor  c2i(c) = 255
+		   then a[pos] := '!'
+			c := i2c((c2i(c) - 64) // 128)
+		else a[pos] := '&'
+		     c := i2c(c2i(c) - 128)
+		end
+		lim := pos
+		pos := pos + 1
+		a[pos] := c
+		lim := pos
+	 else a[pos] := c
+	      if c ~= ' '
+		 then lim := pos end
+	 end
+	pos := pos + 1
+	end except when bounds: pos := _calc_hpos(s, string$size(s) + 1) end
+    return(lim, pos)
+    end _calc_hpos_copy

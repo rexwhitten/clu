@@ -1,0 +1,149 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+move_by_region = proc (e: env, c: char)
+		   signals (errmsg(string), stop(env, string))
+    prompt = "Move by paragraph/sentence"
+    legal = c2s(ctrlp) || c2s(ctrls)
+    bhelp = "^P: backward # paragraph starts\n" ||
+	    "^S: backward # sentence starts"
+    ehelp = "^P: end of paragraph\n" ||
+	    "^S: end of sentence"
+    fhelp = "^P: forward # paragraph starts\n" ||
+	    "^S: forward # sentence starts"
+    help: string
+    if c = ctrlb
+       then help := bhelp
+     elseif c = ctrle
+       then help := ehelp
+     else help := fhelp
+     end
+    arg: int, opt: char := get_option(e, prompt, legal, help, false)
+       resignal errmsg
+    if arg = 0
+       then return end
+    b: buf := e.buffer
+    line, pos: int
+    if c = ctrle
+       then arg := 1
+	    line, pos := buf$add_cursor(b, 0, 1)
+       else if c = ctrlb
+	       then arg := -arg end
+	    if arg < 0
+	       then line, pos := buf$add_cursor(b, 0, -1)
+	       else line, pos := buf$get_cursor(b)
+	       end
+       end
+    xpara: bool := opt = ctrlp  cand  env$fetch_num(e, "pindent", 0) ~= 0
+    nfs: string := env$fetch_str(e, "no_fill_starters", ".'")
+    sl: string := b[line]
+    inside: bool := string$empty(sl)  cor  string$indexc(sl[1], nfs) > 0
+    ignore: bool := (inside  cand  c = ctrle)  cor
+		    (arg < 0  cand  opt = ctrls)
+    old: char := 'x'
+    prev: char := 'x'
+    cc: char
+    if arg < 0
+       then for cc, line, pos in scan_buf_chars(b, line, pos, -1) do
+		if cc = '\n'
+		   then oinside: bool := inside
+			inside := string$indexc(b[line][1], nfs) > 0
+			   except when bounds: inside := true end
+			if (inside  cand  ~oinside  cand  ~ignore)  cor
+			   (xpara  cand  (prev = ' '  cor  prev = '\t'))
+			   then arg := arg + 1
+				if arg = 0
+				   then break end
+			   end
+		 elseif ~inside  cand  ~ignore  cand  opt = ctrls  cand
+			(prev = '\n'  cor  prev = '\t'  cor
+			 (prev = ' '  cand
+			  string$indexc(old, " \t\n") > 0))  cand
+			(string$indexc(cc, ".!?") > 0  cor
+			 (string$indexc(cc, "\"')]>}") > 0  cand  pos > 1  cand
+			  string$indexc(b[line][pos - 1], ".!?") > 0))
+		   then arg := arg + 1
+			if arg = 0
+			   then pos := pos + 1
+				break
+			   end
+		 elseif ~inside  cand  ignore  cand
+			(cc ~= ' '  cand  cc ~= '\t')
+		   then ignore := false
+		 end
+		old := prev
+		prev := cc
+		end
+	    if arg = 0  cand  opt = ctrls
+	       then for cc, line, pos in scan_buf_chars(b, line, pos, 1) do
+			if string$indexc(cc, " \t\n") = 0
+			   then break end
+			end
+	       end
+	    if arg = 0  cand  cc = '\n'
+	       then line := line + 1
+		    pos := 1
+	       end
+	    buf$set_cursor(b, line, pos)
+	    return
+       end
+    ender: bool := false
+    old := sl[pos - 2]
+       except when bounds: old := 'x' end
+    prev := sl[pos - 1]
+       except when bounds: end
+    for cc, line, pos in scan_buf_chars(b, line, pos, 1) do
+	if prev = '\n'
+	   then if cc = '\n'  cor  string$indexc(cc, nfs) > 0
+		   then if ~inside  cand  c = ctrle
+			   then arg := 0
+				break
+			   end
+			inside := true
+		 elseif ignore
+		   then ignore := false
+			inside := false
+		 elseif inside  cand  c ~= ctrle  cand  opt = ctrls  cand
+			arg = 1  cand  (cc = ' '  cor  cc = '\t')
+		   then ender := true
+			inside := false
+		 else if (inside  cor
+			  (xpara  cand  (cc = ' '  cor  cc = '\t')) cor
+			  (ender  cand  cc ~= ' '  cand  cc ~= '\t'))
+			 then arg := arg - 1
+			      if arg = 0
+				 then break end
+			      ender := false
+			 end
+		      inside := false
+		 end
+	 elseif ~inside  cand  opt = ctrls
+	   then if string$indexc(cc, " \t\n") = 0
+		   then if ender
+			   then arg := arg - 1
+				if arg = 0
+				   then break end
+			   end
+			ender := false
+		 elseif (string$indexc(prev, ".!?") > 0  cor
+			 (string$indexc(prev, "\"')]>}") > 0  cand
+			  string$indexc(old, ".!?") > 0))  cand
+			(cc ~= ' '  cor
+			 pos = string$size(b[line])  cor
+			 string$indexc(b[line][pos + 1], " \t") > 0)
+		   then if c = ctrle
+			   then arg := -1
+				break
+			   end
+			ender := true
+		 end
+	 end
+	old := prev
+	prev := cc
+	end
+    if arg = 0  cand  c = ctrle
+       then line := line - 1
+	    pos := max_int
+     elseif arg > 0
+       then line := max_int
+     end
+    buf$set_cursor(b, line, pos)
+    end move_by_region

@@ -1,0 +1,1193 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+%	^A	alphanumeric
+%	^B	blank
+%	^D	digit
+%	^E	exclusive of specific range
+%	^F	format
+%	^G	execute
+%	^J	newline
+%	^K	exclusive of range
+%	^L	letter
+%	^N	not
+%	^O	or
+%	^P	non-alphanumeric/non-newline
+%	^Q	quote
+%	^R	range
+%	^S	substitute text
+%	^T	insert text
+%	^U	use variable
+%	^V	insert labelled match
+%	^W	withdraw match to label
+%	^X	any
+%	^Y	non-newline
+%	^Z	end of buffer
+%	^@	zero or more
+%	^^	one or more
+%	^_	all in a row
+%	^?	all in a row or none
+%	^\ ^\	chars
+%	^[ ^]	group
+
+# extend
+
+pattern_search = proc (e: env, c: char)
+		   signals (errmsg(string), stop(env, string))
+    arg: int := e.this_arg
+    immed: bool := false
+    if arg = 0
+       then if mconfirm(e, "Confirm each buffer change in pattern search", true)
+	       then env$store_num(e, "pconfirm", 1)
+	       else env$store_num(e, "pconfirm", 0)
+	       end resignal errmsg
+	    return
+     elseif arg < 0
+       then immed := true
+	    arg := -arg
+     end
+    obj: string := get_string_arg(e, "Search for pattern",
+				  env$fetch_str(e, "psearch", ""))
+       resignal errmsg
+    env$store_str(e, "psearch", obj)
+    case: bool := env$fetch_num(e, "ignore_case", 0) = 0
+    confirm: bool := env$fetch_num(e, "pconfirm", 0) ~= 0
+    for arg in int$from_to_by(arg, 1, -1) do
+	if ~pattern$search(e, obj, case, immed, confirm) then
+	   signal errmsg("Not found!")
+	   end
+	end resignal errmsg
+    end pattern_search
+
+pattern = cluster is search
+
+    rep             = record[kind: pkind,
+			     rest: mpattern]
+    pkind           = oneof[match:  string,
+			    range:  string,
+			    newln:  null,
+			    var:    string,
+			    subst:  subst,
+			    exec:   subst,
+			    insert: string,
+			    save:   save,
+			    label:  char,
+			    or:     patlist,
+			    not:    pattern,
+			    maybe:  pattern,
+			    some:   pattern,
+			    all:    pattern,
+			    most:   pattern,
+			    block:  pattern,
+			    eob:    null]
+    subst           = record[text: string,
+			     pat:  pattern]
+    save            = record[label: char,
+			     pat:   pattern]
+    patlist         = sequence[pattern]
+    mpattern        = oneof[zip: null,
+			    one: pattern]
+    flist           = array[fixup]
+    fixup           = record[ln, ps: int,
+			     fix:    update]
+    update          = oneof[save, xsave, ysave:    char,
+			    subst, xsubst, ysubst: string,
+			    exec, xexec, yexec:    string,
+			    stop, xstop, ystop:    int,
+			    text, xtext, ytext:    string,
+			    use, xuse, yuse:       int]
+    olist           = array[omat]
+    omat            = record[pat: pattern,
+			     cnt: int,
+			     fl:  flist,
+			     md:  int,
+			     aln: int,
+			     aps: int,
+			     zln: int,
+			     zps: int]
+    zippat          = mpattern$make_zip(nil)
+    range_chars     = "\^A\^B\^D\^F\^L\^P\^X\^Y"
+    range_max       = string$size(range_chars)
+    kindlist        = sequence[pkind]
+    this_line       = "\^@\t\^K\^?"
+    any_line        = "\^@\^?"
+    ranges          = kindlist$[pkind$make_range("az09__AZ"),
+				pkind$make_range("  \t\t"),
+				pkind$make_range("09"),
+				pkind$make_range("  \t\t\p\p\n\n"),
+				pkind$make_range("az__AZ"),
+				pkind$make_range("\^@\t\^K/:@[^``{\^?"),
+				pkind$make_range(any_line),
+				pkind$make_range(this_line)]
+    erange_chars    = "\^A\^B\^D\^F\^J\^L\^P\^Y"
+    eranges         = kindlist$[pkind$make_range("\^@/:@[^``{\^?"),
+				pkind$make_range("\^@\^H\^J\^_!\^?"),
+				pkind$make_range("\^@/:\^?"),
+				pkind$make_range("\^@\^H\^K\^K\^M\^_!\^?"),
+				pkind$make_range("\^@\t\^K\^?"),
+				pkind$make_range("\^@@[^``{\^?"),
+				pkind$make_range("az09__AZ\^J\^J"),
+				pkind$make_newln(nil)]
+    pat_chars       = range_chars ||
+		      "\^E\^G\^J\^K\^N\^O\^R\^S\^T\^U\^V\^W\^Z" ||
+		      "\^@\^^\^_\^?\^[\^]\^\"
+    umulti_         = -2    % must occur somewhere (update prev)
+    usingle_        = -1    % must occur on current line (update prev)
+    immed_          = 0     % must occur immediately
+    single_         = 1     % must occur on current line
+    multi_          = 2     % must occur somewhere
+
+    own icnt: int
+    own cs: bool
+    own last: string
+    own lastpt: pattern
+    own fl: flist
+    own b: buf
+    own e: env
+
+    parse = proc (ps: string) returns (pattern) signals (errmsg(string))
+	if string$empty(ps)
+	   then return(up(rep${kind: pkind$make_match(""),
+			       rest: zippat}))
+	   end
+	kind: pkind, i: int := oparz(ps, 1)
+	   resignal errmsg
+	if i <= string$size(ps)
+	   then signal errmsg("illegal pattern") end
+	tagcase kind
+	   tag block (pt: pattern):
+	       return(pt)
+	   others:
+	       return(up(rep${kind: kind,
+			      rest: zippat}))
+	   end
+	end parse
+
+    oparz = proc (ps: string, i: int) returns (pkind, int)
+	      signals (errmsg(string))
+	kind: pkind
+	kind, i := bparz(ps, i)
+	   resignal errmsg
+	if ps[i] = ctrlo
+	   then list: patlist
+		tagcase kind
+		   tag block (pt: pattern):
+		       list := patlist$e2s(pt)
+		   others:
+		       list := patlist$e2s(up(rep${kind: kind,
+						   rest: zippat}))
+		   end
+		while ps[i] = ctrlo do
+		    kind, i := bparz(ps, i + 1)
+		       resignal errmsg
+		    tagcase kind
+		       tag block (pt: pattern):
+			   list := patlist$addh(list, pt)
+		       others:
+			   list := patlist$addh(list, up(rep${kind: kind,
+							      rest: zippat}))
+		       end
+		    end except when bounds: end
+		return(pkind$make_or(list), i)
+	   end except when bounds: end
+	return(kind, i)
+	end oparz
+
+    bparz = proc (ps: string, i: int) returns (pkind, int)
+	      signals (errmsg(string))
+	kind: pkind
+	kind, i := parz(ps, i)
+	   resignal errmsg
+	if ps[i] ~= ctrlsm  cand  ps[i] ~= ctrlo
+	   then pt: rep := rep${kind: kind,
+				rest: zippat}
+		lpt: rep := pt
+		while true do
+		    kind, i := parz(ps, i)
+		       resignal errmsg
+		    npt: rep := rep${kind: kind,
+				     rest: zippat}
+		    lpt.rest := mpattern$make_one(up(npt))
+		    lpt := npt
+		    if ps[i] = ctrlsm  cor  ps[i] = ctrlo
+		       then break end
+		    end except when bounds: end
+		return(pkind$make_block(up(pt)), i)
+	   end except when bounds: end
+	return(kind, i)
+	end bparz
+
+    parz = proc (ps: string, i: int) returns (pkind, int)
+	     signals (errmsg(string))
+	c: char := ps[i]
+	   except when bounds: signal errmsg("illegal pattern") end
+	j: int := string$indexc(c, pat_chars)
+	kind: pkind
+	if j = 0
+	   then s: string
+		s, i := parse_text(ps, i, 'x')
+		kind := pkind$make_match(s)
+	 elseif j <= range_max
+	   then kind := ranges[j]
+		i := i + 1
+	 elseif c = ctrle
+	   then kind := eranges[string$indexc(ps[i + 1], erange_chars)]
+		i := i + 2
+	 elseif c = ctrlk
+	   then kind := pkind$make_range(parse_excl(ps, i))
+		i := i + 3
+	 elseif c = ctrln
+	   then kind, i := parz(ps, i + 1)
+		tagcase kind
+		   tag block (pt: pattern):
+		       kind := pkind$make_not(pt)
+		   others:
+		       kind := pkind$make_not(up(rep${kind: kind,
+						      rest: zippat}))
+		   end
+	 elseif c = ctrlr
+	   then kind := pkind$make_range(string$append(c2s(ps[i + 1]), ps[i + 2]))
+		i := i + 3
+	 elseif c = ctrlt
+	   then s: string
+		s, i := parse_text(ps, i + 1, ctrlt)
+		kind := pkind$make_insert(s)
+	 elseif c = ctrlu
+	   then s: string
+		s, i := parse_text(ps, i + 1, ctrlu)
+		kind := pkind$make_var(s)
+	 elseif c = ctrlv
+	   then kind := pkind$make_label(ps[i + 1])
+		i := i + 2
+	 elseif c = ctrlz
+	   then kind := pkind$make_eob(nil)
+		i := i + 1
+	 elseif c = ctrlsk
+	   then kind, i := oparz(ps, i + 1)
+		if ps[i] ~= ctrlsm
+		   then exit bounds end
+		i := i + 1
+	 elseif c = ctrlsl
+	   then kind, i := parse_set(ps, i)
+	 elseif c = ctrlsm  cor  c = ctrlo
+	   then return(pkind$make_match(""), i)
+	 elseif c = '\n'
+	   then kind := pkind$make_newln(nil)
+		i := i + 1
+	 else exit bounds end
+	   resignal errmsg
+	   except when bounds: signal errmsg("illegal pattern") end
+	if ps[i] = ctrlat
+	   then tagcase kind
+		   tag block (pt: pattern):
+		       kind := pkind$make_maybe(pt)
+		   others:
+		       kind := pkind$make_maybe(up(rep${kind: kind,
+							rest: zippat}))
+		   end
+		i := i + 1
+	 elseif ps[i] = ctrlsn
+	   then tagcase kind
+		   tag block (pt: pattern):
+		       kind := pkind$make_some(pt)
+		   others:
+		       kind := pkind$make_some(up(rep${kind: kind,
+						       rest: zippat}))
+		   end
+		i := i + 1
+	 elseif ps[i] = ctrlso
+	   then tagcase kind
+		   tag block (pt: pattern):
+		       kind := pkind$make_all(pt)
+		   others:
+		       kind := pkind$make_all(up(rep${kind: kind,
+						      rest: zippat}))
+		   end
+		i := i + 1
+	 elseif ps[i] = del
+	   then tagcase kind
+		   tag block (pt: pattern):
+		       kind := pkind$make_most(pt)
+		   others:
+		       kind := pkind$make_most(up(rep${kind: kind,
+						       rest: zippat}))
+		   end
+		i := i + 1
+	 end except when bounds: return(kind, i) end
+	if ps[i] = ctrls
+	   then s: string
+		s, i := parse_text(ps, i + 1, ctrls)
+		npt: pattern
+		tagcase kind
+		   tag block (pt: pattern):
+		       npt := pt
+		   others:
+		       npt := up(rep${kind: kind,
+				      rest: zippat})
+		   end
+		kind := pkind$make_subst(subst${text: s,
+						pat:  npt})
+	 elseif ps[i] = ctrlw
+	   then lab: char := ps[i + 1]
+		   except when bounds: signal errmsg("illegal pattern") end
+		i := i + 2
+		npt: pattern
+		tagcase kind
+		   tag block (pt: pattern):
+		       npt := pt
+		   others:
+		       npt := up(rep${kind: kind,
+				      rest: zippat})
+		   end
+		kind := pkind$make_save(save${label: lab,
+					      pat:   npt})
+	 elseif ps[i] = ctrlg
+	   then i := i + 1
+		j := i
+		while ps[i] ~= ctrlg do
+		    if ps[i] = ctrlq
+		       then i := i + 1 end
+		    i := i + 1
+		    end
+		   except when bounds: signal errmsg("illegal pattern") end
+		npt: pattern
+		tagcase kind
+		   tag block (pt: pattern):
+		       npt := pt
+		   others:
+		       npt := up(rep${kind: kind,
+				      rest: zippat})
+		   end
+		kind := pkind$make_exec(subst${text: string$substr(ps, j, i - j),
+					       pat:  npt})
+		i := i + 1
+	 else return(kind, i)
+	 end except when bounds: return(kind, i) end
+	if ps[i] = ctrlat
+	   then kind := pkind$make_maybe(up(rep${kind: kind,
+						 rest: zippat}))
+		i := i + 1
+	 elseif ps[i] = ctrlsn
+	   then kind := pkind$make_some(up(rep${kind: kind,
+						rest: zippat}))
+		i := i + 1
+	 elseif ps[i] = ctrlso
+	   then kind := pkind$make_all(up(rep${kind: kind,
+					       rest: zippat}))
+		i := i + 1
+	 elseif ps[i] = del
+	   then kind := pkind$make_most(up(rep${kind: kind,
+						rest: zippat}))
+		i := i + 1
+	 end except when bounds: end
+	return(kind, i)
+	end parz
+
+    parse_text = proc (ps: string, i: int, term: char) returns (string, int)
+	s: string := ""
+	j: int := i
+	while true do
+	    c: char := ps[i]
+	    if string$indexc(c, pat_chars) > 0
+	       then s := s || string$substr(ps, j, i - j)
+		    if c = term
+		       then i := i + 1 end
+		    return(s, i)
+	     elseif c = ctrlq
+	       then s := s || string$substr(ps, j, i - j)
+		    i := i + 1
+		    j := i
+	     end
+	    i := i + 1
+	    end except when bounds: end
+	return(s || string$rest(ps, j), i)
+	end parse_text
+
+    parse_excl = proc (ps: string, i: int) returns (string) signals (bounds)
+	c1: char := ps[i + 1]
+	   resignal bounds
+	c2: char := ps[i + 2]
+	   resignal bounds
+	if c2 < c1
+	   then signal bounds end
+	s: string := ""
+	if c1 > ctrlat
+	   then s := string$append("\^@", i2c(c2i(c1) - 1)) end
+	if c2 < del
+	   then s := string$append(string$append(s, i2c(c2i(c2) + 1)), '~') end
+	return(s)
+	end parse_excl
+
+    parse_set = proc (ps: string, i: int) returns (pkind, int) signals (bounds)
+	s: string := ""
+	while true do
+	    i := i + 1
+	    c: char := ps[i]
+	    if c = ctrlsl
+	       then break
+	     elseif c = ctrlq
+	       then i := i + 1
+		    c := ps[i]
+	     end
+	    s := s || string$append(c2s(c), c)
+	    end resignal bounds
+	return(pkind$make_range(s), i + 1)
+	end parse_set
+
+    search = proc (ee: env, s: string, case, immed, ask: bool) returns (bool)
+	       signals (errmsg(string))
+	own init: bool := false
+	if ~init  cor  last ~= s
+	   then lastpt := parse(s)
+		   resignal errmsg
+		last := s
+		if ~init
+		   then fl := flist$new()
+			init := true
+		   end
+	   end
+	icnt := 0
+	cs := case
+	e := ee
+	b := e.buffer
+	md: int := multi_
+	if immed
+	   then md := immed_ end
+	flist$trim(fl, 1, 0)
+	zln, zps: int := buf$get_cursor(b)
+	msg: string := ""
+	for nmd, ln, ps: int in match(lastpt, md) do
+	    if flist$empty(fl)
+	       then e := _cvt[null, env](nil)
+		    b := _cvt[null, buf](nil)
+		    return(true)
+	       end
+	    climit: int := e.change_limit
+	    e.change_limit := 0
+	    zln, zps := buf$get_cursor(b)
+	    buf$set_cursor(b, ln, ps)
+	    for i: int in flist$indexes(fl) do
+		fx: fixup := fl[i]
+		ln := fx.ln - ln
+		if ln = 0
+		   then ps := fx.ps - ps
+		   else ps := fx.ps - 1
+		   end
+		nln, nps: int := buf$new_cursor(b, ln, ps)
+		ln := fx.ln
+		ps := fx.ps
+		fx.ln := nln
+		fx.ps := nps
+		text: string
+		tagcase fx.fix
+		   tag stop, xstop, ystop (j: int):
+		       fx := fl[j]
+		       tagcase fx.fix
+			  tag subst, xsubst, ysubst (txt: string):
+			      text := txt
+			  tag exec, xexec, yexec (txt: string):
+			      buf$set_cursor(b, fx.ln, fx.ps)
+			      ne: env, name: string := winset$push(e, "Pattern", "")
+			      update_title(ne, "---- Buffer: " || name || " [] (^^ to exit)")
+			      nb: buf := ne.buffer
+			      buf$replace(nb, buf$sub_buf(b, nln, nps))
+			      buf$set_mark(nb, max_int, max_int)
+			      _push_macro_chars("\^^")
+			      _push_macro_chars(txt)
+			      ted(ne)
+			      winset$pop(ne)
+			      bufset$kill_buf(e, name)
+				 except when errmsg (*): end
+			      if ~buf$any_changed(nb)
+				 then continue end
+			      buf$set_cursor(nb, 1, 1)
+			      text := buf$b2s(nb, max_int, max_int)
+			  others:
+			      buf$set_cursor(b, fx.ln, fx.ps)
+			      fx.fix := update$make_subst(buf$b2s(b, nln, nps))
+			      text := ""
+			  end
+		   tag use, xuse, yuse (j: int):
+		       text := update$value_subst(fl[j].fix)
+		   tag text, xtext, ytext (txt: string):
+		       text := txt
+		   others:
+		       continue
+		   end
+		if ask
+		   then if ~mconfirm(e, "Update (" || text || ")", false)
+			   then continue end
+		 elseif i // 32 = 0  cand  check_for_interrupt()  cand
+			mconfirm(e, "Abort pattern search", false)
+		   then msg := quit_msg
+			break
+		 end
+		if env$delete(e, fx.ln, fx.ps, nln, nps)
+		   then env$insert1(e, text) end
+		end except when errmsg (err: string): msg := err end
+	    flist$trim(fl, 1, 0)
+	    zln := zln - ln
+	    if zln = 0
+	       then zps := zps - ps
+	       else zps := zps - 1
+	       end
+	    buf$new_cursor(b, zln, zps)
+	    e.change_limit := climit
+	    e := _cvt[null, env](nil)
+	    b := _cvt[null, buf](nil)
+	    if ~string$empty(msg)
+	       then signal errmsg(msg)
+	     elseif ask
+	       then top_display(ee, "") end
+	    return(true)
+	    end except when failure (err: string): msg := err end
+	flist$trim(fl, 1, 0)
+	e := _cvt[null, env](nil)
+	b := _cvt[null, buf](nil)
+	if ~string$empty(msg)
+	   then signal errmsg(msg) end
+	buf$set_cursor(ee.buffer, zln, zps)
+	return(false)
+	end search
+
+    match = iter (pt: cvt, md: int) yields (int, int, int)
+	if icnt = 0
+	   then icnt := 250
+		if check_for_interrupt()  cand
+		   mconfirm(e, "Abort pattern search", false)
+		   then signal failure(quit_msg) end
+		   except when errmsg (*): end
+	   else icnt := icnt - 1
+	   end
+	aln, aps, zln, zps: int
+	for md, aln, aps in kmatch(pt.kind, md) do
+	    tagcase pt.rest
+	       tag one (npt: pattern):
+		   for md, zln, zps in match(npt, md) do
+		       yield(md, aln, aps)
+		       end
+	       tag zip:
+		   yield(md, aln, aps)
+	       end
+	    end
+	end match
+
+    kmatch = iter (kind: pkind, md: int) yields (int, int, int)
+	tagcase kind
+	   tag match (s: string):
+	       for nmd, ln, ps: int in smatch(s, md) do
+		   yield(nmd, ln, ps)
+		   end
+	   tag range (s: string):
+	       for nmd, ln, ps: int in rmatch(s, md) do
+		   yield(nmd, ln, ps)
+		   end
+	   tag var (s: string):
+	       for nmd, ln, ps: int in smatch(env$fetch_str(e, s, ""), md) do
+		   yield(nmd, ln, ps)
+		   end
+	   tag subst, exec (sub: subst):
+	       upd: update
+	       if pkind$is_subst(kind)
+		  then if md = immed_
+			  then upd := update$make_subst(sub.text)
+			elseif use_y(md)
+			  then upd := update$make_ysubst(sub.text)
+			else upd := update$make_xsubst(sub.text)
+			end
+		  else if md = immed_
+			  then upd := update$make_exec(sub.text)
+			elseif use_y(md)
+			  then upd := update$make_yexec(sub.text)
+			else upd := update$make_xexec(sub.text)
+			end
+		  end
+	       zfx: fixup := fixup${ln:  0,
+				    ps:  0,
+				    fix: upd}
+	       afx: fixup := fixup$copy1(zfx)
+	       flist$addh(fl, afx)
+	       size: int := flist$size(fl)
+	       aln, aps: int
+	       for md, aln, aps in match(sub.pat, -int$abs(md)) do
+		   afx.ln := aln
+		   afx.ps := aps
+		   zln, zps: int := buf$get_cursor(b)
+		   zfx.ln := zln
+		   zfx.ps := zps
+		   if md = immed_
+		      then zfx.fix := update$make_stop(size)
+		    elseif use_y(md)
+		      then zfx.fix := update$make_ystop(size)
+		    else zfx.fix := update$make_xstop(size)
+		    end
+		   flist$addh(fl, zfx)
+		   yield(-int$abs(md), aln, aps)
+		   flist$remh(fl)
+		   end
+	       flist$remh(fl)
+	   tag insert (s: string):
+	       ln, ps: int := buf$get_cursor(b)
+	       upd: update
+	       if md = immed_
+		  then upd := update$make_text(s)
+		elseif use_y(md)
+		  then upd := update$make_ytext(s)
+		else upd := update$make_xtext(s)
+		end
+	       flist$addh(fl, fixup${ln:  ln,
+				     ps:  ps,
+				     fix: upd})
+	       yield(-int$abs(md), ln, ps)
+	       flist$remh(fl)
+	   tag save (sv: save):
+	       upd: update
+	       if md = immed_
+		  then upd := update$make_save(sv.label)
+		elseif use_y(md)
+		  then upd := update$make_ysave(sv.label)
+		else upd := update$make_xsave(sv.label)
+		end
+	       zfx: fixup := fixup${ln:  0,
+				    ps:  0,
+				    fix: upd}
+	       afx: fixup := fixup$copy1(zfx)
+	       flist$addh(fl, afx)
+	       size: int := flist$size(fl)
+	       aln, aps: int
+	       for md, aln, aps in match(sv.pat, -int$abs(md)) do
+		   afx.ln := aln
+		   afx.ps := aps
+		   zln, zps: int := buf$get_cursor(b)
+		   zfx.ln := zln
+		   zfx.ps := zps
+		   if md = immed_
+		      then zfx.fix := update$make_stop(size)
+		    elseif use_y(md)
+		      then zfx.fix := update$make_ystop(size)
+		    else zfx.fix := update$make_xstop(size)
+		    end
+		   flist$addh(fl, zfx)
+		   yield(-int$abs(md), aln, aps)
+		   flist$remh(fl)
+		   end
+	       flist$remh(fl)
+	   tag label (c: char):
+	       for i: int in int$from_to_by(flist$size(fl), 1, -1) do
+		   tagcase fl[i].fix
+		      tag save, xsave, ysave (cc: char):
+			  if c = cc
+			     then ln, ps: int := buf$get_cursor(b)
+				  upd: update
+				  if md = immed_
+				     then upd := update$make_use(i)
+				   elseif use_y(md)
+				     then upd := update$make_yuse(i)
+				   else upd := update$make_xuse(i)
+				   end
+				  flist$addh(fl, fixup${ln:  ln,
+							ps:  ps,
+							fix: upd})
+				  yield(-int$abs(md), ln, ps)
+				  flist$remh(fl)
+				  return
+			     end
+		      others:
+		      end
+		   end
+	       signal failure(string$append("undefined label - ", c))
+	   tag or (pl: patlist):
+	       for nmd, ln, ps: int in omatch(pl, md) do
+		   yield(nmd, ln, ps)
+		   end
+	   tag not (npt: pattern):
+	       for nmd, ln, ps: int in nmatch(npt, md) do
+		   yield(nmd, ln, ps)
+		   end
+	   tag maybe (npt: pattern):
+	       for nmd, ln, ps: int in mmatch(npt, md, false) do
+		   yield(nmd, ln, ps)
+		   end
+	   tag some (npt: pattern):
+	       for nmd, ln, ps: int in mmatch(npt, md, true) do
+		   yield(nmd, ln, ps)
+		   end
+	   tag most (npt: pattern):
+	       for nmd, ln, ps: int in amatch(npt, md, false) do
+		   yield(nmd, ln, ps)
+		   end
+	   tag all (npt: pattern):
+	       for nmd, ln, ps: int in amatch(npt, md, true) do
+		   yield(nmd, ln, ps)
+		   end
+	   tag block (npt: pattern):
+	       for nmd, ln, ps: int in match(npt, md) do
+		   yield(nmd, ln, ps)
+		   end
+	   tag newln:
+	       ln, ps: int := buf$get_cursor(b)
+	       if md = multi_  cor  md = umulti_
+		  then for ln in int$from_to(ln, buf$size(b) - 1) do
+			   ps := string$size(b[ln]) + 1
+			   buf$set_cursor(b, ln + 1, 1)
+			   if md < immed_
+			      then fix(ln, ps) end
+			   yield(immed_, ln, ps)
+			   end
+		elseif ln < buf$size(b)  cand
+		       (md ~= immed_  cor  ps > string$size(b[ln]))
+		  then ps := string$size(b[ln]) + 1
+		       buf$set_cursor(b, ln + 1, 1)
+		       if md < immed_
+			  then fix(ln, ps) end
+		       yield(immed_, ln, ps)
+		end
+	   tag eob:
+	       ln, ps: int := buf$get_cursor(b)
+	       if md = multi_  cor  md = umulti_  cor
+		  (ln = buf$size(b)  cand
+		   (md ~= immed_  cor  ps > string$size(b[ln])))
+		  then ln := buf$size(b)
+		       ps := string$size(b[ln]) + 1
+		       buf$set_cursor(b, ln, ps)
+		       if md < immed_
+			  then fix(ln, ps) end
+		       yield(immed_, ln, ps)
+		  end
+	   end
+	end kmatch
+
+    smatch = iter (s: string, md: int) yields (int, int, int)
+	ct = _cvt[string, _bytevec]
+	ln, ps: int := buf$get_cursor(b)
+	if string$empty(s)
+	   then yield(md, ln, ps)
+	 elseif md ~= immed_
+	   then max: int
+		if md = multi_  cor  md = umulti_
+		   then max := buf$size(b)
+		   else max := ln
+		   end
+		for ln in int$from_to(ln, max) do
+		    sl: string := b[ln]
+		    while true do
+			if cs
+			   then ps := _bytevec$indexv(ct(s), ct(sl), ps)
+			   else ps := _bytevec$nc_indexv(ct(s), ct(sl), ps)
+			   end
+			if ps = 0
+			   then break end
+			buf$set_cursor(b, ln, ps + string$size(s))
+			if md < immed_
+			   then fix(ln, ps) end
+			yield(immed_, ln, ps)
+			ps := ps + 1
+			end
+		    ps := 1
+		    end
+	 else i: int := ps
+	      ss: string := b[ln]
+	      for c: char in string$chars(s) do
+		  cc: char := ss[i]
+		  i := i + 1
+		  if c = cc
+		     then continue end
+		  if ~cs
+		     then if c > cc
+			     then c, cc := cc, c end
+			  if c >= 'A'  cand  c <= 'Z'  cand
+			     c2i(cc) - c2i(c) = 32
+			     then continue end
+		     end
+		  return
+		  end except when bounds: return end
+	      buf$set_cursor(b, ln, i)
+	      yield(immed_, ln, ps)
+	 end
+	end smatch
+
+    rmatch = iter (s: string, md: int) yields (int, int, int)
+	ln, ps: int := buf$get_cursor(b)
+	if md = multi_  cor  md = umulti_
+	   then c: char
+		for c, ln, ps in scan_buf_chars(b, ln, ps, 1) do
+		    if in_range_(c, s)
+		       then if c = '\n'
+			       then buf$set_cursor(b, ln + 1, 1)
+			       else buf$set_cursor(b, ln, ps + 1)
+			       end
+			    if md < immed_
+			       then fix(ln, ps) end
+			    yield(immed_, ln, ps)
+		       end
+		    end
+	 elseif md ~= immed_
+	   then sl: string := b[ln]
+		for ps in int$from_to(ps, string$size(sl)) do
+		    if in_range_(sl[ps], s)
+		       then buf$set_cursor(b, ln, ps + 1)
+			    if md < immed_
+			       then fix(ln, ps) end
+			    yield(immed_, ln, ps)
+		       end
+		    end
+		if in_range_('\n', s)  cand  ln < buf$size(b)
+		   then buf$set_cursor(b, ln + 1, 1)
+			ps := string$size(sl) + 1
+			if md < immed_
+			   then fix(ln, ps) end
+			yield(immed_, ln, ps)
+		   end
+	 elseif in_range_(b[ln][ps], s)
+	   then buf$set_cursor(b, ln, ps + 1)
+		yield(immed_, ln, ps)
+	 end except when bounds:
+			 if in_range_('\n', s)  cand  ln < buf$size(b)
+			    then buf$set_cursor(b, ln + 1, 1)
+				 yield(immed_, ln, ps)
+			    end
+		    end
+	end rmatch
+
+    omatch = iter (pl: patlist, md: int) yields (int, int, int)
+	aln, aps: int := buf$get_cursor(b)
+	if md = immed_
+	   then for pt: pattern in patlist$elements(pl) do
+		    for nmd, ln, ps: int in match(pt, md) do
+			yield(nmd, ln, ps)
+			end
+		    buf$set_cursor(b, aln, aps)
+		    end
+		return
+	   end
+	size: int := flist$size(fl)
+	ol: olist := olist$new()
+	for pt: pattern in patlist$elements(pl) do
+	    for nmd, ln, ps: int in match(pt, md) do
+		nsize: int := flist$size(fl)
+		nfl: flist := flist$predict(1, nsize - size)
+		for i: int in int$from_to(size + 1, nsize) do
+		    flist$addh(nfl, fl[i])
+		    end
+		zln, zps: int := buf$get_cursor(b)
+		olist$addh(ol, omat${pat: pt,
+				     cnt: 1,
+				     fl:  nfl,
+				     md:  nmd,
+				     aln: ln,
+				     aps: ps,
+				     zln: zln,
+				     zps: zps})
+		buf$set_cursor(b, aln, aps)
+		flist$trim(fl, 1, size)
+		break
+		end
+	    end
+	ln, ps: int
+	it: omat
+	while ~olist$empty(ol) do
+	    ln := max_int
+	    for om: omat in olist$elements(ol) do
+		if om.aln < ln  cor  (om.aln = ln  cand  om.aps < ps)
+		   then ln := om.aln
+			ps := om.aps
+			it := om
+		   end
+		end
+	    buf$set_cursor(b, it.zln, it.zps)
+	    if md < immed_
+	       then fix(ln, ps) end
+	    for fx: fixup in flist$elements(it.fl) do
+		flist$addh(fl, fx)
+		end
+	    yield(it.md, ln, ps)
+	    flist$trim(fl, 1, size)
+	    buf$set_cursor(b, aln, aps)
+	    cnt: int := 0
+	    nmd: int
+	    for nmd, ln, ps in match(it.pat, md) do
+		cnt := cnt + 1
+		if cnt <= it.cnt
+		   then continue end
+		it.cnt := cnt
+		it.md := nmd
+		it.aln := ln
+		it.aps := ps
+		zln, zps: int := buf$get_cursor(b)
+		it.zln := zln
+		it.zps := zps
+		prev: bool := true
+		for om: omat in olist$elements(ol) do
+		    if om = it
+		       then prev := false
+		     elseif om.aln < ln  cor
+			    (om.aln = ln  cand
+			     (om.aps < ps  cor  (prev  cand  om.aps = ps)))
+		       then exit retry end
+		    end
+		if md < immed_
+		   then fix(ln, ps) end
+		yield(nmd, ln, ps)
+		end except when retry: flist$trim(fl, 1, size) end
+	    if cnt <= it.cnt
+	       then i: int := 1
+		    for om: omat in olist$elements(ol) do
+			if om ~= it
+			   then ol[i] := om
+				i := i + 1
+			   end
+			end
+		    olist$remh(ol)
+	       end
+	    end
+	end omatch
+
+    nmatch = iter (pt: pattern, md: int) yields (int, int, int)
+	ln, ps: int := buf$get_cursor(b)
+	size: int := flist$size(fl)
+	if md ~= immed_
+	   then c: char
+		for c, ln, ps in scan_buf_chars(b, ln, ps, 1) do
+		    bad: bool := false
+		    buf$set_cursor(b, ln, ps)
+		    for nmd, nln, nps: int in match(pt, immed_) do
+			flist$trim(fl, 1, size)
+			bad := true
+			break
+			end
+		    if ~bad
+		       then buf$set_cursor(b, ln, ps)
+			    if md < immed_
+			       then fix(ln, ps) end
+			    yield(immed_, ln, ps)
+		       end
+		    if (md = single_  cor  md = usingle_)  cand  c = '\n'
+		       then return end
+		    end
+		ps := string$size(b[ln]) + 1
+		buf$set_cursor(b, ln, ps)
+	   end
+	for md, ln, ps in match(pt, md) do
+	    flist$trim(fl, 1, size)
+	    return
+	    end
+	buf$set_cursor(b, ln, ps)
+	if md < immed_
+	   then fix(ln, ps) end
+	yield(immed_, ln, ps)
+	end nmatch
+
+    mmatch = iter (pt: cvt, md: int, one: bool) yields (int, int, int)
+	if mpattern$is_zip(pt.rest)
+	   then tagcase pt.kind
+		   tag range (s: string):
+		       ln, ps: int := buf$get_cursor(b)
+		       if s = this_line
+			  then while true do
+				   if one
+				      then nln, nps: int := buf$new_cursor(b, 0, 1)
+					   if ln ~= nln  cor  ps = nps
+					      then return end
+				      end
+				   if md < immed_
+				      then fix(ln, ps) end
+				   yield(single_, ln, ps)
+				   if (md >= usingle_  cand  md <= single_) cor
+				      ln = buf$size(b)
+				      then return end
+				   ln := ln + 1
+				   ps := 1
+				   buf$set_cursor(b, ln, ps)
+				   end
+			elseif s = any_line
+			  then if one
+				  then nln, nps: int := buf$new_cursor(b, 0, 1)
+				       if ps = nps  cand  ln = nln
+					  then return end
+				  end
+			       if md < immed_
+				  then fix(ln, ps) end
+			       yield(multi_, ln, ps)
+			       return
+			end
+		       if ~one
+			  then if md < immed_
+				  then fix(ln, ps) end
+			       yield(immed_, ln, ps)
+			  end
+		       found: bool := false
+		       for c: char, nln, nps: int in scan_buf_chars(b, ln, ps, 1) do
+			   if in_range_(c, s)
+			      then if ~found
+				      then ln := nln
+					   ps := nps
+					   found := true
+				      end
+				   if c = '\n'
+				      then buf$set_cursor(b, nln + 1, 1)
+				      else buf$set_cursor(b, nln, nps + 1)
+				      end
+				   if md < immed_
+				      then fix(ln, ps) end
+				   yield(immed_, ln, ps)
+			    elseif md = multi_  cor  md = umulti_
+			      then found := false
+			    elseif md = immed_  cor  c = '\n'
+			      then return
+			    else found := false end
+			   end
+		       return
+		   others:
+		   end
+	   end
+	if ~one
+	   then ln, ps: int := buf$get_cursor(b)
+		if md < immed_
+		   then fix(ln, ps) end
+		yield(immed_, ln, ps)
+	   end
+	for nmd, ln, ps: int in zmatch(pt, md) do
+	    yield(nmd, ln, ps)
+	    end
+	end mmatch
+
+    zmatch = iter (pt: rep, md: int) yields (int, int, int)
+	ln, ps: int
+	for md, ln, ps in match(up(pt), md) do
+	    yield(md, ln, ps)
+	    nln, nps: int
+	    for md, nln, nps in zmatch(pt, md) do
+		yield(md, ln, ps)
+		end
+	    end
+	end zmatch
+
+    amatch = iter (pt: cvt, md: int, one: bool) yields (int, int, int)
+	ln, ps: int := buf$get_cursor(b)
+	if mpattern$is_zip(pt.rest)
+	   then tagcase pt.kind
+		   tag range (s: string):
+		       if s = this_line
+			  then while true do
+				   nps: int := string$size(b[ln]) + 1
+				   if one  cand  ps = nps
+				      then return end
+				   buf$set_cursor(b, ln, nps)
+				   if md < immed_
+				      then fix(ln, ps) end
+				   yield(immed_, ln, ps)
+				   if (md >= usingle_  cand  md <= single_) cor
+				      ln = buf$size(b)
+				      then return end
+				   ln := ln + 1
+				   ps := 1
+				   end
+			elseif s = any_line
+			  then nln: int := buf$size(b)
+			       nps: int := string$size(b[nln]) + 1
+			       if ~(one  cand  ln = nln  cand  ps = nps)
+				  then buf$set_cursor(b, nln, nps)
+				       if md < immed_
+					  then fix(ln, ps) end
+				       yield(immed_, ln, ps)
+				  end
+			       return
+			end
+		       found: bool := false
+		       c: char
+		       aln, aps, zln, zps: int
+		       for c, zln, zps in scan_buf_chars(b, ln, ps, 1) do
+			   if in_range_(c, s)
+			      then if ~found
+				      then aln := zln
+					   aps := zps
+					   found := true
+				      end
+				   continue
+			      end
+			   if found
+			      then buf$set_cursor(b, zln, zps)
+				   if md < immed_
+				      then fix(aln, aps) end
+				   yield(immed_, aln, aps)
+				   found := false
+			      end
+			   if md = immed_  cor
+			      ((md = single_  cor  md = usingle_)  cand
+			       c = '\n')
+			      then break end
+			   end
+		       if found
+			  then buf$set_cursor(b, zln, zps)
+			       if md < immed_
+				  then fix(aln, aps) end
+			       yield(immed_, aln, aps)
+			  end
+		       if ~one
+			  then buf$set_cursor(b, ln, ps)
+			       if md < immed_
+				  then md := -md
+				       fix(ln, ps)
+				  end
+			       yield(md, ln, ps)
+			  end
+		       return
+		   others:
+		   end
+	   end
+	for nmd, aln, aps: int in match(up(pt), md) do
+	    while true do
+		zln, zps: int := buf$get_cursor(b)
+		for nmd, zln, zps in match(up(pt), nmd) do
+		    exit ok
+		    end except when ok: continue end
+		buf$set_cursor(b, zln, zps)
+		if md < immed_
+		   then fix(aln, aps) end
+		yield(nmd, aln, aps)
+		break
+		end
+	    end
+	if ~one
+	   then buf$set_cursor(b, ln, ps)
+		if md < immed_
+		   then md := -md
+			fix(ln, ps)
+		   end
+		yield(md, ln, ps)
+	   end
+	end amatch
+
+    use_y = proc (md: int) returns (bool)
+	tagcase flist$top(fl).fix
+	   tag xsave, xsubst, xexec, xstop, xtext, xuse:
+	       return(md > immed_)
+	   tag ysave, ysubst, yexec, ystop, ytext, yuse:
+	       return(md < immed_)
+	   others:
+	   end except when bounds: end
+	return(false)
+	end use_y
+
+    fix = proc (ln, ps: int)
+	which: int := 0
+	for i: int in int$from_to_by(flist$size(fl), 1, -1) do
+	    fx: fixup := fl[i]
+	    tagcase fx.fix
+	       tag save, subst, exec, stop, text, use:
+		   return
+	       tag xsave, xsubst, xexec, xstop, xtext, xuse:
+		   if which < 0
+		      then return end
+		   which := 1
+		   fx.ln := ln
+		   fx.ps := ps
+	       tag ysave, ysubst, yexec, ystop, ytext, yuse:
+		   if which > 0
+		      then return end
+		   which := -1
+		   fx.ln := ln
+		   fx.ps := ps
+	       end
+	    end
+	end fix
+
+    end pattern

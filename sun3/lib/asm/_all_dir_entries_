@@ -1,0 +1,88 @@
+; Copyright    Massachusetts Institute of Technology    1986, 1989
+
+; Hacked to use %getdirentries instead of %read -- E. Stark 4/20/86
+; For SUN-3.
+
+st%mod	= 6		; mode
+
+s%ifdir	= #40		; directory
+
+%dirblksiz = 512
+; %getdirentries = 156
+
+d%reclen = 4		; offset to record size
+d%namlen = 6		; offset to name length
+d%off = 9		; _bytevec offset to name
+
+; cannot be called recursively!
+
+_all_dir_entries_ = iter (dir: string) yields (int, _bytevec)
+	wvec	bvec	{129}
+	own	base
+	moveq	6,n1
+	ifeq	and	(rr),n1
+	then	string$append(rr, '\000')		; ASCIZ
+	end
+	lea	base,r1					; ptr to garbage cell
+	move	r1, -(sp)
+	clr	-(sp)
+	clr	-(sp)
+	pea	4(rr)					; dir name
+	clr	-(sp)
+	moveq	%open,n0				; open it
+	move	n0,-(sp)
+	trap	0
+	bcs	done
+	move	n0,4(sp)				; file desc
+	lea	bvec,rr
+	move	rr,8(sp)				; buffer
+	moveq	%fstat,n0				; get status
+	move	n0,-(sp)
+	trap	0
+	bcs	xdone
+	moveb	#f0,n0					; directory?
+	andb	st%mod(rr),n0
+	cmpib	s%ifdir,n0
+	bne	xdone
+	loop
+		lea	bvec,rr
+		addq	4,rr
+		move	rr,8(sp)			; buffer
+		movew	%dirblksiz,14(sp)		; byte count
+		move	%getdirentries,n0			; read
+		move	n0,-(sp)
+		trap	0
+		bcs	next
+		tst	n0				; check
+		beq	next
+		add	rr,n0
+		move	n0,(sp)				; point at end
+		qloop
+			moveq	0,n0
+			movew	d%reclen(rr),n0			; get size
+			add	n0,8(sp)			; bump
+			ifne	tst	(rr)			; inode?
+				beq	next			; no
+				cmpi	1,,#2e00,d%namlen(rr)	; . ?
+				beq	next
+				cmpi	2,,#2e2e,d%namlen(rr)	; .. ?
+			then	movew	d%namlen(rr),n0		; get length
+				add	n0,n0
+				moveq	d%off+d%off+1,n1
+				add	n1,n0
+				move	n0,-(rr)		; store header
+				moveq	1,n0			; restore 0
+				yield(d%off, rr)
+			end
+			movea	8(sp),rr			; bump to next
+			cmpa	(sp),rr				; done?
+			blt	this
+		end
+	end
+xdone:	moveq	%close,n0				; close
+	move	n0,-(sp)
+	trap	0
+done:	clr	8(sp)
+	lea	20(sp),sp				; pop stack
+	moveq	1,n0					; restore 0
+	end _all_dir_entries_

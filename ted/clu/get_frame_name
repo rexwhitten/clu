@@ -1,0 +1,6 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+get_frame_name = proc (e: env) returns (string)
+	name: string := e.buffer.name
+	if string$empty(name) then name := e.fname end
+	return(name)
+	end get_frame_name

@@ -1,0 +1,181 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+c_template = cluster is
+	get_instantiations, set_instantiations, get_routines,
+	get_name, get_own_count, get_own_names,
+	add_routine, get_param_count,
+	add_new, find_cluster, is_selector_type, equal, similar, used,
+	is_stub_cluster, prepare_to_dump, print, output, _gcd;
+
+    rep = record[
+	      a_Name:		 string,
+	      b_Parameter_Count: int,
+	      c_Own_Count:	 int,
+	      d_Own_Names:	 consts,
+	      e_Routines:	 routine_list,
+	      f_Instantiations:  clust_insts
+		 ];
+
+    Get_Instantiations = proc (CB: cvt)
+			   returns (clust_insts);
+	return ( CB.f_Instantiations );
+	end Get_Instantiations;
+
+    Set_Instantiations = proc (CB: cvt, CIs: clust_insts);
+	CB.f_Instantiations := CIs;
+	end Set_Instantiations;
+
+    Get_Routines = proc (C: cvt) returns (routine_list);
+	return (C.e_Routines);
+	end Get_Routines;
+
+    Get_Name = proc (C: cvt) returns (string);
+	return (C.a_Name);
+	end Get_Name;
+
+    Get_Own_Count = proc (C: cvt) returns (int);
+	return (C.c_Own_Count);
+	end Get_Own_Count;
+
+    Get_Own_Names = proc (C: cvt) returns (consts);
+	return (C.d_Own_Names);
+	end Get_Own_Names;
+
+    Add_Routine = proc (C: cvt, R: r_template);
+	C.e_Routines := routine_list$AddL(C.e_Routines, R);
+	end Add_Routine;
+
+    Get_Param_Count = proc (C: cvt) returns (int);
+	return (C.b_Parameter_Count);
+	end Get_Param_Count;
+
+    Add_New = proc (C: cvt, Env: lnk_env);
+	own No_Names: sequence[constant] := sequence[constant]$New();
+	own No_Routines: routine_list := routine_list$New();
+	Cs: clust_tab := Env.Clusters;
+	clust_tab$Bind(Cs, C.a_Name, up(C));
+	   except when Exists:
+		       Old_C: rep := down(clust_tab$Lookup(Cs, C.a_Name));
+		       clust_tab$Alter(Cs, C.a_Name, up(C));
+		       Cluster_Overloaded(up(Old_C), up(C), Env);
+		       Old_C.d_Own_Names := No_Names;	%% Flush old contents.
+		       Old_C.e_Routines := No_Routines;
+		  end;
+	for RT: r_template in routine_list$Elements(C.e_Routines) do
+	    RT.C_Template := up(C);
+	    end;
+	end Add_New;	%% Replace any old one.
+
+
+    Find_Cluster = proc (N: string, Env: lnk_env) returns (c_template);
+	Try_Library: bool := Env.Look_in_Library;
+	while (true) do
+	    return (clust_tab$Lookup(Env.Clusters, N));
+	       except when Not_Found:
+			   if (Try_Library)
+			      then Find_and_Load_File(N,
+						      Env);     %% Try in library.
+				      except when Cant_Find:
+						  break;
+					     end;
+				   Try_Library := false;   %% Don't try again.
+			      else break;
+			      end;
+		      end;
+	    end;
+	if (N = Stub_Cluster_Name_String)
+	   then Should_Never_Happen[string](
+		    "Can\'t find dummy stub cluster \"" ||
+		    Stub_Cluster_Name_String || "\"",
+		    N);
+	   else if ( ~ type_desc$Is_Unknown_Result_Type_Name(N) cand
+		     (~ (Missed_Before(N, Env) cor
+			 Env.Ignore_Unknown)) cand
+		     (N ~= "any"))
+		   then LS: stream := Env.Options.List_Stream;
+			stream$PutS(LS, "Can\'t find cluster ");
+			   except when Not_Possible(*): end;
+			stream$PutL(LS, N);
+			   except when Not_Possible(*): end;
+			Missed(N, Env);
+		   end;
+		return ( Find_Cluster(
+			     Stub_Cluster_Name_String,
+			     Env) );
+	   end;
+	end Find_Cluster;
+
+
+    Missed = proc (N: string, Env: lnk_env);
+	as$AddH(Env.Missed_Clusters, N);
+	end Missed;
+
+    Missed_Before = proc (N: string, Env: lnk_env) returns (bool);
+	N_Str: string := N;
+	for S: string in as$Elements(Env.Missed_Clusters) do
+	    if (N_Str = S)
+	       then return (true);
+	       end;
+	    end;
+	return (false);
+	end Missed_Before;
+
+    Is_Selector_Type = proc (C: cvt) returns (bool);
+	return (C.b_Parameter_Count = -1);
+	end Is_Selector_Type;
+
+    Equal = proc (C1, C2: cvt) returns (bool);
+	return (C1 = C2);
+	end Equal;
+
+    Similar = proc (C1, C2: cvt) returns (bool);
+	return (C1.a_Name = C2.a_Name);
+	end Similar;
+
+    Used = proc (C: cvt) returns (bool);
+	if (~ clust_insts$Empty(C.f_Instantiations))
+	   then return (true);
+	   end;
+	for R: r_template in routine_list$Elements(C.e_Routines) do
+	    if (r_template$Used(R))
+	       then return (true);
+	       end;
+	    end;
+	return (false);
+	end Used;
+
+    Is_Stub_Cluster = proc (C: cvt) returns (bool);
+	return (C.a_Name = Stub_Cluster_Name_String);
+	end Is_Stub_Cluster;
+
+    Prepare_to_Dump = proc (C: cvt, Locs: locates);
+	for CI: clust_inst in clust_insts$Elements(C.f_Instantiations) do
+	    OA: address := CI.Owns_Address;
+	    if (~ address$Is_Null(OA))
+	       then CI.Owns_Address := address$Fix_Address(OA, Locs);
+	       end;
+	    end;
+	for RT: r_template in routine_list$Elements(C.e_Routines) do
+	    r_template$Prepare_to_Dump(RT, Locs);
+	    end;
+	end Prepare_to_Dump;
+
+    Print = proc (C: cvt, S: pstream);
+	rep$Print(C, S);
+	end Print;
+
+    Output = proc (C: cvt, Base: int, Env: lnk_env);
+	if (Env.Options.Do_Type_Routines cand Used(up(C)))
+	   then stream$PutL(Env.Options.List_Stream,
+			    "Cluster: " || C.a_Name );
+		   except when Not_Possible(*): end;
+	   end;
+	for R: r_template in routine_list$Elements(C.e_Routines) do
+	    r_template$Output(R, Base, true, Env);
+	    end;
+	end Output;
+
+    _gcd = proc (CT: cvt, Tab: gcd_tab) returns (int);
+	return (rep$_gcd(CT, Tab));
+	end _gcd;
+    end c_template;

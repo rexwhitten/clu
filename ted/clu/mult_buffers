@@ -1,0 +1,240 @@
+%  Copyright	Massachusetts Institute of Technology     1989
+run_multiple_buffers = proc (e: env, c: char)
+			 signals (errmsg (string), stop(env, string))
+
+    valid = c2s (ctrlb) || c2s (ctrld) || c2s (ctrlf) || c2s (ctrlh) ||
+	    c2s (ctrlk) || c2s (ctrln) || c2s (ctrlp) || c2s (ctrlr) ||
+	    c2s (ctrls) || c2s (ctrlw) || "CISW"
+
+    help = "^B: create/goto named buffer\n" ||
+	   "^D: display info about all buffers\n" ||
+	   "^F: flip to previous buffer\n" ||
+	   "^H: goto next matching buffer\n" ||
+	   "^K: kill named buffer\n" ||
+	   "^N: go forward # buffers\n" ||
+	   "^P: go back # buffers\n" ||
+	   "^R: read file(s) into buffer of same name\n" ||
+	   "^S: append # lines onto named buffer\n" ||
+	   "^W: withdraw # lines and append onto named buffer\n" ||
+	   " C: write all changed files in all buffers (#=0: no confirm)\n" ||
+	   " I: insert text of named buffer at cursor\n" ||
+	   " S: append marked text onto named buffer\n" ||
+	   " W: withdraw marked text and append onto named buffer"
+
+    arg: int, cc: char := get_option (e, "Multiple buffer command",
+				      valid, help, false)
+       resignal errmsg
+
+    name: string := e.name
+
+    if cc = ctrlb then % go to buffer
+       name := find_named_buffer (e, "Main")
+	  resignal errmsg
+	  except when not_found (s: string):
+		      name := bufset$create_buf (s, "", buf$create ())
+		 end
+       bufset$display (e, name)
+
+     elseif cc = ctrld then % display
+       disp: string := "\n"
+       for bb: buf, bname, fnm: string in bufset$all_buffers () do
+	   disp := cons_display_line (bb, bname, fnm, disp)
+	   end
+       type_string (e, disp || "\n(@ = modified)", "---- Buffer information:")
+
+     elseif cc = ctrlf then % flip
+       bufset$display (e, e.prev)
+	  except when bad_name: bufset$display (e, bufset$next (name, -1)) end
+
+     elseif cc = ctrlh then % go to buffer
+       s: string := get_string_arg (e, "Match substring", "Main")
+	  resignal errmsg
+       i: int := 1
+       bname: string
+       while true do
+	   bname := bufset$next (name, i)
+	   if string$indexs (s, bname) > 0
+	      then break
+	    elseif name = bname
+	      then signal errmsg("No matching buffer!")
+	    end
+	   i := i + 1
+	   end
+       bufset$display (e, bname)
+
+     elseif cc = ctrlk then % kill
+       name := find_named_buffer (e, name)
+	  resignal errmsg
+	  except when not_found (*): signal errmsg ("No such buffer!")
+		 end
+       if buf$any_changed (bufset$fetch (name))
+	    cand ~mconfirm (e, "Buffer modified; kill anyway", true)
+	  then return
+	  end resignal errmsg
+       bufset$kill_buf (e, name)
+	  resignal errmsg
+
+     elseif cc = ctrln then % next
+       bufset$display (e, bufset$next (name, arg))
+
+     elseif cc = ctrlp then %prev
+       bufset$display (e, bufset$next (name, -arg))
+
+     elseif cc = ctrlr then % read
+       nname, fns: string, names: afnt := get_buffer_files (e)
+	  resignal errmsg
+       bufset$display (e, nname)
+       insert_new_files (e, fns, names)
+	  resignal errmsg
+
+     elseif cc = ctrls cor cc = 'S' cor cc = ctrlw cor cc = 'W' then
+       mark_flag: bool := (cc = 'S' cor cc = 'W')
+       del_flag: bool := (cc = ctrlw cor cc = 'W')
+       name := find_named_buffer (e, "Temp")
+	  resignal errmsg
+	  except when not_found (s: string):
+		      name := bufset$create_buf (s, "", buf$create ())
+		 end
+       b: buf := e.buffer
+       line, pos: int := buf$get_cursor (b)
+       mline, mpos: int
+       if mark_flag
+	  then mline, mpos := buf$get_mark (b)
+	  else mline, mpos := line+arg, 0
+	  end
+       low, high: int := buf$get_frame(b)
+       if line < low  cor  mline < low  cor  mline > high then
+	  signal errmsg("Text cannot include file boundaries")
+	  end
+       nb: buf := buf$sub_buf (b, mline, mpos)
+       b2: buf := bufset$fetch(name)
+       buf$set_cursor (b2, buf$size(b2)+1, 0)
+       xline, xpos: int := buf$get_cursor (b2)
+       if buf$insert_buf (b2, nb) then
+	  for ee: env in winset$displaying (b2) do
+	      yline, ypos: int := buf$get_cursor (b2)
+	      env$note_insert (ee, xline, xpos, yline, ypos)
+	      break
+	      end
+	  end
+       if ~del_flag
+	  then buf$set_cursor (b, line, pos)
+	elseif ~env$delete (e, line, pos, mline, mpos) then
+	  signal errmsg ("Can't delete!")
+	end
+
+     elseif cc = 'C' then % write
+       ask: bool := e.this_arg ~= 0
+       cnt: int := 0
+       for bb: buf, bname, fnm: string in bufset$all_buffers () do
+	   if ~buf$any_changed (bb)
+	      then continue end
+	   bufset$display (e, bname)
+	   oline, opos: int := buf$get_cursor (bb)
+	   buf$set_cursor (bb, 1, 1)
+	   line: int := 0
+	   while true do
+	       low, max: int := buf$get_frame (bb)
+	       if low <= line
+		  then break end
+	       line := low
+	       if bb.changed
+		  then fn: fname
+		       if ask
+			  then fn := get_file_name (e, "Write text to file")
+			  else fn := fname$parse (get_frame_name (e))
+				  except when bad_format:
+					      fn := fname$parse ("")
+					 end
+			  end
+		       write_file (e, fn, false, true)
+		       cnt := cnt + 1
+		  end except when errmsg (xx: string): top_display (e, xx) end
+	       buf$new_frame (bb, 1)
+	       end
+	   buf$set_cursor (bb, oline, opos)
+	   end
+       if cnt = 0
+	  then top_display (e, "No files written.")
+	  else top_display (e, int$unparse(cnt) || " files written.")
+	  end
+       bufset$display (e, name)
+     elseif cc = 'I' then % insert
+       name := find_named_buffer (e, "Temp")
+	  resignal errmsg
+	  except when not_found (*): signal errmsg ("No such buffer!")
+		 end
+       if ~env$insert_buf1 (e, bufset$fetch(name)) then
+	  signal errmsg ("Could not insert text!")
+	  end
+
+     end
+    end run_multiple_buffers
+
+find_named_buffer = proc (e: env, default: string) returns (string)
+		      signals (errmsg (string), not_found (string))
+
+    name: string := get_string_arg (e, "Buffer name", default)
+       resignal errmsg
+    if string$empty(name)
+       then signal errmsg ("No buffer name given!") end
+    fspec$parse(name)
+       except when bad_format: signal errmsg ("Illegal buffer name!") end
+    bufset$fetch (name)
+       except when bad_name: signal not_found (name) end
+    return (name)
+    end find_named_buffer
+
+get_buffer_files = proc (e: env) returns (string, string, afnt)
+		     signals (errmsg(string))
+    fns: string, names: afnt := get_file_list (e, "Read file(s)", true)
+       resignal errmsg
+    name: string := fns
+    if string$empty (name)
+       then name := bufset$create_buf ("Main", fns, buf$create ())
+       else if name[1] = '@' then name := string$rest (name, 2) end
+	    z: int := string$size (name)
+	    if z > 1  cand  name[z] = '/'
+	       then name := string$substr (name, 1, z - 1) end
+	    name := string$rest (name, _last_indexc ('/', name) + 1)
+	    b: buf := bufset$fetch (name)
+	    if buf$any_changed (b) cand
+	       ~mconfirm (e, "Buffer modified, clobber", true)
+	       then signal errmsg(quit_msg)
+	       end resignal errmsg
+	    buf$flush (b)
+	    for ee: env in winset$displaying (b) do
+		env$change_all (ee)
+		break
+		end
+       end except when bad_name: bufset$create_buf (name, fns, buf$create ())
+		  end
+    return(name, fns, names)
+    end get_buffer_files
+
+cons_display_line = proc (b: buf, name, fnm, disp: string) returns (string)
+    lines: string
+    if buf$any_changed(b)
+       then lines := "@ " || name
+       else lines := "  " || name
+       end
+    oline, opos: int := buf$get_cursor(b)
+    buf$set_cursor(b, 1, 1)
+    prev: int := 0
+    while true do
+	lines := string$append(lines, '\n')
+	low, max: int := buf$get_frame(b)
+	nm: string := b.name
+	if string$empty(nm)
+	   then nm := fnm end
+	if low <= prev  cor  string$empty(nm)
+	   then buf$set_cursor(b, oline, opos)
+		return(disp || lines)
+	   end
+	prev := low
+	if b.changed
+	   then lines := lines || "    @" end
+	lines := string$append(lines, '\t') || nm
+	buf$new_frame(b, 1)
+	end
+    end cons_display_line

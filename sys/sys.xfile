@@ -1,0 +1,6 @@
+locals false
+optimize time
+externals false
+merge ~CLU/lib/lowlev,~CLU/lib/useful
+bindir ~CLU/bin
+binsuf *

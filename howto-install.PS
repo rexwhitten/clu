@@ -1,0 +1,640 @@
+%!PS-Adobe-1.0
+%%Title: sun-howto-install.mss
+%%DocumentFonts: (atend)
+%%Creator: Paul R. Johnson,531T,1945 and Scribe 5(1501)
+%%CreationDate: 26 May 1989 12:02
+%%Pages: (atend)
+%%EndComments
+%
+% The following enables some Outline fonts -Bede
+% Trivially adapted from the Adobe Cookbook
+%
+/makeoutlinedict 7 dict def
+/MakeOutlineFont
+ {makeoutlinedict begin
+  /uniqueid exch def
+  /strokewidth exch def
+  /newfontname exch def
+  /basefontname exch def
+  /basefontdict basefontname findfont def
+  /numentries basefontdict maxlength 1 add def
+  basefontdict /UniqueID known not
+  {/numentries numentries 1 add def} if
+  /outfontdict numentries dict def
+  basefontdict
+   {exch dup /FID ne
+     {exch outfontdict 3 1 roll put}
+     {pop pop}
+     ifelse
+   } forall
+  outfontdict /FontName newfontname put
+  outfontdict /PaintType 2 put
+  outfontdict /StrokeWidth strokewidth put
+  outfontdict /UniqueID uniqueid put
+  newfontname outfontdict definefont pop
+  end
+ } def
+/Times-Bold /Times-Outline 1000 24 div
+/Times-Bold findfont dup /UniqueID known
+ {/UniqueID get 1 add}
+ {pop 1}
+ ifelse
+MakeOutlineFont
+/Times-Italic /TimesItalic-Outline 1000 24 div
+/Times-Italic findfont dup /UniqueID known
+ {/UniqueID get 1 add}
+ {pop 1}
+ ifelse
+MakeOutlineFont
+/Helvetica-Bold /Helvetica-Outline 1000 24 div
+/Helvetica-Bold findfont dup /UniqueID known
+ {/UniqueID get 1 add}
+ {pop 1}
+ ifelse
+MakeOutlineFont
+/Symbol /Symbol-Outline 1000 24 div
+/Symbol findfont dup /UniqueID known
+ {/UniqueID get 1 add}
+ {pop 1}
+ ifelse
+MakeOutlineFont
+%
+% End of outline font definitions
+%
+% PostScript Prelude for Scribe.
+/BS {/SV save def 0.0 792.0 translate .01 -.01 scale} bind def
+/ES {showpage SV restore} bind def
+/SC {setrgbcolor} bind def
+/FMTX matrix def
+/RDF {WFT SLT 0.0 eq
+  {SSZ 0.0 0.0 SSZ neg 0.0 0.0 FMTX astore}
+  {SSZ 0.0 SLT sin SLT cos div SSZ mul SSZ neg 0.0 0.0 FMTX astore}
+  ifelse makefont setfont} bind def
+/SLT 0.0 def
+/SI { /SLT exch cvr def RDF} bind def
+/WFT /Courier findfont def
+/SF { /WFT exch findfont def RDF} bind def
+/SSZ 1000.0 def
+/SS { /SSZ exch 100.0 mul def RDF} bind def
+/AF { /WFT exch findfont def /SSZ exch 100.0 mul def RDF} bind def
+/MT /moveto load def
+/XM {currentpoint exch pop moveto} bind def
+/UL {gsave newpath moveto dup 2.0 div 0.0 exch rmoveto
+   setlinewidth 0.0 rlineto stroke grestore} bind def
+/LH {gsave newpath moveto setlinewidth
+   0.0 rlineto
+   gsave stroke grestore} bind def
+/LV {gsave newpath moveto setlinewidth
+   0.0 exch rlineto
+   gsave stroke grestore} bind def
+/BX {gsave newpath moveto setlinewidth
+   exch
+   dup 0.0 rlineto
+   exch 0.0 exch neg rlineto
+   neg 0.0 rlineto
+   closepath
+   gsave stroke grestore} bind def
+/BX1 {grestore} bind def
+/BX2 {setlinewidth 1 setgray stroke grestore} bind def
+/PB {/PV save def translate 100.0 -100.0 scale pop} bind def
+/PE {PV restore} bind def
+/SH /show load def
+/MX {exch show 0.0 rmoveto} bind def
+/W {0 32 4 -1 roll widthshow} bind def
+/WX {0 32 5 -1 roll widthshow 0.0 rmoveto} bind def
+%%EndProlog
+%%Page: 1 1 
+BS
+0 SI
+13 /Times-Bold AF
+24533 8071 MT
+(SUN CLU Release 1.5)SH
+10 SS 
+19348 10428 MT
+(for Sun Workstations running Sun UNIX 4.2 and 4.3)SH
+/Times-Italic SF
+24877 12036 MT
+(Distribution of 26 May 1989)SH
+12 /Times-Bold AF
+7200 15720 MT
+(1 Notes)SH
+10 /Times-Roman AF
+9000 17097 MT
+(CLU is no longer licensed.  See ~CLU/COPYRIGHT for distribution information.)SH
+9000 19163 MT
+(If you have problems with this distribution, you)
+64 W( can call Paul Johnson or Dorothy Curtis at \050617\051 253-1945 to)63 W
+7200 20540 MT
+(get help.  If you find bugs, please tell us about them, either in writing or by sending network mail)
+108 W( to PRJ@PM-)109 W
+7200 21917 MT
+(PRJ.LCS.MIT.EDU and/or DCurtis@MESON.LCS.MIT.EDU.  We do not have the)
+39 W( time or the staff for "releases";)38 W
+7200 23294 MT
+(you will have to either FTP a new copy or request a distribution)
+88 W( tape \050for a fee\051 periodically.  The sytem is quite)89 W
+7200 24671 MT
+(stable; no changes other than bug fixes are contemplated.  We are now hard at work on Argus, the distributed)161 W
+7200 26048 MT
+(computing successor to CLU.)SH
+9000 28114 MT
+(SUN CLU was been developed on a SUN-2 Workstation running Sun UNIX 4.2, release 1.3 and release 2.0.)
+39 W( It)40 W
+7200 29491 MT
+(will work under other versions of the operating system but it has not been)
+61 W( tested under all of them. Let us know if)60 W
+7200 30868 MT
+(you encounter problems with this distribution that seem to be caused by operating system version incompatibilities.)SH
+9000 32934 MT
+(The released version)
+42 W( is for a SUN-3 Workstation.  See the file ~CLU/sun3.install for additional instructions on)43 W
+7200 34311 MT
+(installing changed files and building new executables.)SH
+9000 36377 MT
+(The)SH
+/Times-Italic SF
+10808 XM
+(CLU Reference Manual)3 W
+/Times-Roman SF
+20621 XM
+(is currently published by)
+3 W( Springer-Verlag as a monograph, ISBN 0-387-91253-3 or)2 W
+7200 37754 MT
+(ISBN 3-540-91253-3. Formerly it was in their)SH
+/Times-Italic SF
+25921 XM
+(Lecture Notes in Computer Science)SH
+/Times-Roman SF
+40336 XM
+(series, Number 114.)SH
+9000 39820 MT
+(Real numbers are not implemented yet.)
+111 W( There is currently a dummy ``real'' cluster. The compiler and linker)112 W
+7200 41197 MT
+(will handle)
+214 W( code which uses reals without any complaints. However invoking ``real'' operations in a running)213 W
+7200 42574 MT
+(program will not produce)
+37 W( the expected results. There is some chance that we may eventually incorporate an outside)38 W
+7200 43951 MT
+(implementation of reals but we do not have the staff to develop the code ourselves at this time.)SH
+9000 46017 MT
+(CLU modules cannot be linked into programs in other languages, nor can modules written in other)
+7 W( languages be)6 W
+7200 47394 MT
+(linked with CLU programs.)
+63 W( The parts of the CLU system which are not written in CLU itself are written in 68000)64 W
+7200 48771 MT
+(assembly language using a)
+62 W( special assembler developed for CLU. The assembler, called)61 W
+/Courier SF
+43372 XM
+(asm)SH
+/Times-Roman SF
+(, is included with this)61 W
+7200 50148 MT
+(distribution. If it were absolutely)
+372 W( necessary you could hand-code CLU-compatible assembly routines. But)373 W
+7200 51525 MT
+(BEWARE! There)
+296 W( is little or no documentation of the assembler or the system,)
+23 W( but there are a large number of rules)22 W
+7200 52902 MT
+(that must be obeyed if the integrity of the system is to be maintained. Avoid writing assembly language at all costs!)SH
+12 /Times-Bold AF
+7200 56586 MT
+(2 Installation)SH
+10 /Times-Roman AF
+9000 57963 MT
+(The system files and directories are set up to live under a single root directory, and most)
+44 W( system programs will)45 W
+7200 59340 MT
+(not work reasonably if the files live elsewhere.  \050The executable files)
+172 W( in the exe directory may live anywhere,)171 W
+7200 60717 MT
+(however\051. There)
+280 W( is some flexibility in where the CLU root directory can be)
+15 W( installed.  The possibilities \050in the order)16 W
+7200 62094 MT
+(searched\051 are)SH
+9200 63433 MT
+(1.)SH
+10200 XM
+(the directory specified by the environment variable CLUHOME)SH
+9200 65191 MT
+(2.)SH
+10200 XM
+(the home directory, as listed in)SH
+/Courier SF
+22782 XM
+(/etc/passwd)SH
+/Times-Roman SF
+(, of user name)SH
+/Courier SF
+35297 XM
+(CLU)SH
+/Times-Roman SF
+9200 66949 MT
+(3.)SH
+10200 XM
+(/usr/local/lib/clu)SH
+9200 68707 MT
+(4.)SH
+10200 XM
+(/usr/lib/clu)SH
+9200 70465 MT
+(5.)SH
+10200 XM
+(/usr/clu)SH
+ES
+%%Page: 2 2 
+BS
+0 SI
+10 /Times-Bold AF
+30350 4270 MT
+(2)SH
+/Times-Roman SF
+9000 7886 MT
+(Any such directory can, of course, be a symbolic link to the real directory.  In the file/directory names in this)74 W
+7200 9263 MT
+(and other CLU documents, ~)46 W
+/Courier SF
+(CLU)SH
+/Times-Roman SF
+21103 XM
+(is used to represent the CLU root directory.  \050In fact, this can be used within any)46 W
+7200 10640 MT
+(CLU program to refer to the root.\051)SH
+9000 12706 MT
+(There is one tar file)
+46 W( on the tape.  If you are using a tape device connected directly to the SUN, you can extract)45 W
+7200 14083 MT
+(the files by creating ~)SH
+/Courier SF
+(CLU)SH
+/Times-Roman SF
+(, mounting the tape, connecting to ~)SH
+/Courier SF
+(CLU)SH
+/Times-Roman SF
+(, and issuing the command)SH
+/Courier SF
+44879 XM
+(tar x)SH
+/Times-Roman SF
+9000 16149 MT
+(If the compiler and assembler do not work right off the tape:)SH
+/Symbol SF
+8990 17602 MT
+(\267)SH
+/Times-Roman SF
+9700 XM
+(To get the compiler to work, delete ~)73 W
+/Courier SF
+(CLU/cmp/state.???)SH
+/Times-Roman SF
+35606 XM
+(and then run ~)73 W
+/Courier SF
+(CLU/exe/clu)SH
+/Times-Roman SF
+(. When)397 W
+9700 18707 MT
+(you get the prompt "command\050s\051: ", type "kill".  Check the file)
+115 W( ~)114 W
+/Courier SF
+(CLU/cmp/basic.junk)SH
+/Times-Roman SF
+48192 XM
+(to make)114 W
+9700 19812 MT
+(sure there are no errors \050gcd_tab being undefined is OK\051,)
+45 W( then delete it.  To get the assembler to work,)46 W
+9700 20917 MT
+(delete ~)1 W
+/Courier SF
+(CLU/asm/state.???)SH
+/Times-Roman SF
+23331 XM
+(and then run ~)1 W
+/Courier SF
+(CLU/exe/asm)SH
+/Times-Roman SF
+(. When)
+250 W( you get the prompt "FILE\050S\051 =)SH
+9700 22022 MT
+(", type "^D".)SH
+/Symbol SF
+8990 23780 MT
+(\267)SH
+/Times-Roman SF
+9700 XM
+(If the debugger doesn't work off the tape, try recreating the basic run-time)
+287 W( system by deleting)288 W
+9700 24885 MT
+(~)SH
+/Courier SF
+(CLU/sys/basesys)SH
+/Times-Roman SF
+20257 XM
+(and ~)766 W
+/Courier SF
+(CLU/sys/basesys.dump)SH
+/Times-Roman SF
+36274 XM
+(and then issuing the command)765 W
+9700 25990 MT
+(~)SH
+/Courier SF
+(CLU/exe/link #init)SH
+/Times-Roman SF
+9000 28056 MT
+(If you want the executables in ~)SH
+/Courier SF
+(CLU/exe)SH
+/Times-Roman SF
+26266 XM
+(to live elsewhere, move them.)SH
+9000 30122 MT
+(The entire system)
+228 W( totals about 10Mb.  If you only want a minimum configuration, about 2Mb, only the)229 W
+7200 31499 MT
+(following directories and files are necessary:)SH
+9600 33037 MT
+(~)SH
+/Courier-Bold SF
+(CLU)SH
+14400 34168 MT
+(clu.hacks Information)
+3600 W( about special CLU features.)SH
+14400 35299 MT
+(clu.info Information)
+4200 W( about the CLU compiler.)SH
+14400 36430 MT
+(clu.opts Information)
+4200 W( about code optimizations.)SH
+14400 37561 MT
+(clu.order Simple)
+3600 W( compiler command list.)SH
+14400 38692 MT
+(linker.help Linker)
+2400 W( documentation.)SH
+14400 39823 MT
+(stream.changes Additional)
+600 W( stream operations.)SH
+14400 40954 MT
+(system.intro Introduction)
+1800 W( to the debugging system.)SH
+14400 42085 MT
+(system.names Names)
+1800 W( of modules used in the CLU system.)SH
+14400 43216 MT
+(trace.cmnd_help Brief help message for trace package.)SH
+/Times-Roman SF
+9600 44754 MT
+(~)SH
+/Courier-Bold SF
+(CLU/bin)SH
+14400 45885 MT
+(* Binaries)
+8400 W( for the run-time system.)SH
+/Times-Roman SF
+9600 47423 MT
+(~)SH
+/Courier-Bold SF
+(CLU/cmp)SH
+14400 48554 MT
+(basic.types Only)
+2400 W( needed to recreate state.??? file.)SH
+14400 49685 MT
+(state.??? Compiler)
+3600 W( state file.)SH
+/Times-Roman SF
+9600 51223 MT
+(~)SH
+/Courier-Bold SF
+(CLU/exe)SH
+14400 52354 MT
+(clu The)
+7200 W( CLU compiler.)SH
+14400 53485 MT
+(debug The)
+6000 W( CLU linker \050debugging interface\051.)SH
+14400 54616 MT
+(link The)
+6600 W( CLU linker \050production interface\051.)SH
+/Times-Roman SF
+9600 56154 MT
+(~)SH
+/Courier-Bold SF
+(CLU/lib)SH
+14400 57285 MT
+(short.help Brief)
+3000 W( description of library modules.)SH
+14400 58416 MT
+(*.spc Interface)
+6000 W( specifications for many modules.)SH
+14400 59547 MT
+(*.lib Compiler)
+6000 W( interface libraries.)SH
+/Times-Roman SF
+9600 61085 MT
+(~)SH
+/Courier-Bold SF
+(CLU/link)SH
+14400 62216 MT
+(spcl_syms.txt Linker)
+1200 W( global symbols.)SH
+/Times-Roman SF
+9600 63754 MT
+(~)SH
+/Courier-Bold SF
+(CLU/sys)SH
+14400 64885 MT
+(basesys Run-time)
+4800 W( system for DEBUG.)SH
+14400 66016 MT
+(basesys.dump Database)
+1800 W( for DEBUG.)SH
+/Times-Roman SF
+9000 68082 MT
+(If you wish to hand-code CLU-compatible assembly routines, then the following)
+221 W( directories and files are)220 W
+7200 69459 MT
+(necessary or useful \050but see warning in Section 1\051:)SH
+ES
+%%Page: 3 3 
+BS
+0 SI
+10 /Times-Bold AF
+30350 4270 MT
+(3)SH
+/Times-Roman SF
+9600 7886 MT
+(~)SH
+/Courier-Bold SF
+(CLU/asm)SH
+14400 9017 MT
+(addr.defs Only)
+3600 W( needed to recreate state.?? file.)SH
+14400 10148 MT
+(opcode.defs Ditto.)2400 W
+14400 11279 MT
+(perm.defs Ditto.)3600 W
+14400 12410 MT
+(state.?? ASM)
+4200 W( state file.)SH
+/Times-Roman SF
+9600 13948 MT
+(~)SH
+/Courier-Bold SF
+(CLU/dbg)SH
+14400 15079 MT
+(dbg.doc DBG)
+4800 W( documentation.)SH
+/Times-Roman SF
+9600 16617 MT
+(~)SH
+/Courier-Bold SF
+(CLU/exe)SH
+14400 17748 MT
+(asm The)
+7200 W( CLU assembler.)SH
+14400 18879 MT
+(dbg CLU-oriented)
+7200 W( version of ADB.)SH
+/Times-Roman SF
+9000 20945 MT
+(Note: The)
+21 W( sources to)22 W
+/Courier SF
+17641 XM
+(dbg)SH
+/Times-Roman SF
+19713 XM
+(are not included in this distribution.  Contact us if you need them.  We may require a)22 W
+7200 22322 MT
+(copy of your Unix source license.)SH
+9000 24388 MT
+(If a real-time display editor with)
+46 W( some special CLU features is desired, then the following files are necesary or)45 W
+7200 25765 MT
+(useful:)SH
+9600 27303 MT
+(~)SH
+/Courier-Bold SF
+(CLU)SH
+14400 28434 MT
+(ted.chart TED)
+3600 W( command chart.)SH
+14400 29565 MT
+(ted.hlp Documentation)
+4800 W( about TED.)SH
+14400 30696 MT
+(ted.press PRESS)
+3600 W( file of ted.hlp.)SH
+14400 31827 MT
+(ted.vt100 VT100)
+3600 W( termcap entries we use with TED.)SH
+/Times-Roman SF
+9600 33365 MT
+(~)SH
+/Courier-Bold SF
+(CLU/exe)SH
+14400 34496 MT
+(ted A)
+7200 W( real-time editor written in CLU.)SH
+/Times-Roman SF
+9000 36562 MT
+(A few utilities that may be useful:)SH
+9600 38100 MT
+(~)SH
+/Courier-Bold SF
+(CLU)SH
+14400 39231 MT
+(calc.hlp CALC)
+9000 W( documentation.)SH
+14400 40362 MT
+(compare.hlp COMPARE)
+7200 W( documentation.)SH
+/Times-Roman SF
+9600 41900 MT
+(~)SH
+/Courier-Bold SF
+(CLU/exe)SH
+14400 43031 MT
+(calc Simple)
+11400 W( calculator.)SH
+14400 44162 MT
+(compare Text/binary)
+9600 W( file comparison program.)SH
+14400 45293 MT
+(gcdprt Print)
+10200 W( gc_dump and compiler binary file)SH
+14400 46424 MT
+(liblst List)
+10200 W( modules in compiler library files)SH
+/Times-Roman SF
+9000 48490 MT
+(For more system information:)SH
+9600 50028 MT
+(~)SH
+/Courier-Bold SF
+(CLU/)SH
+14400 51159 MT
+(howto.cons How)
+3000 W( to recreate system programs.)SH
+14400 52290 MT
+(system.files More)
+1800 W( directory/file information.)SH
+12 /Times-Bold AF
+7200 55974 MT
+(3 Bugs)SH
+10 /Times-Roman AF
+9000 57351 MT
+(There appears to be a bug in the vadvise\050\051 system call.)
+17 W( Normally the call vadvise\050VA_ANON\051 is issued prior to)18 W
+7200 58728 MT
+(garbage collection.  This informs the system that the paging behavior of the program will)
+62 W( not be easily predictable)61 W
+7200 60105 MT
+(and that)
+161 W( a different page replacement algorithm should be used.  A call to vadvise\050VA_NORM\051 is issued after)162 W
+7200 61482 MT
+(garbage collection to return to a "normal" paging strategy. Adding these calls to the SUN)
+101 W( CLU garbage collector)100 W
+7200 62859 MT
+(causes non-deterministic failures due to random corruptions of the heap.  The calls are currently commented)
+54 W( out in)55 W
+7200 64236 MT
+(the garbage collector code.  The result of eliminating the vadvise\050\051 calls is that performance)
+240 W( during garbage)239 W
+7200 65613 MT
+(collection--particularly when the heap is very large--may be much poorer than it ought to be.)SH
+ES
+%%Page: i 4 
+BS
+0 SI
+10 /Times-Bold AF
+30461 4270 MT
+(i)SH
+13 SS 
+25652 8071 MT
+(Table of Contents)SH
+11 SS 
+8850 9239 MT
+(1 Notes)SH
+53450 XM
+(1)SH
+8850 10407 MT
+(2 Installation)SH
+53450 XM
+(1)SH
+8850 11575 MT
+(3 Bugs)SH
+53450 XM
+(3)SH
+ES
+%%Trailer
+%%Pages: 4 
+%%DocumentFonts: Times-Roman Times-Bold Times-Italic Courier Symbol Courier-Bold

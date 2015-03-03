@@ -1,0 +1,17 @@
+%% Copyright Massachusetts Institute of Technology 1982, 1989
+
+#extend
+
+Output_Code_Head = proc (R: r_template, In_Cluster: bool, Env: lnk_env);
+    %%own No_Owns_Address: address := address$Make_Null();
+
+    %%if (Env.Options.Debugging cand
+    %%	(~ r_template$Is_Parameterized(R)))
+    %% then Clust_Owns_Addr: address;
+	    %%if (In_Cluster)
+	    %%   then Clust_Owns_Addr := R.Cluster_Owns_Address;
+	    %%   else Clust_Owns_Addr := No_Owns_Address;
+	    %%   end;
+	    %%Output_Owns_Addresses(Env, Clust_Owns_Addr, R.Owns_Address);
+    %%   end;
+    end Output_Code_Head;

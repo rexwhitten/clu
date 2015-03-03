@@ -1,0 +1,15 @@
+ <sp>	continue to next pause
+aA	allow tracing in resumed iterator and continue
+fF	flip callee-only/callee-caller frame printing flag
+kK	_untrace_range current slot if _trace_range'd
+pP	_trace_range current slot if single stepping
+qQ	do not pause again
+sS	single step called/resumed/reentered routine and continue
+tT	stop deeper tracing until called/resumed routine terminates
+uU	stop single stepping called/resumed/reentered routine and continue
+xX	flip short/long frame printing flag
+yY	stop deeper tracing until called/resumed routine yields/terminates
+^L	clear screen and redisplay
+
+<cr>	start up a listen loop
+??	print help
